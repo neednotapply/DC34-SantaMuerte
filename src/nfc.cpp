@@ -1610,12 +1610,6 @@ bool executeStartTagEmulation(const NfcCommand &command) {
   state.updatedAt = millis();
   lastTargetAttempt = 0;
 
-  if (!savePersistedTagEmulationRecord(recordType, payload)) {
-    Serial.println(
-        "[NFC][PERSIST] WARNING: Tag Emulation started, but its record "
-        "could not be saved for reboot");
-  }
-
   Serial.printf("[NFC] Tag emulation started: %s, %u payload bytes\n",
                 state.emulatedRecordType.c_str(),
                 static_cast<unsigned>(payload.length()));
@@ -1674,17 +1668,6 @@ bool executeStartWifiOnboarding(const NfcCommand &command) {
 
 bool executeStopTagEmulation() {
   const bool wasEnabled = state.tagEmulationEnabled;
-
-  if (!isWifiOnboardingDismissed()) {
-    if (dismissWifiOnboarding()) {
-      Serial.println(
-          "[NFC][PERSIST] First stop recorded; future boots will not restore "
-          "the Wi-Fi onboarding record");
-    } else {
-      Serial.println(
-          "[NFC][PERSIST] WARNING: First-stop state could not be stored");
-    }
-  }
 
   state.tagEmulationEnabled = false;
   state.wifiOnboardingActive = false;

@@ -1,8 +1,10 @@
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
+#include <LittleFS.h>
 #include <math.h>
 #include "badge_wifi.h"
 #include "badge_settings.h"
+#include "board.h"
 #include "nfc.h"
 
 // -----------------------------------------------------------------------------
@@ -27,12 +29,21 @@ enum LedPattern : uint8_t {
   PATTERN_OFF
 };
 
+constexpr uint8_t LED_PATTERN_COUNT = PATTERN_OFF + 1;
+
 LedPattern currentPattern = PATTERN_AURORA;
 uint8_t selectedR = 166;
 uint8_t selectedG = 36;
 uint8_t selectedB = 255;
 uint8_t ledBrightness = 160;  // 0-255
 uint8_t animationSpeed = 55;  // 1-100
+
+// LED settings are saved a few seconds after the last change. The web page
+// sends one request per slider movement, so writing on every request would
+// put thousands of NVS writes behind a single drag.
+constexpr uint32_t LED_SETTINGS_SAVE_DELAY_MS = 3000;
+bool ledSettingsDirty = false;
+uint32_t ledSettingsDirtyAt = 0;
 
 uint16_t auroraHue[LED_COUNT];
 float auroraVelocity[LED_COUNT];
@@ -83,6 +94,59 @@ void fillPixels(uint32_t color) {
 
 uint32_t animationInterval(uint32_t slowMs, uint32_t fastMs) {
   return slowMs - ((slowMs - fastMs) * (animationSpeed - 1UL) / 99UL);
+}
+
+StoredLedSettings currentLedSettings() {
+  StoredLedSettings settings;
+  settings.pattern = static_cast<uint8_t>(currentPattern);
+  settings.red = selectedR;
+  settings.green = selectedG;
+  settings.blue = selectedB;
+  settings.brightness = ledBrightness;
+  settings.speed = animationSpeed;
+  return settings;
+}
+
+// Range checking stays here with the rest of the LED logic; badge_settings.cpp
+// only vouches for the record's integrity, never for what the values mean.
+void restoreLedSettings() {
+  StoredLedSettings settings = {};
+  if (!loadLedSettings(settings)) {
+    Serial.println("[LED] No saved settings; using defaults");
+    return;
+  }
+
+  if (settings.pattern >= LED_PATTERN_COUNT || settings.speed < 1 ||
+      settings.speed > 100) {
+    Serial.println(
+        "[LED] WARNING: Saved settings are out of range; using defaults");
+    return;
+  }
+
+  currentPattern = static_cast<LedPattern>(settings.pattern);
+  selectedR = settings.red;
+  selectedG = settings.green;
+  selectedB = settings.blue;
+  ledBrightness = settings.brightness;
+  animationSpeed = settings.speed;
+
+  Serial.printf(
+      "[LED] Restored pattern=%s rgb=%u,%u,%u brightness=%u speed=%u\n",
+      patternToString(currentPattern), selectedR, selectedG, selectedB,
+      ledBrightness, animationSpeed);
+}
+
+void serviceLedSettingsPersistence() {
+  if (!ledSettingsDirty ||
+      static_cast<int32_t>(millis() - ledSettingsDirtyAt) <
+          static_cast<int32_t>(LED_SETTINGS_SAVE_DELAY_MS)) {
+    return;
+  }
+
+  ledSettingsDirty = false;
+  if (saveLedSettings(currentLedSettings())) {
+    Serial.println("[LED] Settings saved");
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -239,6 +303,9 @@ void applyLedWebSettings(const String &pattern,
   Serial.printf("[WEB] pattern=%s rgb=%u,%u,%u brightness=%u speed=%u\n",
                 patternToString(currentPattern), selectedR, selectedG, selectedB,
                 ledBrightness, animationSpeed);
+
+  ledSettingsDirty = true;
+  ledSettingsDirtyAt = millis();
 }
 
 // -----------------------------------------------------------------------------
@@ -249,6 +316,10 @@ void setup() {
   delay(1500);
   Serial.println("===== START =====");
 
+  // Restore before the strip starts so the first frame is already the state
+  // the badge was left in, rather than a flash of the defaults.
+  restoreLedSettings();
+
   setupLEDs();
   Serial.println("[MAIN] LEDs initialized");
 
@@ -257,52 +328,57 @@ void setup() {
   setupWiFiAccessPoint();
   Serial.println("[MAIN] Wi-Fi controller initialized");
 
+  // After LittleFS is mounted by the Wi-Fi setup above. The board's two rings
+  // claim most of the filesystem, so the space left over is only meaningful
+  // once they have been allocated.
+  if (setupBoard()) {
+    Serial.printf("[MAIN] Message board ready: %u of %u posts stored\n",
+                  boardStoredCount(), boardCapacity());
+    Serial.printf("[MAIN] LittleFS: %u of %u bytes used, %u free\n",
+                  static_cast<unsigned>(LittleFS.usedBytes()),
+                  static_cast<unsigned>(LittleFS.totalBytes()),
+                  static_cast<unsigned>(LittleFS.totalBytes() -
+                                        LittleFS.usedBytes()));
+  } else {
+    Serial.println(
+        "[MAIN] WARNING: Message board storage is unavailable; posting is "
+        "disabled");
+  }
+
   setupNFC();
   Serial.println("[MAIN] NFC initialized");
 
+  // The Wi-Fi record goes back up on every boot, whatever was being emulated
+  // when the badge was last powered down. A Text or URL record is a runtime
+  // choice; letting one persist would mean a badge whose password nobody can
+  // read is a badge nobody can reach.
   if (!initializeBadgeSettings()) {
     Serial.println(
-        "[MAIN] Persistent settings unavailable; automatic NFC emulation "
-        "was not started");
-  } else if (!isWifiOnboardingDismissed()) {
-    uint8_t accessPointMac[6] = {0};
-    const bool haveAccessPointMac = getBadgeWifiApMac(accessPointMac);
-    if (!haveAccessPointMac) {
-      Serial.println(
-          "[MAIN] WARNING: SoftAP MAC unavailable; Wi-Fi NFC record will use zeros");
-    }
+        "[MAIN] Persistent settings unavailable; NFC Wi-Fi onboarding was not "
+        "started");
+    return;
+  }
 
-    if (startNfcWifiOnboarding(getBadgeWifiSsid(),
-                               getBadgeWifiPassword(),
-                               haveAccessPointMac ? accessPointMac : nullptr)) {
-      Serial.println("[MAIN] NFC Wi-Fi onboarding tag emulation started");
-    } else {
-      Serial.println(
-          "[MAIN] WARNING: NFC Wi-Fi onboarding could not be started");
-    }
+  uint8_t accessPointMac[6] = {0};
+  const bool haveAccessPointMac = getBadgeWifiApMac(accessPointMac);
+  if (!haveAccessPointMac) {
+    Serial.println(
+        "[MAIN] WARNING: SoftAP MAC unavailable; Wi-Fi NFC record will use zeros");
+  }
+
+  if (startNfcWifiOnboarding(getBadgeWifiSsid(),
+                             getBadgeWifiPassword(),
+                             haveAccessPointMac ? accessPointMac : nullptr)) {
+    Serial.println("[MAIN] NFC Wi-Fi onboarding tag emulation started");
   } else {
-    String storedRecordType;
-    String storedPayload;
-    if (loadPersistedTagEmulationRecord(storedRecordType, storedPayload)) {
-      if (startNfcTagEmulation(storedRecordType, storedPayload)) {
-        Serial.printf(
-            "[MAIN] Restored persistent %s Tag Emulation record (%u bytes)\n",
-            storedRecordType.c_str(),
-            static_cast<unsigned>(storedPayload.length()));
-      } else {
-        Serial.println(
-            "[MAIN] WARNING: Stored Tag Emulation record could not be started");
-      }
-    } else {
-      Serial.println(
-          "[MAIN] Wi-Fi onboarding is disabled and no Text/URL record is stored; "
-          "NFC starts in reader mode");
-    }
+    Serial.println(
+        "[MAIN] WARNING: NFC Wi-Fi onboarding could not be started");
   }
 }
 
 void loop() {
   updateWebServer();
   updateLEDs();
+  serviceLedSettingsPersistence();
   delay(1);
 }

@@ -1,3 +1,75 @@
+# Santa Muerte Badge
+
+Firmware for the Sneakreaper Industries "Santa Muerte" badge (DEF CON 34).
+
+The badge runs as a self-contained access point. Join it and a captive portal
+opens an anonymous message board; the same server also hosts the LED studio and
+the NFC workbench.
+
+| | |
+|---|---|
+| `src/main.cpp` | Eleven-pixel LED engine, eight patterns, settings restored at boot. |
+| `src/wifi.cpp` | Access point, captive portal, HTTP server and every API. |
+| `src/board.cpp` | The message board's ring storage on LittleFS. |
+| `src/badge_settings.cpp` | NVS: Wi-Fi credential, LED state, NFC boot mode. |
+| `src/nfc.cpp` | PN532 reader, writer, and NFC Forum Type 4 tag emulation. |
+| `data/` | The four pages served to a joined client. |
+| `tests/` | Host-side checks for the board's ring, pruning and sanitizing. |
+| `docs/led-map.md` | Where each of the eleven pixels sits on the PCB. |
+
+## Joining the badge
+
+The SSID is `Santa Muerte` followed by the last four hex digits of the module
+MAC, so badges stay distinguishable in a crowded room. The password is generated on
+first boot: three Spanish words in CamelCase, held in NVS and never regenerated.
+
+**Tap it.** The badge emulates an NFC tag carrying its own credentials, and
+it goes back to presenting that on every boot, whatever it was emulating when
+it was last powered down, so a badge can never end up unreachable. Android reads the Wi-Fi Simple Configuration
+record natively and offers to join. iOS does not join Wi-Fi from NFC at all, so
+the same tag also carries a plain-text record an NFC reader app can show.
+
+**Or read it.** The dashboard shows the password in the clear, and the serial
+console prints it at every boot.
+
+Once joined, a phone's own connectivity check is redirected to the board, which
+is what raises the "sign in to network" notification.
+
+## Pages
+
+- `/board` — the anonymous board. Text, a picture, a link, and up to eight tags.
+- `/led` — patterns, colour wheel, brightness and speed. Saved automatically.
+- `/nfc` — read and write tags, or emulate one.
+- `/` — dashboard and Wi-Fi settings.
+
+## The board
+
+Posts live in a ring of 512 fixed-size slots in one preallocated file, and
+pictures in a second ring of 64. The oldest entry is simply the slot the next
+write lands on, so the board prunes itself, never fragments, and cannot run the
+filesystem out of space mid-post.
+
+A picture costs roughly two hundred times what a line of text costs, which is
+why the two rings are different lengths: the board keeps a deep history of
+words and a shallow one of images. An old post keeps its text long after its
+picture has been overwritten, and says so rather than serving somebody else's.
+
+Anything joined to the badge is on an access point with no uplink, so pictures
+are uploaded rather than linked. The badge has no image codec and no memory to
+run one: the posting browser scales the picture to 384 pixels on its longest
+edge and walks JPEG quality down until it fits under 12 KB, and the badge
+stores those bytes verbatim after checking they begin like a JPEG. A link field
+is still there, but it is kept as text — following it means leaving the badge
+network.
+
+The badge has no clock. A post's time is whatever the posting browser claimed.
+
+Run the board's tests on any machine with a C++ compiler:
+
+```
+g++ -std=gnu++17 -I tests/shim -I src tests/board_test.cpp src/board.cpp -o /tmp/board_test && /tmp/board_test
+```
+
 # Flashing Instructions:
 1) Extract repo zip file or pull down repo to local folder
 2) Download VS-Code (or open it)
@@ -18,31 +90,3 @@ pio run --target uploadfs
 NOTE: you may need to hit the "Reset" button on the back of the badge after flashing, If the LEDs don't immediately turn on after being flashed, hitting reset will fix it.
 
 If you have any issues please open a GH issue or DM @Solaris on the [discord](https://discord.gg/thesafehouse)
-
-# Badge CTF
-
-Below are some hints, these aren't step by step instructions (that's no fun) but they are designed to give you a little inspiration if you are really stuck on something. I'm splitting up the hints in to two parts since the CTF has two distinct sections you must solve before you reach the end. Still stuck? come ask me about it on the [discord](https://discord.gg/thesafehouse) @Solaris
-
-## Part 1: The Image
-<details>
-<summary>Hint</summary>
-You should look up steganography :) 
-</details>
-
-<details>
-<summary>Hint 2</summary>
-Security by obscurity may be a helpful term to think about, just because you see something that you might not understand yet doesn't mean it wont be important later.
-Take a hard look at the files within this repo.
-</details>
-
-## Part 2: Sleeper Activation
-<details>
-<summary>Hint</summary>
-Good job, you got further than most.
-Look deep in to the matrix and you might discover something.
-</details>
-
-<details>
-<summary>Hint 2</summary>
-Read up on number stations, they are really cool and still used today.
-</details>

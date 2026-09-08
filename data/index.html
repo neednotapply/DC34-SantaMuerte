@@ -14,8 +14,8 @@
       --text:#f7f7fb;
       --muted:#a4aabd;
       --pink:#ff3ea5;
+      --violet:#a624ff;
       --blue:#638cff;
-      --amber:#ffbd55;
       --green:#4ee49b;
       --danger:#ff6b7a;
     }
@@ -87,9 +87,9 @@
       box-shadow:0 24px 68px rgba(0,0,0,.44);
       outline:none;
     }
+    .board{--accent:var(--violet)}
     .led{--accent:var(--pink)}
     .nfc{--accent:var(--blue)}
-    .ctf{--accent:var(--amber)}
     .icon{
       position:relative;
       flex:0 0 52px;
@@ -282,6 +282,11 @@
 </head>
 <body>
   <main aria-label="Badge dashboard">
+    <a class="dashboard-button board" href="/board">
+      <span class="icon" aria-hidden="true">&#9776;</span>
+      <span class="label">Message Board</span>
+      <span class="arrow" aria-hidden="true">&rarr;</span>
+    </a>
     <a class="dashboard-button led" href="/led">
       <span class="icon" aria-hidden="true">✦</span>
       <span class="label">LED Studio</span>
@@ -292,34 +297,31 @@
       <span class="label">NFC Workbench</span>
       <span class="arrow" aria-hidden="true">→</span>
     </a>
-    <a class="dashboard-button ctf" href="/ctf">
-      <span class="icon" aria-hidden="true">⚑</span>
-      <span class="label">Badge CTF</span>
-      <span class="arrow" aria-hidden="true">→</span>
-    </a>
-
     <form class="settings" id="wifiForm">
       <div class="settings-title">Wi-Fi Settings</div>
       <div class="ssid" id="ssidValue">Loading network…</div>
 
-      <label class="field-label" for="wifiPassword">12-character password</label>
+      <label class="field-label" for="wifiPassword">Wi-Fi password</label>
       <div class="password-row">
         <input
           id="wifiPassword"
           name="password"
-          type="password"
-          minlength="12"
-          pattern="[A-Za-z0-9!_-]{12}"
+          type="text"
+          minlength="8"
+          maxlength="63"
+          pattern="[ -~]{8,63}"
           inputmode="text"
           autocapitalize="none"
           spellcheck="false"
-          autocomplete="new-password"
+          autocomplete="off"
           aria-describedby="passwordHelp wifiStatus"
           required>
-        <button class="small-button" id="showPassword" type="button">Show</button>
+        <button class="small-button" id="showPassword" type="button">Hide</button>
       </div>
       <div class="password-help" id="passwordHelp">
-        Allowed: A–Z, a–z, 0–9, !, _, and -
+        Shown in the clear so it can be read off the badge and passed on. The
+        badge generates three themed words; any 8–63 printable ASCII characters
+        are accepted.
       </div>
 
       <div class="toggle-row">
@@ -364,9 +366,9 @@
     const ssidNode = document.getElementById('ssidValue');
     const hiddenSsidWarning = document.getElementById('hiddenSsidWarning');
 
-    // This exactly matches the firmware's ALL_PASSWORD_CHARS constant:
-    // A-Z, a-z, 0-9, and the supported special characters ! _ -
-    const ALLOWED_PASSWORD = /^[A-Za-z0-9!_-]+$/;
+    // WPA2 accepts 8 to 63 printable-ASCII characters, which is exactly what
+    // the firmware's isValidPassword() enforces before writing to NVS.
+    const ALLOWED_PASSWORD = /^[\x20-\x7E]+$/;
     const RUNNING_ON_BADGE = location.hostname === '10.10.10.100';
 
     function setStatus(message, kind = '') {
@@ -379,19 +381,12 @@
     }
 
     function passwordError(value) {
-      if (value.length !== 12) {
-        return 'Password must be exactly 12 characters.';
+      if (value.length < 8 || value.length > 63) {
+        return 'Password must be 8 to 63 characters.';
       }
 
       if (!ALLOWED_PASSWORD.test(value)) {
-        return 'Password contains unsupported characters. Use only the characters listed below.';
-      }
-
-      if (!/[A-Z]/.test(value) ||
-          !/[a-z]/.test(value) ||
-          !/[0-9]/.test(value) ||
-          !/[!_-]/.test(value)) {
-        return 'Password needs uppercase, lowercase, a number from 0–9, and ! _ or -.';
+        return 'Use printable ASCII only. Accented letters and emoji cannot be stored in a WPA2 passphrase.';
       }
 
       return '';
@@ -443,7 +438,7 @@
       // Artifact previews and local files do not have the badge API. Avoid
       // requesting a relative URL that may return an XML/HTML error document.
       if (!RUNNING_ON_BADGE) {
-        ssidNode.textContent = 'SSID: Sneakreaper Badge-XXXXXXXXXXXX';
+        ssidNode.textContent = 'SSID: Santa Muerte XXXX';
         passwordInput.value = '';
         passwordInput.disabled = true;
         hiddenInput.disabled = true;
@@ -492,6 +487,8 @@
       updatePasswordState();
     });
 
+    // The password starts visible: it is meant to be read aloud and handed
+    // out, and the NFC record carries it in the clear anyway.
     showButton.addEventListener('click', () => {
       const showing = passwordInput.type === 'text';
       passwordInput.type = showing ? 'password' : 'text';

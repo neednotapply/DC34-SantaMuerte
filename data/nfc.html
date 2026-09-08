@@ -225,6 +225,7 @@
 
             <div class="emulation-actions">
               <button id="emulationStartButton" class="btn btn-primary">Start Tag Emulation</button>
+              <button id="emulationWifiButton" class="btn btn-secondary">Share Wi-Fi over NFC</button>
               <button id="emulationStopButton" class="btn btn-secondary" disabled>Stop Tag Emulation</button>
             </div>
 
@@ -237,7 +238,7 @@
               <div class="emulation-stat"><span>Record type</span><strong id="tagEmulationType">—</strong></div>
               <div class="emulation-stat"><span>Tag Scans</span><strong id="tagScanCount">0</strong></div>
             </div>
-            <div id="tagEmulationPreview" class="emulation-preview">The badge starts with its Wi-Fi onboarding record. You can replace it with a Text or URL record here.</div>
+            <div id="tagEmulationPreview" class="emulation-preview">The badge shares its Wi-Fi credentials on every boot. Replace that with a Text or URL record here, or press Share Wi-Fi over NFC to put it back. A Text or URL record lasts until the next reboot.</div>
             <div id="tagEmulationMessage" class="emulation-help">The badge will behave like a read-only NFC tag until you stop tag emulation.</div>
           </div>
         </div>
@@ -282,7 +283,7 @@
   }
 
   function setTemporaryDisabled(disabled){
-    ['scanButton','writeButton','emulationStartButton','emulationStopButton'].forEach(id=>$('#'+id).disabled=disabled);
+    ['scanButton','writeButton','emulationStartButton','emulationWifiButton','emulationStopButton'].forEach(id=>$('#'+id).disabled=disabled);
   }
 
   function applyControls(state){
@@ -292,6 +293,7 @@
     $('#scanButton').disabled=!ready||externalBusy;
     $('#writeButton').disabled=!ready||externalBusy;
     $('#emulationStartButton').disabled=!ready||externalBusy;
+    $('#emulationWifiButton').disabled=!ready||externalBusy;
     $('#emulationStopButton').disabled=!ready||!emulating;
     $$('.emulation-tab').forEach(button=>button.disabled=!ready||emulating);
     $('#emulationUrlPayload').disabled=!ready||emulating;
@@ -412,6 +414,7 @@
     if(byteLength(payload)>220){toast('Tag-emulation payload must be 220 bytes or less.');return}
     startOperation('/api/nfc/emulation/start',{recordType:activeEmulationTab,payload});
   });
+  $('#emulationWifiButton').addEventListener('click',()=>startOperation('/api/nfc/emulation/wifi'));
   $('#emulationStopButton').addEventListener('click',()=>startOperation('/api/nfc/emulation/stop'));
 
   window.addEventListener('focus',refreshState);

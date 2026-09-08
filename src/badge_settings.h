@@ -8,29 +8,37 @@
 // generate a replacement.
 bool initializeBadgeSettings();
 
-// Returns the verified 12-character NVS password, or an empty string when
-// settings initialization failed.
+// Returns the verified NVS passphrase, or an empty string when settings
+// initialization failed.
 const char *getPersistentWifiPassword();
 
 // Returns whether the SoftAP SSID is hidden. This setting is stored in NVS.
 bool getPersistentWifiHidden();
 
 // Validates, stores, and reads back the dashboard Wi-Fi settings. The password
-// must be exactly 12 characters and use the same safe character policy as the
-// generated credential. On failure, the previous settings remain active.
+// must satisfy WPA2: 8 to 63 printable-ASCII characters. It is not required to
+// follow the generated three-word form. On failure, the previous settings
+// remain active.
 bool setPersistentWifiSettings(const String &password,
                                bool hidden,
                                String &error);
 
-// Wi-Fi onboarding is the default boot behavior until the user selects
-// Stop Tag Emulation for the first time.
-bool isWifiOnboardingDismissed();
-bool dismissWifiOnboarding();
+// Persistent LED state. Only the record's integrity is checked here; the
+// meaning of each field, and the valid range of each, stays in main.cpp with
+// the rest of the LED logic.
+struct StoredLedSettings {
+  uint8_t pattern;
+  uint8_t red;
+  uint8_t green;
+  uint8_t blue;
+  uint8_t brightness;
+  uint8_t speed;
+};
 
-// Stores the last valid manual Text or URL record. Empty/invalid records are
-// never saved. Unchanged records are not rewritten, reducing NVS wear.
-bool savePersistedTagEmulationRecord(const String &recordType,
-                                     const String &payload);
+// Returns false when nothing has been saved yet, or when the stored record
+// fails its magic, version, or checksum check. The caller keeps its defaults.
+bool loadLedSettings(StoredLedSettings &settings);
 
-// Returns false when no valid manual record has ever been saved.
-bool loadPersistedTagEmulationRecord(String &recordType, String &payload);
+// Unchanged settings are not rewritten, so holding a slider still costs at
+// most one NVS write once the value settles.
+bool saveLedSettings(const StoredLedSettings &settings);
