@@ -1,0 +1,574 @@
+/* Santa Muerte badge portal — shared print-room theme.
+   The portal is offline by design, so every face uses a local system fallback. */
+:root {
+  --sm-bg: #151615;
+  --sm-bg-deep: #101110;
+  --sm-panel: #1e1f1c;
+  --sm-panel-hi: #282823;
+  --sm-paper: #d8d1c2;
+  --sm-paper-hi: #ebe5d8;
+  --sm-ink: #1b1b18;
+  --sm-silk: #ece6d8;
+  --sm-muted: #a9a397;
+  --sm-faint: #78746b;
+  --sm-line: #504d44;
+  --sm-line-soft: #343530;
+  --sm-maroon: #6f1d24;
+  --sm-maroon-dark: #4b151a;
+  --sm-brass: #a47b36;
+  --sm-warn: #c47a3d;
+  --sm-ok: #91a67d;
+  --sm-danger: #b85a4d;
+  --sm-display: "DejaVu Sans", "Cambria Math", "Noto Sans Math", serif;
+  --sm-ui: "DejaVu Sans Condensed", "Arial Narrow", Arial, sans-serif;
+  --sm-mono: "Courier New", "DejaVu Sans Mono", monospace;
+}
+
+html {
+  background: var(--sm-bg) !important;
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--sm-bg) !important;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255,255,255,.018) 0 1px, transparent 1px 5px),
+    linear-gradient(90deg, var(--sm-bg-deep), var(--sm-bg) 52%, var(--sm-bg-deep)) !important;
+  color: var(--sm-silk) !important;
+  font-family: var(--sm-ui) !important;
+  -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  opacity: .18 !important;
+  background-image:
+    repeating-linear-gradient(90deg, transparent 0 47px, rgba(164,123,54,.12) 48px, transparent 49px),
+    repeating-linear-gradient(0deg, transparent 0 47px, rgba(164,123,54,.07) 48px, transparent 49px) !important;
+  background-size: auto !important;
+  mask-image: none !important;
+}
+
+h1, h2, .brand h1, .titlebar h1 {
+  font-family: var(--sm-display) !important;
+  color: var(--sm-paper-hi) !important;
+  letter-spacing: .035em !important;
+  text-shadow: 1px 1px 0 #000 !important;
+}
+
+.eyebrow, label,
+.field-label, .label, .subtitle, .status, .nav-link,
+button, .dashboard-button, .field-foot, .meter-head {
+  font-family: var(--sm-ui) !important;
+}
+
+.settings-title { font-family: var(--sm-display) !important; }
+
+a { color: var(--sm-paper) !important; }
+
+button, input, textarea, select, .nav-link, .status,
+.dashboard-button, .settings, .card, .block, .detail, .result,
+.scan-zone, .tabs, .emulation-tabs, .emulation-monitor,
+.pattern, .btn, .small-button, .save-button, .ssid,
+.ssid-warning, .notice, .activity-icon, .emulation-stat,
+.emulation-preview, .toast, .pick, .shot, .post, .media {
+  border-radius: 2px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+button, .btn, .small-button, .save-button {
+  border: 1px solid var(--sm-line) !important;
+  background: var(--sm-maroon) !important;
+  color: var(--sm-paper-hi) !important;
+  font-weight: 700 !important;
+  letter-spacing: .055em !important;
+  text-transform: uppercase;
+}
+
+button:hover:not(:disabled), .btn:hover:not(:disabled),
+.small-button:hover:not(:disabled), .save-button:hover:not(:disabled) {
+  background: var(--sm-maroon-dark) !important;
+  border-color: var(--sm-brass) !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible,
+textarea:focus-visible { outline: 2px solid var(--sm-brass) !important; outline-offset: 2px; }
+
+button:disabled, input:disabled { opacity: .42 !important; }
+
+input, textarea, .input, .hex {
+  border-color: var(--sm-line) !important;
+  background: var(--sm-bg-deep) !important;
+  color: var(--sm-paper-hi) !important;
+  font-family: var(--sm-mono) !important;
+  box-shadow: none !important;
+}
+
+input:focus, textarea:focus, .input:focus, .hex:focus {
+  border-color: var(--sm-brass) !important;
+  box-shadow: 0 0 0 2px rgba(164,123,54,.18) !important;
+}
+
+input[type="range"] {
+  appearance: none !important;
+  height: 3px !important;
+  border-radius: 2px !important;
+  background: var(--sm-line) !important;
+  box-shadow: none !important;
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--sm-brass);
+  border-radius: 1px;
+  background: var(--sm-paper) !important;
+  box-shadow: none !important;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--sm-brass);
+  border-radius: 1px;
+  background: var(--sm-paper) !important;
+  box-shadow: none !important;
+}
+
+/* Shared portal chrome */
+.wrap, main, body > main { position: relative; }
+.nav a, .nav-link, .status {
+  border-color: var(--sm-line) !important;
+  border-radius: 2px !important;
+  background: var(--sm-panel) !important;
+  color: var(--sm-muted) !important;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+}
+.nav a:hover, .nav-link:hover { border-color: var(--sm-brass) !important; color: var(--sm-paper-hi) !important; }
+.card, .settings, .block {
+  border-color: var(--sm-line) !important;
+  background: var(--sm-panel) !important;
+}
+.card h2, .settings-title { color: var(--sm-paper) !important; letter-spacing: .13em !important; }
+.subtitle, .field-foot, .password-help, .toggle-copy span, .footer,
+.footer-note, .hwnote, .scan-message, .field-note { color: var(--sm-muted) !important; }
+
+/* One mark, reused at header, dashboard, and compact control sizes. */
+.brand-mark, .portal-mark { display:block; object-fit:contain; flex:0 0 auto; }
+.brand-mark { width:48px; height:48px; }
+.portal-mark { width:54px; height:54px; }
+.logo { background:transparent !important; box-shadow:none !important; border-radius:0 !important; }
+.logo img { width:100%; height:100%; display:block; object-fit:contain; }
+
+/* Flags keep the language switch compact and understandable without text. */
+.language-toggle {
+  display:inline-flex; align-items:center; gap:2px; padding:2px;
+  border:1px solid var(--sm-line) !important; border-radius:2px !important;
+  background:var(--sm-panel) !important;
+}
+.language-toggle button {
+  min-width:30px; min-height:28px; padding:2px 5px;
+  border:1px solid transparent !important; background:transparent !important;
+  color:var(--sm-muted) !important; font-family:var(--sm-ui) !important;
+  font-size:1.05rem !important; line-height:1; letter-spacing:0 !important;
+  text-transform:none !important;
+}
+.language-toggle button.active {
+  border-color:var(--sm-brass) !important; background:var(--sm-bg-deep) !important;
+  color:var(--sm-paper-hi) !important;
+}
+.language-toggle button:focus-visible { outline:2px solid var(--sm-brass) !important; outline-offset:1px; }
+.language-toggle .divider { color:var(--sm-faint); font:700 11px/1 var(--sm-mono); }
+.install-note {
+  position:fixed; right:14px; bottom:14px; z-index:20; max-width:min(360px, calc(100vw - 28px));
+  padding:10px 12px; border:1px solid var(--sm-brass); background:var(--sm-panel);
+  color:var(--sm-paper); box-shadow:4px 4px 0 rgba(0,0,0,.3); font:12px/1.4 var(--sm-ui);
+}
+
+/* Message board: passed paper notes over a dark corridor */
+body.board-page main { width: min(720px, 100%) !important; }
+body.board-page .card { border-color: var(--sm-line) !important; }
+body.board-page #postList { gap: 20px !important; padding:8px 3px 12px; }
+body.board-page .post {
+  position: relative;
+  border: 1px solid #918878 !important;
+  background: var(--sm-paper-hi) !important;
+  color: #171717 !important;
+  padding: 14px 16px 16px !important;
+  gap: 0 !important;
+  overflow: visible;
+  transform:translateX(var(--offering-shift, 0px)) rotate(var(--offering-tilt, 0deg));
+  transform-origin:center center;
+  box-shadow:3px 5px 0 rgba(0,0,0,.32) !important;
+}
+/* Every offering is pinned to the dark corridor with one small strip of
+   translucent tape. Per-post custom properties keep its informal placement
+   stable when the feed refreshes instead of reshuffling the whole wall. */
+body.board-page .post::before {
+  content:""; position:absolute; z-index:2; pointer-events:none;
+  top:-10px; left:var(--tape-left, 50%); width:clamp(66px, 25%, 94px); height:18px;
+  background:rgba(164,123,54,.42); border:1px solid rgba(215,194,145,.2);
+  transform:translateX(-50%) rotate(var(--tape-tilt, 0deg));
+}
+body.board-page .post-head {
+  padding: 0 0 8px;
+  border-bottom: 1px dotted #978e80;
+  color: #4a463e !important;
+  background: transparent !important;
+  font-family: var(--sm-mono) !important;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+body.board-page .post-text { color: #171717 !important; font-family: var(--sm-mono) !important; padding:10px 0 0; }
+body.board-page .media { margin-top:10px; border:1px solid #b5ad9d !important; background:var(--sm-paper-hi) !important; }
+body.board-page .media img { border-radius:0 !important; }
+body.board-page .post.offering-photo { padding-bottom:22px !important; }
+body.board-page #composer { border-top: 0 !important; }
+body.board-page h2 { font-family: var(--sm-display) !important; letter-spacing: .07em !important; }
+body.board-page .mode-button { border-color: var(--sm-line) !important; background: var(--sm-panel-hi) !important; color: var(--sm-muted) !important; }
+body.board-page .mode-button.active,
+body.board-page .mode-button:hover,
+body.board-page .mode-button:focus-visible { border-color: var(--sm-brass) !important; background: var(--sm-maroon) !important; color: var(--sm-paper-hi) !important; }
+body.board-page #composer textarea {
+  min-height: 108px;
+  background: var(--sm-paper-hi) !important;
+  border-color: #918878 !important;
+  color: var(--sm-ink) !important;
+}
+body.board-page #composer .paper-text {
+  min-height: 0 !important;
+  height: 100% !important;
+  padding: 18px 20px !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: transparent !important;
+  caret-color: transparent !important;
+  pointer-events: none;
+  resize: none;
+}
+body.board-page #composer .paper-text.typing { pointer-events: auto; }
+body.board-page #pad {
+  background: var(--sm-paper-hi) !important;
+  border-color: #918878 !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+body.board-page .write-note { background: var(--sm-paper-hi) !important; border-color: #918878 !important; color: var(--sm-ink) !important; border-radius: 2px !important; box-shadow: none !important; }
+body.board-page .upload-note { background: var(--sm-paper) !important; border-color: #918878 !important; color: var(--sm-ink) !important; border-radius: 2px !important; }
+body.board-page .swatch { border-radius: 1px !important; box-shadow: none !important; }
+body.board-page .nib { border-radius: 1px !important; background: var(--sm-panel-hi) !important; }
+body.board-page .nib i { border-radius: 1px !important; }
+body.board-page button.ghost { background: var(--sm-panel-hi) !important; color: var(--sm-paper) !important; }
+body.board-page .meter-track, body.board-page .meter-fill { border-radius: 1px !important; }
+body.board-page .pick { border-color: var(--sm-line) !important; background: var(--sm-panel-hi) !important; color: var(--sm-paper) !important; }
+body.board-page .shot { background: var(--sm-panel-hi) !important; border-color: var(--sm-line) !important; }
+body.board-page #loadMore { min-width: 220px; background: var(--sm-maroon) !important; }
+body.board-page .empty { color: var(--sm-muted) !important; }
+
+/* LED / NFC controls: bench instruments, not floating app widgets */
+.logo, .nfc-icon, .activity-icon { border-radius: 2px !important; background: var(--sm-maroon) !important; box-shadow: none !important; }
+.logo { color: var(--sm-paper-hi) !important; }
+.preview, .scan-zone { background: var(--sm-bg-deep) !important; border-color: var(--sm-line) !important; }
+.orb { box-shadow: none !important; }
+.pattern, .detail, .result, .emulation-stat, .emulation-preview, .emulation-monitor {
+  border-color: var(--sm-line) !important; background: var(--sm-bg-deep) !important;
+}
+.pattern.active, .tab.active, .emulation-tab.active {
+  background: var(--sm-maroon) !important; border-color: var(--sm-brass) !important; box-shadow: none !important;
+}
+.pattern:hover, .pattern.active { color: var(--sm-paper-hi) !important; transform: none !important; }
+.pattern, .tab, .emulation-tab, .btn-secondary { color: var(--sm-muted) !important; }
+.btn-primary { background: var(--sm-maroon) !important; }
+.btn-secondary { background: var(--sm-panel-hi) !important; border-color: var(--sm-line) !important; }
+.nfc-icon svg { stroke: var(--sm-brass) !important; }
+.scan-zone::before { border-color: rgba(164,123,54,.22) !important; box-shadow: none !important; }
+.scan-zone::after { background: rgba(111,29,36,.22) !important; }
+.notice { border-color: rgba(164,123,54,.45) !important; background: rgba(164,123,54,.08) !important; color: var(--sm-paper) !important; }
+.notice .mark { color: var(--sm-brass) !important; }
+.dot { box-shadow: none !important; }
+
+@media (max-width: 600px) {
+  .wrap, body > main[aria-label="Badge dashboard"] { padding-left: 12px !important; padding-right: 12px !important; }
+}
+
+/* One board layout at every width: only the tools wrap on narrow screens. */
+/* The page title sits between the Santa Muerte wordmark and the first card,
+   not inside one, so every page reads name-then-title down the page.
+   Three columns keep the title optically centred whatever sits beside it: the
+   status pill takes the right column without shifting the heading. */
+.page-title { position:relative; display:flex; justify-content:center; align-items:center;
+  gap:10px; margin:18px 0 2px; text-align:center; }
+/* Keep a visible breath between the header rule and every page title, whether
+   the page uses main directly or its own .wrap container. */
+main > .page-title { margin-top:10px; }
+.wrap > .page-title { margin-top:26px; }
+.page-title h1 { font-size:1.35rem; margin:0; }
+/* Out of flow, so the heading centres on the page rather than on whatever
+   space the pill leaves it. In a three-column grid the pill's min-content
+   width exceeded its share and pulled the title off-centre on narrow screens. */
+.page-title > .status { position:absolute; right:0; top:50%; transform:translateY(-50%); }
+/* On the narrowest phones the pill reaches the centred title. Shrinking it
+   there keeps both on one row without moving the heading off centre. */
+@media (max-width: 400px) {
+  body.led-page .page-title > .status, body.nfc-page .page-title > .status {
+    padding: 4px 7px !important;
+    font-size: .6rem !important;
+    gap: 5px;
+  }
+}
+/* Leave the mode selector clearly separate from the paper it controls. */
+body.board-page .mode-tabs { margin:0 0 14px; }
+body.board-page .composer-actions { justify-content:center; margin-top:18px; }
+body.board-page #composerStatus { flex-basis:100%; text-align:center; overflow-wrap:anywhere; }
+body.board-page #composerStatus:empty { display:none; }
+body.board-page .field-foot { justify-content:flex-end; }
+body.board-page .ink-actions { display:flex; gap:8px; margin-left:auto; }
+/* Undo, clear, and remove-photo are secondary composer controls, not a
+   different button family. Match their weight, spacing, and panel treatment
+   to the inactive Draw / Write / Photo controls. */
+body.board-page .ink-actions .ghost {
+  min-height:40px; padding:8px 12px !important;
+  border:1px solid var(--sm-line) !important; border-radius:2px !important;
+  background:var(--sm-panel-hi) !important; color:var(--sm-muted) !important;
+  font-size:.75rem !important; font-weight:700 !important; letter-spacing:.055em !important;
+}
+body.board-page .ink-actions .ghost:hover:not(:disabled),
+body.board-page .ink-actions .ghost:focus-visible {
+  color:var(--sm-paper-hi) !important; border-color:var(--sm-brass) !important;
+  background:rgba(111,29,36,.12) !important;
+}
+body.board-page .meter-fill { background:var(--sm-maroon) !important; }
+body.board-page .meter-head { color:var(--sm-muted); }
+/* Grid, not flex: the label takes the slack and the percentage is pinned
+   to the right edge whatever its width. */
+body.board-page .meter-head { display:grid; grid-template-columns:1fr auto; align-items:baseline; gap:12px; overflow-wrap:anywhere; }
+body.board-page .meter-head > :first-child { justify-self:start; text-align:left; }
+body.board-page #meterCount { justify-self:end; text-align:right; white-space:nowrap; }
+body.board-page #imageNote:empty { display:none; }
+body.board-page .post-head { flex-wrap:wrap; overflow-wrap:anywhere; }
+body.board-page .card, body.board-page form { min-width:0; }
+.saint-footer { padding:14px 0 6px; border-top:1px solid var(--sm-line); display:flex; justify-content:center; align-items:center; gap:12px; flex-wrap:wrap; color:var(--sm-faint); font:700 10px/1.5 var(--sm-mono); letter-spacing:.14em; }
+/* Two matching candle menus sit at the separator's ends, with the intentionally
+   two-line wordmark held exactly in the header centre. The title starts at the
+   header's top edge; offsetting each candle by its own half-height puts its
+   visual centre exactly on the lower edge of "Santa". */
+.saint-header {
+  --mark-w:clamp(42px, 13vw, 64px);
+  --mark-h:clamp(63px, 19.5vw, 96px);
+  --mark-half:clamp(31.5px, 9.75vw, 48px);
+  --title-size:clamp(37px, 4.7vw, 56px);
+  display:grid; grid-template-columns:1fr auto 1fr; align-items:flex-start;
+  padding:max(10px, env(safe-area-inset-top)) 0 12px;
+  margin-bottom:0; border-bottom:1px solid var(--sm-line);
+}
+.saint-header .nav-menu { margin-top:calc(var(--title-size) - var(--mark-half)); }
+.saint-header .nav-menu:first-child { justify-self:start; }
+.saint-header .nav-menu--right { justify-self:end; }
+.saint-header .brand-mark { width:var(--mark-w); height:var(--mark-h); }
+.saint-header .saint-title {
+  display:grid; font-size:var(--title-size); line-height:1; text-align:center;
+  min-width:0; padding-bottom:5px; text-decoration:none;
+}
+.saint-header .saint-title > span { display:block; }
+body { position:relative; }
+/* ---- Lights + NFC: pull the neon pages onto the print-room palette ----
+   Both pages set their own violet/pink accents on :root. Redefining the same
+   custom properties on body wins for everything inside it, so the accents
+   move without touching either page's inline <style>. */
+body.led-page, body.nfc-page {
+  --accent: var(--sm-brass);
+  --accent2: var(--sm-maroon);
+  --glow: rgba(164,123,54,.22);
+  --radius: 2px;
+  --panel: var(--sm-panel);
+  --panel2: var(--sm-panel-hi);
+  --line: var(--sm-line);
+  --muted: var(--sm-muted);
+  --text: var(--sm-silk);
+}
+/* The generic button rule paints every button maroon with !important, which
+   beat the presets' inline colour. They exist to show colour, so they paint
+   from their own custom property instead. */
+body.led-page .preset { background: var(--preset) !important; }
+
+/* Same rule flattened the animation list into sixteen maroon bars. The rows
+   are meant to read as a list, uppercase only on the family headers, with the
+   selected one carrying the brass edge. */
+body.led-page .anim {
+  background: transparent !important;
+  color: var(--sm-muted) !important;
+  border-color: transparent !important;
+  border-left-color: var(--sm-line) !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-weight: 600 !important;
+}
+body.led-page .anim:hover, body.led-page .anim:focus-visible {
+  background: var(--sm-panel-hi) !important;
+  color: var(--sm-paper-hi) !important;
+}
+body.led-page .anim[aria-current="true"] {
+  background: rgba(111,29,36,.32) !important;
+  border-left-color: var(--sm-brass) !important;
+  color: var(--sm-paper-hi) !important;
+}
+body.led-page .anim .n, body.led-page .anim .grp { letter-spacing: .1em !important; }
+body.led-page .anim[aria-current="true"] .n { color: var(--sm-brass) !important; }
+body.led-page .pattern, body.led-page .swatch, body.led-page .hex,
+body.led-page .preset, body.led-page .toast, body.nfc-page .toast,
+body.nfc-page .btn, body.nfc-page .tab, body.nfc-page .emulation-tab {
+  border-radius: 2px !important;
+}
+body.led-page .pattern.active {
+  background: var(--sm-maroon) !important;
+  border-color: var(--sm-brass) !important;
+  box-shadow: none !important;
+  color: var(--sm-paper-hi) !important;
+}
+body.led-page input[type=range]::-webkit-slider-thumb,
+body.led-page input[type=range]::-moz-range-thumb {
+  border-radius: 1px !important;
+  border-width: 1px !important;
+  background: var(--sm-paper) !important;
+  box-shadow: none !important;
+}
+/* The orb, the wheel and the RGB channel sliders show real colour: leaving
+   them themed would misreport what the LEDs are doing. */
+body.led-page .preview { background: var(--sm-bg-deep) !important; }
+body.led-page .orb { box-shadow: none !important; }
+body.led-page .wheel-wrap { filter: none !important; }
+
+/* The status now floats in the title row's right column: dot plus label, no
+   box. Every state variant sets its own border and background, so all of them
+   have to be cleared rather than just the base rule. */
+body.led-page .status, body.nfc-page .status,
+body.led-page .status.connected, body.nfc-page .status.connected,
+body.led-page .status.disconnected, body.nfc-page .status.disconnected,
+body.led-page .status.checking, body.nfc-page .status.checking {
+  display: flex !important;
+  width: fit-content;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+body.led-page .dot, body.nfc-page .dot { box-shadow: none !important; border-radius: 1px !important; }
+
+/* Toggle switch + its row. Both were defined only in the settings page's
+   inline <style>; the NFC capture toggle needs the same control, so the
+   definition lives here and neither page owns it. */
+.toggle-row {
+  margin: 16px 0; min-height: 48px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.toggle-copy strong { display: block; font-size: .9rem; color: var(--sm-paper); }
+.toggle-copy span { display: block; margin-top: 3px; color: var(--sm-muted); font-size: .69rem; }
+.switch { position: relative; display: inline-block; width: 54px; height: 30px; flex: 0 0 54px; }
+.switch input { width: 0; height: 0; opacity: 0; }
+.slider {
+  position: absolute; inset: 0; cursor: pointer; transition: .18s ease;
+  border: 1px solid var(--sm-line) !important;
+  border-radius: 2px !important;
+  background: var(--sm-bg-deep) !important;
+}
+.slider::before {
+  content: ""; position: absolute; width: 22px; height: 22px; left: 3px; top: 3px;
+  transition: .18s ease;
+  border-radius: 1px !important;
+  background: var(--sm-paper) !important;
+  box-shadow: none !important;
+}
+.switch input:checked + .slider {
+  background: var(--sm-maroon) !important;
+  border-color: var(--sm-brass) !important;
+}
+.switch input:checked + .slider::before { transform: translateX(24px); }
+.switch input:focus-visible + .slider { outline: 2px solid var(--sm-brass); outline-offset: 2px; }
+
+/* Reader state is information, not a full-screen animation. */
+body.nfc-page .scan-zone { min-height:0 !important; padding:14px !important; }
+body.nfc-page .scan-zone::before, body.nfc-page .scan-zone::after { display:none !important; }
+body.nfc-page .scan-message { min-height:0 !important; }
+body.nfc-page textarea.input { min-height:76px !important; }
+body.nfc-page .activity { margin-top:12px !important; padding-top:12px !important; }
+
+/* NFC page leftovers still wearing the old blue accent, plus one real bug:
+   the theme painted .tab and .tab.active identically, so there was no way to
+   tell which of URL / Texto was selected. */
+body.nfc-page .detail span,
+body.nfc-page .result-label { color: var(--sm-faint) !important; }
+body.nfc-page .record-pill {
+  border-radius: 2px !important;
+  border: 1px solid var(--sm-line) !important;
+  background: var(--sm-bg-deep) !important;
+  color: var(--sm-muted) !important;
+}
+body.nfc-page .activity-icon { color: var(--sm-paper-hi) !important; }
+body.nfc-page .tab, body.nfc-page .emulation-tab {
+  background: var(--sm-bg-deep) !important;
+  border-color: var(--sm-line) !important;
+  color: var(--sm-muted) !important;
+}
+body.nfc-page .tab.active, body.nfc-page .emulation-tab.active {
+  background: var(--sm-maroon) !important;
+  border-color: var(--sm-brass) !important;
+  color: var(--sm-paper-hi) !important;
+}
+body.nfc-page .reader-pill.ready i, body.nfc-page .capture-card .reader-pill.ready i {
+  background: var(--sm-ok) !important;
+}
+
+/* Menu, opened from the candle mark rather than a separate corner button.
+   Lives here rather than in one page's inline <style> so the four pages
+   cannot drift apart. */
+.nav-menu { position:relative; z-index:4; }
+.nav-menu summary {
+  list-style:none; cursor:pointer; display:block; width:fit-content;
+  border-radius:6px;
+}
+.nav-menu summary::-webkit-details-marker { display:none; }
+/* The mark itself is the only visible affordance -- a warm glow on hover or
+   focus, brighter while the menu is open, rather than a button drawn over it. */
+.nav-menu summary:hover .brand-mark,
+.nav-menu summary:focus-visible .brand-mark {
+  filter: drop-shadow(0 0 7px var(--sm-brass));
+}
+.nav-menu[open] summary .brand-mark { filter: drop-shadow(0 0 10px var(--sm-brass)); }
+.nav-menu summary:focus-visible { outline:2px solid var(--sm-brass); outline-offset:3px; }
+.nav-menu-list {
+  position:absolute; left:0; top:calc(100% + 8px); display:grid; gap:4px; min-width:190px;
+  padding:7px; border:1px solid var(--sm-line); border-radius:2px; background:rgba(15,16,22,.98);
+  box-shadow:0 14px 30px rgba(0,0,0,.35);
+}
+/* The matching candle on the right opens its copy of the menu inward, so its
+   links remain fully reachable on the narrow badge-sized viewport. */
+.nav-menu--right .nav-menu-list { right:0; left:auto; }
+.nav-menu-list a {
+  display:block; padding:10px 11px; border:1px solid transparent; border-radius:2px;
+  color:var(--sm-muted); text-decoration:none; font:700 .78rem/1.4 var(--sm-mono);
+  letter-spacing:.05em; text-transform:uppercase;
+}
+.nav-menu-list a:hover, .nav-menu-list a:focus-visible {
+  color:var(--sm-paper-hi); border-color:var(--sm-brass); background:rgba(111,29,36,.28); outline:none;
+}
+
+body.board-page .post-head { text-transform:none; }
+body.board-page .post .type-letter { display:inline-block; white-space:pre; }
+body.board-page .post .type-letter:nth-child(7n) { transform:translateY(1px) rotate(-.6deg); }
+body.board-page .post .type-letter:nth-child(11n) { transform:translateY(-1px) rotate(.5deg); }
+.footer-brand { display:flex; justify-content:center; align-items:center; gap:16px; }
+.saint-footer .brand-mark { width:64px; height:96px; }
+.saint-title { font:38px/1.15 var(--sm-display); color:var(--sm-paper-hi); text-align:left; }
+/* Full width forces the wrap, so the flag is always a line of its own
+   under the footer text rather than trailing it. */
+.footer-language { display:flex; align-items:center; justify-content:center; flex:0 0 100%; width:100%; margin-top:4px; }
+.language-toggle button { min-width:44px; min-height:44px; }
+body.board-page .swatch, body.board-page .nib { min-width:36px; min-height:36px; }
+@media (max-width:380px) {
+  .footer-brand { gap:10px; }
+  .saint-title { font-size:32px; }
+}

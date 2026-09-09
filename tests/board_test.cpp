@@ -5,12 +5,13 @@
 //       -o /tmp/board_test && /tmp/board_test
 //
 // The interesting behaviour is what happens at and after the wrap: the oldest
-// post has to be the one that goes, ordering has to stay newest-first, and a
-// reboot has to land the write cursor back in the right slot.
+// entry has to be the one that goes, ordering has to stay newest-first, a
+// reboot has to land the write cursor back in the right slot, and a picture
+// whose slot was reclaimed must not be served to the post that lost it.
 
 #include <cstdio>
-#include <string>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "board.h"
@@ -31,9 +32,9 @@ String post(int index) {
   return String(("post " + std::to_string(index)).c_str());
 }
 
-void addOrDie(const String &text, const String &link, const String &tags) {
+void addOrDie(const String &text) {
   String error;
-  if (!addBoardPost(text, link, tags, 1700000000u, nullptr, 0, error)) {
+  if (!addBoardPost(text, 1700000000u, nullptr, 0, error)) {
     ++failures;
     std::printf("  FAIL: post rejected: %s\n", error.c_str());
   }
@@ -51,42 +52,53 @@ std::vector<uint8_t> fakeJpeg(size_t bytes, uint8_t fill) {
 
 void addImageOrDie(const String &text, const std::vector<uint8_t> &image) {
   String error;
-  if (!addBoardPost(text, String(""), String(""), 1700000000u, image.data(),
-                    image.size(), error)) {
+  if (!addBoardPost(text, 1700000000u, image.data(), image.size(), error)) {
     ++failures;
     std::printf("  FAIL: image post rejected: %s\n", error.c_str());
   }
 }
 
 // Collects the board newest-first, exactly as the web layer pages through it.
-std::vector<BoardPost> drain(const String &tag = String()) {
+std::vector<BoardPost> drain() {
   std::vector<BoardPost> found;
   uint32_t cursor = 0;
   BoardPost item;
-  while (readNextBoardPost(cursor, tag, item)) found.push_back(item);
+  while (readNextBoardPost(cursor, item)) found.push_back(item);
   return found;
 }
 
-void testRejectsEmptyAndBadLinks() {
-  std::printf("rejects empty posts and non-http links\n");
+void testWhatCountsAsAPost() {
+  std::printf("accepts a drawing, text, or both, and nothing else\n");
+  check(clearBoard(), "the board clears");
   String error;
-  check(!addBoardPost(String(""), String(""), String(""), 0, nullptr, 0, error),
+
+  check(!addBoardPost(String(""), 0, nullptr, 0, error),
         "an empty post is refused");
-  check(!addBoardPost(String("hi"), String("javascript:alert(1)"), String(""),
-                      0, nullptr, 0, error),
-        "a javascript: link is refused");
-  check(!addBoardPost(String("hi"), String("data:text/html,x"), String(""), 0,
-                      nullptr, 0, error),
-        "a data: link is refused");
-  check(addBoardPost(String("hi"), String("https://example.com/a.png"),
-                     String(""), 0, nullptr, 0, error),
-        "an https link is accepted");
+
+  const auto drawing = fakeJpeg(1024, 0x33);
+  check(addBoardPost(String("words alone"), 0, nullptr, 0, error),
+        "text alone is a post");
+  check(addBoardPost(String(""), 0, drawing.data(), drawing.size(), error),
+        "a drawing alone is a post");
+  check(addBoardPost(String("both"), 0, drawing.data(), drawing.size(), error),
+        "a drawing with text is a post");
+
+  const auto found = drain();
+  check(found.size() == 3, "all three stored");
+  if (found.size() == 3) {
+    check(found[0].text == String("both") && found[0].hasImage,
+          "the post with both keeps both");
+    check(found[1].text.length() == 0 && found[1].hasImage,
+          "the drawing-only post has no text");
+    check(found[2].text == String("words alone") && !found[2].hasImage,
+          "the text-only post has no picture");
+  }
 }
 
 void testNewestFirstOrdering() {
   std::printf("returns posts newest first\n");
   check(clearBoard(), "the board clears");
-  for (int i = 1; i <= 5; ++i) addOrDie(post(i), String(""), String(""));
+  for (int i = 1; i <= 5; ++i) addOrDie(post(i));
 
   const auto found = drain();
   check(found.size() == 5, "all five posts come back");
@@ -102,14 +114,12 @@ void testRingPrunesOldest() {
   check(clearBoard(), "the board clears");
 
   const uint16_t capacity = boardCapacity();
-  for (int i = 1; i <= capacity; ++i) addOrDie(post(i), String(""), String(""));
+  for (int i = 1; i <= capacity; ++i) addOrDie(post(i));
   check(boardStoredCount() == capacity, "the board fills to capacity");
 
   // Ten more posts than the ring holds: the first ten must be gone, the count
   // must not have grown, and nothing in between may be lost.
-  for (int i = capacity + 1; i <= capacity + 10; ++i) {
-    addOrDie(post(i), String(""), String(""));
-  }
+  for (int i = capacity + 1; i <= capacity + 10; ++i) addOrDie(post(i));
   check(boardStoredCount() == capacity, "the board stays at capacity");
 
   const auto found = drain();
@@ -135,7 +145,7 @@ void testCursorSurvivesReboot() {
   check(boardNewestId() == newestBefore, "the newest id is unchanged");
   check(boardStoredCount() == storedBefore, "the stored count is unchanged");
 
-  addOrDie(String("after reboot"), String(""), String(""));
+  addOrDie(String("after reboot"));
   const auto found = drain();
   check(!found.empty() && found[0].text == String("after reboot"),
         "a post after the reboot lands at the front");
@@ -143,50 +153,10 @@ void testCursorSurvivesReboot() {
         "ids continue from where they left off");
 }
 
-void testTagFilter() {
-  std::printf("filters by whole tag\n");
-  check(clearBoard(), "the board clears");
-  addOrDie(String("one"), String(""), String("skull altar"));
-  addOrDie(String("two"), String(""), String("bonepile"));
-  addOrDie(String("three"), String(""), String("bone"));
-
-  check(drain(String("skull")).size() == 1, "one post is tagged skull");
-  check(drain(String("bone")).size() == 1,
-        "bone does not also match bonepile");
-  check(drain(String("altar")).size() == 1, "one post is tagged altar");
-  check(drain(String("nothing")).empty(), "an unused tag matches nothing");
-  check(drain().size() == 3, "no filter returns everything");
-}
-
-void testTagNormalization() {
-  std::printf("normalizes tags\n");
-  check(clearBoard(), "the board clears");
-  addOrDie(String("x"), String(""), String("  SKULL,, Altar   bone_pile  "));
-
-  const auto found = drain();
-  check(found.size() == 1, "the post stored");
-  if (found.size() == 1) {
-    check(found[0].tags == String("skull altar bone_pile"),
-          "tags are lowercased, split and single spaced");
-  }
-
-  check(clearBoard(), "the board clears");
-  addOrDie(String("y"), String(""),
-           String("a b c d e f g h i j k l"));
-  const auto capped = drain();
-  if (capped.size() == 1) {
-    int spaces = 0;
-    for (size_t i = 0; i < capped[0].tags.length(); ++i) {
-      if (capped[0].tags[i] == ' ') ++spaces;
-    }
-    check(spaces == 7, "no more than eight tags are kept");
-  }
-}
-
 void testControlCharactersStripped() {
   std::printf("strips control characters from text\n");
   check(clearBoard(), "the board clears");
-  addOrDie(String("line\x01one\nline\ttwo"), String(""), String(""));
+  addOrDie(String("line\x01one\nline\ttwo"));
   const auto found = drain();
   check(found.size() == 1, "the post stored");
   if (found.size() == 1) {
@@ -200,15 +170,14 @@ void testImageRoundTrip() {
   check(clearBoard(), "the board clears");
 
   const auto image = fakeJpeg(2048, 0x5A);
-  addImageOrDie(String("with a picture"), image);
+  addImageOrDie(String("with a drawing"), image);
 
   const auto found = drain();
   check(found.size() == 1, "the post stored");
   check(!found.empty() && found[0].hasImage, "the post reports a picture");
 
   std::vector<uint8_t> out(BOARD_MAX_IMAGE_BYTES);
-  const size_t length =
-      readBoardImage(found[0].id, out.data(), out.size());
+  const size_t length = readBoardImage(found[0].id, out.data(), out.size());
   check(length == image.size(), "the picture comes back at its stored size");
   check(length == image.size() &&
             std::memcmp(out.data(), image.data(), length) == 0,
@@ -224,24 +193,16 @@ void testImageValidation() {
   String error;
 
   std::vector<uint8_t> notJpeg(64, 0x00);
-  check(!addBoardPost(String("x"), String(""), String(""), 0, notJpeg.data(),
-                      notJpeg.size(), error),
+  check(!addBoardPost(String("x"), 0, notJpeg.data(), notJpeg.size(), error),
         "a file that is not JPEG is refused");
 
   const auto tooBig = fakeJpeg(BOARD_MAX_IMAGE_BYTES + 1, 0x11);
-  check(!addBoardPost(String("x"), String(""), String(""), 0, tooBig.data(),
-                      tooBig.size(), error),
+  check(!addBoardPost(String("x"), 0, tooBig.data(), tooBig.size(), error),
         "a picture over the ceiling is refused");
 
   const auto atLimit = fakeJpeg(BOARD_MAX_IMAGE_BYTES, 0x22);
-  check(addBoardPost(String("x"), String(""), String(""), 0, atLimit.data(),
-                     atLimit.size(), error),
+  check(addBoardPost(String("x"), 0, atLimit.data(), atLimit.size(), error),
         "a picture exactly at the ceiling is accepted");
-
-  // A picture on its own, with no words and no link, is still a post.
-  check(addBoardPost(String(""), String(""), String(""), 0, atLimit.data(),
-                     atLimit.size(), error),
-        "a picture alone is a valid post");
 }
 
 // The point of the two rings: words outlive pictures.
@@ -303,16 +264,31 @@ int main() {
     return 1;
   }
 
-  testRejectsEmptyAndBadLinks();
+  testWhatCountsAsAPost();
   testNewestFirstOrdering();
   testRingPrunesOldest();
   testCursorSurvivesReboot();
-  testTagFilter();
-  testTagNormalization();
   testControlCharactersStripped();
   testImageRoundTrip();
   testImageValidation();
   testImagesPruneBeforePosts();
+  {
+    String error;
+    addBoardPost("device one", 1, nullptr, 0, error, 1234);
+    addBoardPost("device two", 2, nullptr, 0, error, 5678);
+    setupBoard();
+    uint32_t cursor = 0;
+    BoardPost post;
+    if (!readNextBoardPost(cursor, post) || post.authorId != 5678) ++failures;
+    if (!readNextBoardPost(cursor, post) || post.authorId != 1234) ++failures;
+    checks += 2;
+    auto ink = fakeJpeg(64, 0x31);
+    addBoardPost("ink text", 3, ink.data(), ink.size(), error, 1234, true);
+    setupBoard();
+    cursor = 0;
+    if (!readNextBoardPost(cursor, post) || post.authorId != 1234 || !post.textInImage || !post.hasImage) ++failures;
+    ++checks;
+  }
 
   std::printf("\n%d checks, %d failures\n", checks, failures);
   return failures == 0 ? 0 : 1;

@@ -1,38 +1,36 @@
 <!doctype html>
-<html lang="en">
+<html lang="es-MX">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#080910">
-  <title>Sneakreaper Badge Dashboard</title>
+  <meta name="theme-color" content="#151615">
+  <title>Santa Muerte // Ajustes</title>
+  <link rel="stylesheet" href="theme.css?v=24">
+  <link rel="icon" type="image/png" href="assets/logo-candle.png">
+  <script src="locale.js?v=12"></script>
   <style>
     :root {
       color-scheme:dark;
-      --bg:#080910;
-      --panel:rgba(24,26,39,.82);
-      --line:rgba(255,255,255,.12);
-      --text:#f7f7fb;
-      --muted:#a4aabd;
-      --pink:#ff3ea5;
-      --violet:#a624ff;
-      --blue:#638cff;
-      --green:#4ee49b;
-      --danger:#ff6b7a;
+      --bg:#151615;
+      --panel:#1e1f1c;
+      --line:#504d44;
+      --text:#ece6d8;
+      --muted:#a9a397;
+      --pink:#6f1d24;
+      --violet:#6f1d24;
+      --blue:#a47b36;
+      --green:#91a67d;
+      --danger:#b85a4d;
     }
     *{box-sizing:border-box}
     html{min-height:100%;background:var(--bg)}
     body{
       min-height:100vh;
       margin:0;
-      display:grid;
-      place-items:center;
-      padding:24px;
+      padding:20px 16px 64px;
       color:var(--text);
       font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-      background:
-        radial-gradient(circle at 8% 0%,rgba(166,36,255,.23),transparent 35%),
-        radial-gradient(circle at 100% 8%,rgba(255,62,165,.14),transparent 30%),
-        linear-gradient(145deg,#080910,#0e101a 58%,#090a11);
+      background:linear-gradient(90deg,#101110,#151615 52%,#101110);
     }
     body:before{
       content:"";
@@ -48,77 +46,10 @@
     }
     main{
       position:relative;
-      width:min(520px,100%);
+      width:min(680px,100%);
+      margin:0 auto;
       display:grid;
-      gap:14px;
-    }
-    .dashboard-button{
-      --accent:#fff;
-      position:relative;
-      min-height:82px;
-      padding:12px 17px;
-      display:flex;
-      align-items:center;
       gap:16px;
-      overflow:hidden;
-      border:1px solid var(--line);
-      border-radius:999px;
-      color:var(--text);
-      text-decoration:none;
-      background:linear-gradient(145deg,var(--panel),rgba(13,14,23,.94));
-      box-shadow:0 18px 55px rgba(0,0,0,.32);
-      backdrop-filter:blur(18px);
-      transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;
-    }
-    .dashboard-button:before{
-      content:"";
-      position:absolute;
-      inset:-70% -20% auto 35%;
-      height:170%;
-      border-radius:50%;
-      background:var(--accent);
-      filter:blur(42px);
-      opacity:.16;
-      pointer-events:none;
-    }
-    .dashboard-button:hover,.dashboard-button:focus-visible{
-      transform:translateY(-3px);
-      border-color:rgba(255,255,255,.30);
-      box-shadow:0 24px 68px rgba(0,0,0,.44);
-      outline:none;
-    }
-    .board{--accent:var(--violet)}
-    .led{--accent:var(--pink)}
-    .nfc{--accent:var(--blue)}
-    .icon{
-      position:relative;
-      flex:0 0 52px;
-      width:52px;
-      height:52px;
-      display:grid;
-      place-items:center;
-      border:1px solid rgba(255,255,255,.14);
-      border-radius:50%;
-      background:rgba(255,255,255,.07);
-      font-size:1.4rem;
-      font-weight:900;
-    }
-    .label{position:relative;flex:1;font-size:1.05rem;font-weight:850;letter-spacing:-.02em}
-    .arrow{
-      position:relative;
-      flex:0 0 36px;
-      width:36px;
-      height:36px;
-      display:grid;
-      place-items:center;
-      border-radius:50%;
-      background:rgba(255,255,255,.08);
-      font-size:1.1rem;
-      transition:transform .18s ease,background .18s ease;
-    }
-    .dashboard-button:hover .arrow,.dashboard-button:focus-visible .arrow{
-      transform:translateX(3px);
-      background:rgba(255,255,255,.14);
     }
     .settings{
       margin-top:6px;
@@ -257,7 +188,7 @@
     .save-button{
       width:100%;
       min-height:48px;
-      background:linear-gradient(90deg,#6d77ff,#a624ff 54%,#e63d9c);
+      background:var(--sm-maroon,#6f1d24);
       border-color:transparent;
       box-shadow:0 10px 28px rgba(127,60,255,.28);
     }
@@ -272,41 +203,63 @@
     }
     .status.ok{color:var(--green)}
     .status.error{color:var(--danger)}
+    .station-state{
+      margin:0 0 14px;
+      padding:11px 13px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:rgba(0,0,0,.17);
+      color:var(--muted);
+      font-size:.73rem;
+      line-height:1.5;
+    }
+    .station-state strong{display:block;color:var(--text);font-size:.8rem}
+    .station-state .station-detail{display:block;margin-top:5px;font-size:.66rem}
+    .station-state.connected{border-color:rgba(145,166,125,.6);color:#c8d9bb}
+    .station-state.connecting{border-color:rgba(164,123,54,.6)}
+    .home-password-help{margin:7px 3px 0;color:var(--muted);font-size:.66rem;line-height:1.45}
     @media(max-width:480px){
-      body{padding:14px}
-      .dashboard-button{min-height:74px;padding:10px 13px;gap:13px}
-      .icon{flex-basis:48px;width:48px;height:48px}
+      body{padding:14px 12px 56px}
       .settings{padding:17px;border-radius:22px}
     }
   </style>
 </head>
-<body>
-  <main aria-label="Badge dashboard">
-    <a class="dashboard-button board" href="/board">
-      <span class="icon" aria-hidden="true">&#9776;</span>
-      <span class="label">Message Board</span>
-      <span class="arrow" aria-hidden="true">&rarr;</span>
-    </a>
-    <a class="dashboard-button led" href="/led">
-      <span class="icon" aria-hidden="true">✦</span>
-      <span class="label">LED Studio</span>
-      <span class="arrow" aria-hidden="true">→</span>
-    </a>
-    <a class="dashboard-button nfc" href="/nfc">
-      <span class="icon" aria-hidden="true">⌁</span>
-      <span class="label">NFC Workbench</span>
-      <span class="arrow" aria-hidden="true">→</span>
-    </a>
+<body class="dashboard-page">
+  <main aria-label="Ajustes del badge">
+    <header class="saint-header">
+      <details class="nav-menu">
+        <summary aria-label="Abrir menú">
+          <img class="brand-mark" src="assets/logo-candle.png" alt="">
+        </summary>
+        <nav class="nav-menu-list" aria-label="Navegación del badge">
+          <a href="/board">Offerings</a>
+          <a href="/led">LED Studio</a>
+          <a href="/nfc">NFC Studio</a>
+        </nav>
+      </details>
+      <a class="saint-title" href="/board" aria-label="Santa Muerte"><span>Santa</span><span>Muerte</span></a>
+      <details class="nav-menu nav-menu--right">
+        <summary aria-label="Abrir menú">
+          <img class="brand-mark" src="assets/logo-candle.png" alt="">
+        </summary>
+        <nav class="nav-menu-list" aria-label="Navegación del badge">
+          <a href="/board">Offerings</a>
+          <a href="/led">LED Studio</a>
+          <a href="/nfc">NFC Studio</a>
+        </nav>
+      </details>
+    </header>
+    <div class="page-title"><h1>Ajustes</h1></div>
     <form class="settings" id="wifiForm">
-      <div class="settings-title">Wi-Fi Settings</div>
-      <div class="ssid" id="ssidValue">Loading network…</div>
+      <div class="settings-title">Acceso al badge // Wi-Fi</div>
+      <div class="ssid" id="ssidValue">Cargando red…</div>
 
-      <label class="field-label" for="wifiPassword">Wi-Fi password</label>
+      <label class="field-label" for="wifiPassword">Contraseña Wi-Fi</label>
       <div class="password-row">
         <input
           id="wifiPassword"
           name="password"
-          type="text"
+          type="password"
           minlength="8"
           maxlength="63"
           pattern="[ -~]{8,63}"
@@ -316,24 +269,23 @@
           autocomplete="off"
           aria-describedby="passwordHelp wifiStatus"
           required>
-        <button class="small-button" id="showPassword" type="button">Hide</button>
+        <button class="small-button" id="showPassword" type="button">Ver</button>
       </div>
       <div class="password-help" id="passwordHelp">
-        Shown in the clear so it can be read off the badge and passed on. The
-        badge generates three themed words; any 8–63 printable ASCII characters
-        are accepted.
+        Toca «Ver» para leerla y pasarla. El badge crea tres palabras con tema;
+        acepta 8–63 caracteres ASCII.
       </div>
 
       <div class="toggle-row">
         <div class="toggle-copy">
-          <strong>Hide SSID</strong>
-          <span>Hidden networks must be entered manually.</span>
+          <strong>Ocultar SSID</strong>
+          <span>Las redes ocultas se escriben a mano.</span>
         </div>
         <label class="switch">
           <input
             id="hideSsid"
             type="checkbox"
-            aria-label="Hide SSID"
+            aria-label="Ocultar SSID"
             aria-describedby="hiddenSsidWarning">
           <span class="slider"></span>
         </label>
@@ -345,19 +297,58 @@
         role="alert"
         aria-live="assertive"
         hidden>
-        <strong>Warning: save the exact SSID shown above.</strong>
-        If your phone forgets this hidden network and you no longer know its
-        SSID, you cannot reconnect through Wi-Fi. Recovery will require serial
-        access or a full flash erase and reflash of the badge.
+        <strong>Ojo: guarda el SSID tal cual aparece arriba.</strong>
+        Si tu teléfono olvida esta red y ya no sabes su SSID, no podrás volver a
+        entrar por Wi-Fi. Toca usar serial o borrar y cargar el badge otra vez.
       </div>
 
-      <button class="save-button" id="saveWifi" type="submit">Apply Wi-Fi Settings</button>
+      <div class="toggle-row">
+        <div class="toggle-copy">
+          <strong>Punto de acceso del badge</strong>
+          <span>Modo Santa Muerte. Apágalo para cambiar a la red de casa guardada.</span>
+        </div>
+        <label class="switch">
+          <input id="accessPointEnabled" type="checkbox" aria-label="Punto de acceso del badge" aria-describedby="accessPointWarning">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="ssid-warning" id="accessPointWarning" role="alert" aria-live="assertive" hidden>
+        <strong>Ojo: apagarlo desconecta esta página.</strong>
+        El badge cambiará a la red de casa guardada. Si no llega, conecta USB y presiona <b>a</b> para volver al modo Santa Muerte.
+      </div>
+
+      <button class="save-button" id="saveWifi" type="submit">Guardar Wi-Fi</button>
       <div class="status" id="wifiStatus" role="status" aria-live="polite"></div>
     </form>
+
+    <form class="settings" id="stationWifiForm">
+      <div class="settings-title">Cambiar al Wi-Fi de casa</div>
+      <div class="station-state" id="stationState" role="status" aria-live="polite">
+        <strong>Red de casa sin configurar.</strong>
+        Cuando se conecte, abre <b>http://SantaMuerte.local/</b> o la IP local que sale aquí.
+      </div>
+
+      <label class="field-label" for="stationSsid">Nombre de red (SSID)</label>
+      <input id="stationSsid" name="ssid" type="text" maxlength="32" autocapitalize="none" spellcheck="false" autocomplete="off" required>
+
+      <label class="field-label" for="stationPassword" style="margin-top:16px">Contraseña de red</label>
+      <div class="password-row">
+        <input id="stationPassword" name="password" type="password" minlength="8" maxlength="63" pattern="[ -~]{8,63}" inputmode="text" autocapitalize="none" spellcheck="false" autocomplete="current-password" required>
+        <button class="small-button" id="showStationPassword" type="button">Ver</button>
+      </div>
+      <div class="home-password-help">La contraseña se guarda en el badge y no vuelve a mostrarse. Escríbela cada vez que cambies esta conexión.</div>
+
+      <button class="save-button" id="connectStationWifi" type="submit" style="margin-top:16px">Guardar y cambiar de red</button>
+      <div class="status" id="stationWifiStatus" role="status" aria-live="polite"></div>
+    </form>
+    <footer class="saint-footer">
+      <span>SANTA MUERTE // ESP32 // SOLO LOCAL</span>
+      <div class="footer-language"></div>
+    </footer>
   </main>
 
   <script>
-            const form = document.getElementById('wifiForm');
+    const form = document.getElementById('wifiForm');
     const passwordInput = document.getElementById('wifiPassword');
     const hiddenInput = document.getElementById('hideSsid');
     const showButton = document.getElementById('showPassword');
@@ -365,11 +356,23 @@
     const statusNode = document.getElementById('wifiStatus');
     const ssidNode = document.getElementById('ssidValue');
     const hiddenSsidWarning = document.getElementById('hiddenSsidWarning');
+    const accessPointEnabled = document.getElementById('accessPointEnabled');
+    const accessPointWarning = document.getElementById('accessPointWarning');
+    const stationForm = document.getElementById('stationWifiForm');
+    const stationSsidInput = document.getElementById('stationSsid');
+    const stationPasswordInput = document.getElementById('stationPassword');
+    const showStationPassword = document.getElementById('showStationPassword');
+    const connectStationWifi = document.getElementById('connectStationWifi');
+    const stationState = document.getElementById('stationState');
+    const stationStatus = document.getElementById('stationWifiStatus');
 
     // WPA2 accepts 8 to 63 printable-ASCII characters, which is exactly what
     // the firmware's isValidPassword() enforces before writing to NVS.
     const ALLOWED_PASSWORD = /^[\x20-\x7E]+$/;
-    const RUNNING_ON_BADGE = location.hostname === '10.10.10.100';
+    // The client interface is reachable from the badge AP, a DHCP address on
+    // the home LAN, and SantaMuerte.local. Only local static previews lack its
+    // API; checking a fixed access-point IP would break the latter two paths.
+    const RUNNING_ON_BADGE = !['localhost', '127.0.0.1', '::1'].includes(location.hostname);
 
     function setStatus(message, kind = '') {
       statusNode.textContent = message;
@@ -380,13 +383,17 @@
       hiddenSsidWarning.hidden = !hiddenInput.checked;
     }
 
+    function updateAccessPointWarning() {
+      accessPointWarning.hidden = accessPointEnabled.checked;
+    }
+
     function passwordError(value) {
       if (value.length < 8 || value.length > 63) {
-        return 'Password must be 8 to 63 characters.';
+        return 'La contraseña debe tener 8 a 63 caracteres.';
       }
 
       if (!ALLOWED_PASSWORD.test(value)) {
-        return 'Use printable ASCII only. Accented letters and emoji cannot be stored in a WPA2 passphrase.';
+        return 'Usa ASCII visible. Letras con acento y emoji no caben en la clave WPA2.';
       }
 
       return '';
@@ -405,7 +412,7 @@
       }
 
       if (announce) {
-        setStatus(valid ? 'Password is valid.' : error, valid ? 'ok' : 'error');
+        setStatus(valid ? 'Contraseña válida.' : error, valid ? 'ok' : 'error');
       }
 
       return valid;
@@ -418,19 +425,69 @@
       if (!contentType.toLowerCase().includes('application/json')) {
         if (/^\s*</.test(responseText)) {
           throw new Error(
-            'Wi-Fi settings are available only when this dashboard is opened from the badge.'
+            'Los ajustes de Wi-Fi solo salen al abrir esto desde el badge.'
           );
         }
 
         throw new Error(
-          `The badge returned an unexpected response (${response.status}).`
+          `El badge respondió raro (${response.status}).`
         );
       }
 
       try {
         return JSON.parse(responseText);
       } catch {
-        throw new Error('The badge returned invalid Wi-Fi settings data.');
+        throw new Error('El badge mandó datos de Wi-Fi inválidos.');
+      }
+    }
+
+    function setStationStatus(message, kind = '') {
+      stationStatus.textContent = message;
+      stationStatus.className = `status ${kind}`.trim();
+    }
+
+    function localize(message) {
+      return window.PortalLocale ? window.PortalLocale.convert(message, window.PortalLocale.locale) : message;
+    }
+
+    function stationCredentialError() {
+      const ssidLength = new TextEncoder().encode(stationSsidInput.value.trim()).length;
+      if (ssidLength < 1 || ssidLength > 32) {
+        return 'El nombre de red debe tener 1 a 32 bytes.';
+      }
+      return passwordError(stationPasswordInput.value);
+    }
+
+    function renderStationState(state) {
+      const hostname = state.hostname || 'SantaMuerte.local';
+      const connected = Boolean(state.connected);
+      const configured = Boolean(state.configured);
+      stationState.className = `station-state ${connected ? 'connected' : configured ? 'connecting' : ''}`.trim();
+      const address = connected ? `http://${state.ip}/` : 'la IP local que sale aquí';
+      const dhcpName = state.dhcpHostname || 'SantaMuerte';
+      stationState.innerHTML = `<strong>${localize(state.status || 'Red de casa sin configurar.')}</strong>${localize('Abre el badge en')} <b>http://${hostname}/</b> ${localize('o')} <b>${address}</b>.<span class="station-detail">${localize('Nombre enviado al router:')} <b>${dhcpName}</b></span>`;
+    }
+
+    async function loadStationSettings({quiet = false} = {}) {
+      if (!RUNNING_ON_BADGE) {
+        stationSsidInput.disabled = true;
+        stationPasswordInput.disabled = true;
+        showStationPassword.disabled = true;
+        connectStationWifi.disabled = true;
+        renderStationState({status:'Abre esta página desde el badge para conectar una red de casa.'});
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/wifi/client', {cache:'no-store'});
+        const state = await readJsonResponse(response);
+        if (!response.ok || !state.ok) throw new Error(state.message || 'No cargó la red de casa.');
+        stationSsidInput.value = String(state.ssid || '');
+        stationPasswordInput.value = '';
+        renderStationState(state);
+        if (!quiet) setStationStatus('');
+      } catch (error) {
+        setStationStatus(error.message || 'No cargó la red de casa.', 'error');
       }
     }
 
@@ -443,13 +500,16 @@
         passwordInput.disabled = true;
         hiddenInput.disabled = true;
         hiddenInput.checked = false;
+        accessPointEnabled.disabled = true;
+        accessPointEnabled.checked = true;
         updateHiddenSsidWarning();
+        updateAccessPointWarning();
         showButton.disabled = true;
         saveButton.disabled = true;
         passwordInput.classList.remove('password-valid', 'password-invalid');
         passwordInput.setAttribute('aria-invalid', 'false');
         setStatus(
-          'Open this page from the badge at 10.10.10.100 to view or change Wi-Fi settings.'
+          'Abre esta página desde el badge en 10.69.4.20 para ver o cambiar el Wi-Fi.'
         );
         return;
       }
@@ -458,13 +518,15 @@
         const response = await fetch('/api/wifi/settings', {cache:'no-store'});
         const state = await readJsonResponse(response);
         if (!response.ok || !state.ok) {
-          throw new Error(state.message || 'Could not load settings.');
+          throw new Error(state.message || 'No cargaron los ajustes.');
         }
 
         ssidNode.textContent = `SSID: ${state.ssid}`;
         passwordInput.value = String(state.password || '');
         hiddenInput.checked = Boolean(state.hidden);
+        accessPointEnabled.checked = state.apEnabled !== false;
         updateHiddenSsidWarning();
+        updateAccessPointWarning();
         updatePasswordState({announce:false});
         setStatus('');
       } catch (error) {
@@ -472,7 +534,7 @@
         passwordInput.classList.add('password-invalid');
         passwordInput.setAttribute('aria-invalid', 'true');
         saveButton.disabled = true;
-        setStatus(error.message || 'Could not load Wi-Fi settings.', 'error');
+        setStatus(error.message || 'No cargaron los ajustes de Wi-Fi.', 'error');
       }
     }
 
@@ -480,19 +542,45 @@
       updateHiddenSsidWarning();
     });
 
+    accessPointEnabled.addEventListener('change', async () => {
+      const enabled = accessPointEnabled.checked;
+      updateAccessPointWarning();
+      accessPointEnabled.disabled = true;
+      setStatus(enabled ? 'Encendiendo el punto de acceso…' : 'Apagando el punto de acceso…');
+      try {
+        const body = new URLSearchParams({enabled: enabled ? '1' : '0'});
+        const response = await fetch('/api/wifi/ap', {
+          method:'POST',
+          headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
+          body
+        });
+        const state = await readJsonResponse(response);
+        if (!response.ok || !state.ok) throw new Error(state.message || 'No cambió el punto de acceso.');
+        setStatus(state.message, 'ok');
+      } catch (error) {
+        accessPointEnabled.checked = !enabled;
+        updateAccessPointWarning();
+        setStatus(error.message || 'No cambió el punto de acceso.', 'error');
+      } finally {
+        accessPointEnabled.disabled = !RUNNING_ON_BADGE;
+      }
+    });
+
     // Keep all entered and pasted characters visible. Invalid input is marked
     // red and cannot be submitted; the page never strips or rewrites it.
     passwordInput.addEventListener('input', () => {
-      saveButton.textContent = 'Apply Wi-Fi Settings';
+      saveButton.textContent = 'Guardar Wi-Fi';
       updatePasswordState();
     });
 
-    // The password starts visible: it is meant to be read aloud and handed
-    // out, and the NFC record carries it in the clear anyway.
+    // The password starts masked. It is still meant to be read aloud and handed
+    // out -- Ver reveals it, and the serial console prints it on demand -- but
+    // this page is the one thing a stranger might be looking over your shoulder
+    // at, so revealing it is a deliberate act rather than the default.
     showButton.addEventListener('click', () => {
       const showing = passwordInput.type === 'text';
       passwordInput.type = showing ? 'password' : 'text';
-      showButton.textContent = showing ? 'Show' : 'Hide';
+      showButton.textContent = showing ? 'Ver' : 'Ocultar';
     });
 
     form.addEventListener('submit', async event => {
@@ -505,7 +593,7 @@
 
       saveButton.dataset.saving = 'true';
       saveButton.disabled = true;
-      setStatus('Saving settings…');
+      setStatus('Guardando…');
 
       try {
         const body = new URLSearchParams({
@@ -519,19 +607,62 @@
         });
         const state = await readJsonResponse(response);
         if (!response.ok || !state.ok) {
-          throw new Error(state.message || 'Could not save settings.');
+          throw new Error(state.message || 'No se guardaron los ajustes.');
         }
 
         setStatus(state.message, 'ok');
-        saveButton.textContent = 'Reconnect to Badge';
+        saveButton.textContent = 'Reconectar al badge';
       } catch (error) {
         delete saveButton.dataset.saving;
         updatePasswordState({announce:false});
-        setStatus(error.message || 'Could not save Wi-Fi settings.', 'error');
+        setStatus(error.message || 'No se guardaron los ajustes de Wi-Fi.', 'error');
+      }
+    });
+
+    showStationPassword.addEventListener('click', () => {
+      const showing = stationPasswordInput.type === 'text';
+      stationPasswordInput.type = showing ? 'password' : 'text';
+      showStationPassword.textContent = showing ? 'Ver' : 'Ocultar';
+    });
+
+    stationForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      const error = stationCredentialError();
+      if (error) {
+        setStationStatus(error, 'error');
+        (stationSsidInput.value.trim() ? stationPasswordInput : stationSsidInput).focus();
+        return;
+      }
+
+      connectStationWifi.disabled = true;
+      accessPointEnabled.checked = false;
+      updateAccessPointWarning();
+      setStationStatus('Guardando y cambiando de red…');
+      try {
+        const body = new URLSearchParams({
+          ssid: stationSsidInput.value.trim(),
+          password: stationPasswordInput.value
+        });
+        const response = await fetch('/api/wifi/client', {
+          method:'POST',
+          headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
+          body
+        });
+        const state = await readJsonResponse(response);
+        if (!response.ok || !state.ok) throw new Error(state.message || 'No se guardó la red de casa.');
+        stationPasswordInput.value = '';
+        renderStationState(state);
+        setStationStatus(state.message || 'Guardado. Cambiando de red…', 'ok');
+        window.setTimeout(() => loadStationSettings({quiet:true}), 1200);
+      } catch (error) {
+        setStationStatus(error.message || 'No se guardó la red de casa.', 'error');
+      } finally {
+        connectStationWifi.disabled = !RUNNING_ON_BADGE;
       }
     });
 
     loadSettings();
+    loadStationSettings();
   </script>
 </body>
 </html>

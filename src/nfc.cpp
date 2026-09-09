@@ -48,6 +48,17 @@ constexpr size_t MAX_TAG_EMULATION_PAYLOAD_BYTES = 220;
 constexpr size_t MAX_EMULATED_NDEF_BYTES = 240;
 constexpr uint8_t MAX_TARGET_READ_BYTES = 59;
 
+// Capture mode. A tag left sitting on the antenna re-activates on every poll,
+// so the same UID is ignored until it has been away for this long. Polling is
+// slower than an operator-initiated read: nothing is waiting on it, and the
+// PN532 runs cooler for it.
+constexpr uint32_t CAPTURE_POLL_INTERVAL_MS = 400;
+constexpr uint32_t CAPTURE_REPEAT_MS = 8000;
+// Two empty polls, about a second, before a tag counts as taken away.
+constexpr uint8_t CAPTURE_CLEAR_MISSES = 2;
+constexpr size_t MAX_CAPTURE_BYTES = 280;  // BOARD_MAX_TEXT_LENGTH
+constexpr uint8_t CAPTURE_QUEUE_DEPTH = 4;
+
 // Wi-Fi Simple Configuration (WSC) attribute identifiers. Values are encoded
 // big-endian inside an application/vnd.wfa.wsc MIME NDEF record.
 constexpr uint16_t WSC_CREDENTIAL = 0x100E;
@@ -141,7 +152,7 @@ struct NfcState {
   bool busy = false;
   bool writable = false;
   String status = "offline";
-  String message = "PN532 has not been initialized.";
+  String message = "El PN532 no ha iniciado.";
   String uid;
   String tagType;
   String recordType;
@@ -154,9 +165,13 @@ struct NfcState {
   bool emulationReaderConnected = false;
   String emulatedRecordType;
   String emulatedPayload;
-  String emulationMessage = "Tag emulation is stopped.";
+  String emulationMessage = "La emulación está parada.";
   uint32_t tagScans = 0;
   uint32_t lastTagScanAt = 0;
+
+  bool captureEnabled = false;
+  uint32_t captureCount = 0;
+  String captureMessage = "La Ofrenda NFC está apagada.";
 
   // Internal published-state field used by the Wi-Fi settings workflow.
   bool wifiOnboardingActive = false;
@@ -169,11 +184,13 @@ enum class NfcCommandType : uint8_t {
   START_TEXT_EMULATION,
   START_URL_EMULATION,
   START_WIFI_ONBOARDING,
-  STOP_EMULATION
+  STOP_EMULATION,
+  SET_CAPTURE
 };
 
 struct NfcCommand {
   NfcCommandType type = NfcCommandType::READ;
+  bool flag = false;
   char payload[MAX_WEB_PAYLOAD_BYTES + 1] = {};
   char ssid[NFC_WIFI_SSID_BUFFER_SIZE] = {};
   char password[NFC_WIFI_PASSWORD_BUFFER_SIZE] = {};
@@ -184,6 +201,7 @@ struct NfcCommand {
 NfcState state;
 NfcState publishedState;
 QueueHandle_t nfcCommandQueue = nullptr;
+QueueHandle_t nfcCaptureQueue = nullptr;
 SemaphoreHandle_t nfcStateMutex = nullptr;
 TaskHandle_t nfcTaskHandle = nullptr;
 bool commandPending = false;
@@ -194,6 +212,53 @@ uint32_t operationDeadline = 0;
 uint32_t lastPoll = 0;
 uint32_t lastPollProgress = 0;
 uint32_t pollAttempts = 0;
+uint32_t lastCapturePoll = 0;
+uint8_t captureMisses = 0;
+String lastCaptureUid;
+uint32_t lastCaptureAt = 0;
+
+// Emulation is started and stopped from the page, so a badge being fiddled
+// with would otherwise write NVS on every tap. Save only once the radio has
+// held the same mode for a moment.
+constexpr uint32_t NFC_SETTINGS_SAVE_DELAY_MS = 1500;
+constexpr uint32_t NFC_SETTINGS_POLL_MS = 250;
+uint32_t lastNfcPersistencePoll = 0;
+bool nfcPersistenceArmed = false;
+bool haveObservedNfcSettings = false;
+StoredNfcSettings observedNfcSettings = {};
+uint32_t observedNfcSettingsAt = 0;
+
+bool sameNfcSettings(const StoredNfcSettings &a, const StoredNfcSettings &b) {
+  return a.mode == b.mode && a.offeringEnabled == b.offeringEnabled &&
+         strncmp(a.payload, b.payload, sizeof(a.payload)) == 0;
+}
+
+// Reads only the fields the stored record needs, straight out of the published
+// state and into fixed buffers.
+//
+// The obvious version -- copy the whole NfcState and pick fields off it -- was
+// a heap disaster: NfcState carries eleven Strings, so every call allocated and
+// freed eleven blocks, and loop() called it about a thousand times a second.
+// That churn fragments the heap until a board write, which needs one large
+// contiguous block for a base64 drawing, can no longer be satisfied.
+bool nfcSettingsSnapshotLocked(StoredNfcSettings &settings) {
+  if (!publishedState.readerReady) return false;
+
+  settings = {};
+  settings.offeringEnabled = publishedState.captureEnabled;
+
+  if (!publishedState.tagEmulationEnabled) {
+    settings.mode = NFC_MODE_STOPPED;
+  } else if (publishedState.wifiOnboardingActive) {
+    settings.mode = NFC_MODE_WIFI;
+  } else {
+    settings.mode =
+        publishedState.emulatedRecordType == "URL" ? NFC_MODE_URL : NFC_MODE_TEXT;
+    strncpy(settings.payload, publishedState.emulatedPayload.c_str(),
+            sizeof(settings.payload) - 1);
+  }
+  return true;
+}
 
 enum class EmulatedFile : uint8_t {
   NONE,
@@ -378,7 +443,7 @@ bool configurePassiveReader(const char *reason) {
   if (!nfc.SAMConfig()) {
     state.readerReady = false;
     state.status = "offline";
-    state.message = "PN532 SAM configuration failed while entering reader mode.";
+    state.message = "Falló la configuración SAM del PN532.";
     state.updatedAt = millis();
     Serial.println("[NFC][READER] ERROR: SAMConfig failed");
     return false;
@@ -387,7 +452,7 @@ bool configurePassiveReader(const char *reason) {
   if (!nfc.setPassiveActivationRetries(PASSIVE_ACTIVATION_RETRIES)) {
     state.readerReady = false;
     state.status = "offline";
-    state.message = "PN532 passive-target retry configuration failed.";
+    state.message = "Falló la configuración de reintentos del PN532.";
     state.updatedAt = millis();
     Serial.println("[NFC][READER] ERROR: setPassiveActivationRetries failed");
     return false;
@@ -405,7 +470,7 @@ bool beginOperation(NfcOperation operation, const String &message) {
     Serial.printf("[NFC][REJECT] %s: PN532 reader is not available\n",
                   operationName(operation));
     state.status = "error";
-    state.message = "PN532 reader is not available.";
+    state.message = "El lector PN532 no está disponible.";
     state.updatedAt = millis();
     return false;
   }
@@ -413,14 +478,14 @@ bool beginOperation(NfcOperation operation, const String &message) {
     Serial.printf("[NFC][REJECT] %s: tag emulation is active\n",
                   operationName(operation));
     state.status = "error";
-    state.message = "Stop tag emulation before reading or writing an external tag.";
+    state.message = "Para la emulación antes de leer o escribir otro tag.";
     state.updatedAt = millis();
     return false;
   }
   if (state.busy) {
     Serial.printf("[NFC][REJECT] %s: %s is already active\n",
                   operationName(operation), operationName(pendingOperation));
-    state.message = "Another NFC operation is already waiting for a tag.";
+    state.message = "Ya hay otra acción NFC esperando un tag.";
     state.updatedAt = millis();
     return false;
   }
@@ -455,7 +520,7 @@ bool beginOperation(NfcOperation operation, const String &message) {
 // -----------------------------------------------------------------------------
 bool readType2Page(uint16_t page, uint8_t output[TYPE2_PAGE_BYTES]) {
   if (page > 230U) {
-    type2IoError = "Type 2 page address is outside the NTAG2xx range.";
+    type2IoError = "La página Type 2 queda fuera del rango NTAG2xx.";
     return false;
   }
 
@@ -474,8 +539,8 @@ bool readType2Page(uint16_t page, uint8_t output[TYPE2_PAGE_BYTES]) {
     yield();
   }
 
-  type2IoError = "Failed to read Type 2 page " + String(page) +
-                 " after " + String(TYPE2_READ_RETRIES) + " attempts.";
+  type2IoError = "No se pudo leer la página Type 2 " + String(page) +
+                 " después de " + String(TYPE2_READ_RETRIES) + " intentos.";
   Serial.printf("[NFC] ERROR: %s\n", type2IoError.c_str());
   return false;
 }
@@ -483,7 +548,7 @@ bool readType2Page(uint16_t page, uint8_t output[TYPE2_PAGE_BYTES]) {
 bool writeType2PageVerified(uint16_t page,
                             const uint8_t data[TYPE2_PAGE_BYTES]) {
   if (page < 4U || page > 225U) {
-    type2IoError = "Refusing to write outside the NTAG2xx user-page range.";
+    type2IoError = "No se escribe fuera del rango de usuario NTAG2xx.";
     return false;
   }
 
@@ -517,7 +582,7 @@ bool writeType2PageVerified(uint16_t page,
     yield();
   }
 
-  type2IoError = "Failed to write and verify Type 2 page " + String(page) + ".";
+  type2IoError = "No se pudo escribir y verificar la página Type 2 " + String(page) + ".";
   Serial.printf("[NFC] ERROR: %s\n", type2IoError.c_str());
   return false;
 }
@@ -525,7 +590,7 @@ bool writeType2PageVerified(uint16_t page,
 bool loadType2Bytes(size_t requiredBytes, size_t capacity,
                     size_t &loadedBytes) {
   if (requiredBytes > capacity || requiredBytes > MAX_TYPE2_USER_BYTES) {
-    type2IoError = "The Type 2 TLV length exceeds the tag's advertised capacity.";
+    type2IoError = "El largo TLV Type 2 pasa la capacidad del tag.";
     return false;
   }
 
@@ -545,8 +610,8 @@ bool loadType2Bytes(size_t requiredBytes, size_t capacity,
 
 bool parseNdefRecord(const uint8_t *message, size_t messageLength) {
   if (messageLength < 4) {
-    state.recordType = "Unknown";
-    state.payload = "The NDEF message is too short to decode.";
+    state.recordType = "Desconocido";
+    state.payload = "El mensaje NDEF es muy corto para leerlo.";
     return false;
   }
 
@@ -600,7 +665,7 @@ bool parseNdefRecord(const uint8_t *message, size_t messageLength) {
     const uint8_t languageLength = status & 0x3F;
     if (1U + languageLength > payloadLength) return false;
     if (utf16) {
-      state.payload = "UTF-16 text record detected; this UI currently displays UTF-8 text only.";
+      state.payload = "Se detectó texto UTF-16; aquí solo se muestra UTF-8.";
       return true;
     }
     state.payload = bytesToString(payload + 1 + languageLength,
@@ -626,7 +691,7 @@ bool parseNdefRecord(const uint8_t *message, size_t messageLength) {
   }
 
   state.recordType = "NDEF";
-  state.payload = "Unsupported NDEF record type. Raw message bytes are shown below.";
+  state.payload = "Tipo de registro NDEF no compatible. Abajo salen los bytes crudos.";
   return true;
 }
 
@@ -644,8 +709,8 @@ bool readUnformattedType2Preview() {
 
   state.recordType = "Raw";
   state.payload =
-      "The tag responds like Type 2 memory, but it is not NFC Forum NDEF formatted. "
-      "The first available user pages are shown as raw bytes.";
+      "El tag responde como memoria Type 2, pero no está en formato NDEF. "
+      "Abajo salen sus primeros bytes.";
   state.raw = bytesToHex(preview, bytesRead);
   state.capacity = 0;
   state.writable = false;
@@ -663,8 +728,8 @@ bool readType2Tag(bool &type2MemoryResponded) {
   logType2Page("CAPABILITY", 3, capability);
 
   if (capability[0] != 0xE1) {
-    state.tagType = "Type 2-compatible memory (not NDEF formatted)";
-    state.message = "Type 2 memory was detected without a valid capability container.";
+    state.tagType = "Memoria compatible con Type 2 (sin formato NDEF)";
+    state.message = "Se vio memoria Type 2, pero sin contenedor válido.";
     return readUnformattedType2Preview();
   }
 
@@ -682,7 +747,7 @@ bool readType2Tag(bool &type2MemoryResponded) {
 
   if (state.capacity == 0) {
     state.recordType = "None";
-    state.payload = "The tag reports no user memory.";
+    state.payload = "El tag no tiene memoria de usuario.";
     return true;
   }
 
@@ -715,7 +780,7 @@ bool readType2Tag(bool &type2MemoryResponded) {
     }
 
     if (tlvLength > state.capacity - offset) {
-      type2IoError = "The tag contains a TLV length larger than its data area.";
+      type2IoError = "El tag trae un largo TLV mayor que su área de datos.";
       return false;
     }
 
@@ -728,7 +793,7 @@ bool readType2Tag(bool &type2MemoryResponded) {
     if (tlvType == 0x03) {
       if (tlvLength == 0) {
         state.recordType = "Empty";
-        state.payload = "This tag contains an empty NDEF message.";
+        state.payload = "Este tag trae un mensaje NDEF vacío.";
         state.raw = String();
         return true;
       }
@@ -740,7 +805,7 @@ bool readType2Tag(bool &type2MemoryResponded) {
       state.raw = bytesToHex(type2Buffer + offset, tlvLength, 320);
       if (!parseNdefRecord(type2Buffer + offset, tlvLength)) {
         state.recordType = "NDEF";
-        state.payload = "NDEF data was found but could not be decoded.";
+        state.payload = "Hay datos NDEF, pero no se pudieron leer.";
       }
 
 #if NFC_DEBUG_VERBOSE
@@ -755,7 +820,7 @@ bool readType2Tag(bool &type2MemoryResponded) {
   }
 
   state.recordType = "None";
-  state.payload = "No NDEF message was found on the tag.";
+  state.payload = "No se encontró mensaje NDEF en el tag.";
   state.raw = String();
   return true;
 }
@@ -763,11 +828,11 @@ bool readType2Tag(bool &type2MemoryResponded) {
 bool buildNdef(const String &recordType, const String &input, size_t capacity,
                size_t &totalLength, String &error) {
   if (input.length() == 0) {
-    error = "Enter text or a URL before writing.";
+    error = "Escribe texto o una URL antes de guardar.";
     return false;
   }
   if (input.length() > MAX_WEB_PAYLOAD_BYTES) {
-    error = "The payload exceeds the 700-byte controller limit.";
+    error = "El contenido pasa el límite de 700 bytes.";
     return false;
   }
 
@@ -792,7 +857,7 @@ bool buildNdef(const String &recordType, const String &input, size_t capacity,
   totalLength = tlvHeaderLength + ndefLength + 1U;  // terminator TLV
 
   if (totalLength > capacity || totalLength > MAX_TYPE2_USER_BYTES) {
-    error = "The NDEF record is too large for this tag.";
+    error = "El registro NDEF pesa mucho para este tag.";
     return false;
   }
 
@@ -883,25 +948,24 @@ bool prepareType2ForWrite(uint16_t &capacity, String &error) {
   uint8_t capability[TYPE2_PAGE_BYTES];
   if (!readType2Page(3, capability)) {
     error = type2IoError.length() ? type2IoError
-                                  : "The Type 2 capability page could not be read.";
+                                  : "No se pudo leer la página de capacidad Type 2.";
     return false;
   }
   logType2Page("WRITE capability", 3, capability);
   if (capability[0] != 0xE1) {
     error =
-        "This tag is not NFC Forum Type 2 formatted. Automatic formatting is "
-        "disabled because writing the capability container without positively "
-        "identifying the chip could permanently alter an incompatible tag.";
+        "Este tag no está en formato NFC Forum Type 2. No se formatea solo "
+        "porque eso podría cambiar un chip incompatible.";
     return false;
   }
   if ((capability[3] & 0x0F) == 0x0F) {
-    error = "This tag reports that its NDEF data is read-only.";
+    error = "Este tag dice que su NDEF es solo lectura.";
     return false;
   }
   capacity = std::min<uint16_t>(static_cast<uint16_t>(capability[2]) * 8U,
                                 static_cast<uint16_t>(MAX_TYPE2_USER_BYTES));
   if (capacity == 0) {
-    error = "The tag reports no writable user memory.";
+    error = "Este tag no tiene memoria para escribir.";
     return false;
   }
   return true;
@@ -933,11 +997,11 @@ bool appendWscAttribute(uint8_t *buffer, size_t capacity, size_t &offset,
 bool buildWifiOnboardingNdef(const String &ssid, const String &password,
                              const uint8_t apMac[6], String &error) {
   if (ssid.length() == 0 || ssid.length() > 32U) {
-    error = "The generated Wi-Fi SSID is empty or exceeds 32 bytes.";
+    error = "El SSID está vacío o pasa de 32 bytes.";
     return false;
   }
   if (password.length() < 8U || password.length() > 63U) {
-    error = "The Wi-Fi password must contain 8 to 63 characters.";
+    error = "La contraseña debe tener 8 a 63 caracteres.";
     return false;
   }
 
@@ -976,7 +1040,7 @@ bool buildWifiOnboardingNdef(const String &ssid, const String &password,
                          WSC_MAC_ADDRESS, mac, 6);
 
   if (!attributesBuilt) {
-    error = "The Wi-Fi credential attributes exceed the emulated tag buffer.";
+    error = "Los datos de Wi-Fi no caben en el tag emulado.";
     return false;
   }
 
@@ -984,7 +1048,7 @@ bool buildWifiOnboardingNdef(const String &ssid, const String &password,
   size_t wscPayloadLength = 0;
   if (!appendWscAttribute(wscPayload, sizeof(wscPayload), wscPayloadLength,
                           WSC_CREDENTIAL, credential, credentialLength)) {
-    error = "The Wi-Fi credential could not be wrapped in a WSC record.";
+    error = "No se pudo armar el registro WSC de Wi-Fi.";
     return false;
   }
 
@@ -1001,7 +1065,7 @@ bool buildWifiOnboardingNdef(const String &ssid, const String &password,
 
   if (wscPayloadLength > 255U || textPayloadLength > 255U ||
       ndefLength > MAX_EMULATED_NDEF_BYTES) {
-    error = "The combined Wi-Fi and Text NDEF message is too large.";
+    error = "El mensaje NDEF de Wi-Fi y texto pesa mucho.";
     return false;
   }
 
@@ -1034,7 +1098,7 @@ bool buildWifiOnboardingNdef(const String &ssid, const String &password,
   offset += textPayload.length();
 
   if (offset != ndefLength + 2U) {
-    error = "The combined Wi-Fi NDEF message length is inconsistent.";
+    error = "El largo del mensaje NDEF de Wi-Fi no cuadra.";
     return false;
   }
 
@@ -1060,15 +1124,15 @@ bool buildTagEmulationNdef(const String &recordType, const String &input,
   String normalized = recordType;
   normalized.toLowerCase();
   if (normalized != "text" && normalized != "url") {
-    error = "Tag-emulation record type must be text or url.";
+    error = "La emulación solo acepta texto o URL.";
     return false;
   }
   if (input.length() == 0) {
-    error = "Enter text or a URL before starting tag emulation.";
+    error = "Escribe texto o una URL antes de emular.";
     return false;
   }
   if (input.length() > MAX_TAG_EMULATION_PAYLOAD_BYTES) {
-    error = "Tag-emulation payload exceeds the 220-byte limit.";
+    error = "La emulación acepta hasta 220 bytes.";
     return false;
   }
 
@@ -1090,7 +1154,7 @@ bool buildTagEmulationNdef(const String &recordType, const String &input,
   // Type 4 Tag reads and keeping every APDU response inside the PN532 buffer.
   const size_t ndefLength = 4U + payloadLength;
   if (ndefLength > MAX_EMULATED_NDEF_BYTES || payloadLength > 255U) {
-    error = "The NDEF record is too large for tag emulation.";
+    error = "El registro NDEF pesa mucho para emularlo.";
     return false;
   }
 
@@ -1294,7 +1358,7 @@ bool processTagEmulationApdu(const uint8_t *apdu, uint8_t length) {
         tagScanCounted = true;
         ++state.tagScans;
         state.lastTagScanAt = millis();
-        state.emulationMessage = "NDEF record scanned from the emulated tag.";
+        state.emulationMessage = "Registro NDEF leído del tag emulado.";
         state.message = state.emulationMessage;
         state.updatedAt = millis();
         Serial.printf("[NFC] Emulated %s record scanned (%u bytes)\n",
@@ -1353,7 +1417,7 @@ void serviceTagEmulation() {
     selectedEmulatedFile = EmulatedFile::NONE;
     highestEmulatedReadOffset = 0;
     state.emulationReaderConnected = true;
-    state.emulationMessage = "NFC reader detected. Serving the configured NDEF record...";
+    state.emulationMessage = "Lector NFC detectado. Sirviendo el registro NDEF…";
     state.message = state.emulationMessage;
     state.updatedAt = millis();
     if (tagEmulationProfile == TagEmulationProfile::WIFI_WSC_ANDROID) {
@@ -1366,7 +1430,7 @@ void serviceTagEmulation() {
     resetTagEmulationSession();
     if (state.tagEmulationEnabled) {
       state.emulationMessage =
-          "Ready. Hold an NFC reader or phone over the PN532 antenna to scan the record.";
+          "Listo. Acerca un lector NFC o teléfono a la antena del PN532.";
       state.message = state.emulationMessage;
       state.updatedAt = millis();
     }
@@ -1377,7 +1441,7 @@ void serviceTagEmulation() {
   if (!processTagEmulationApdu(apdu, apduLength)) {
     resetTagEmulationSession();
     state.emulationMessage =
-        "The NFC reader exchange ended before the emulated record was fully scanned.";
+        "El lector NFC se fue antes de leer todo el registro.";
     state.message = state.emulationMessage;
     state.updatedAt = millis();
   }
@@ -1405,7 +1469,7 @@ void processDetectedTag(uint8_t *uid, uint8_t uidLength) {
   if (pendingOperation == NfcOperation::READ) {
     bool type2MemoryResponded = false;
     if (readType2Tag(type2MemoryResponded)) {
-      finishSuccess("Tag read successfully.");
+      finishSuccess("Tag leído.");
       return;
     }
 
@@ -1413,17 +1477,16 @@ void processDetectedTag(uint8_t *uid, uint8_t uidLength) {
       const String detail = type2IoError.length()
                                 ? " " + type2IoError
                                 : String();
-      finishError("The tag was detected, but its Type 2 memory could not be read." +
+      finishError("Se detectó el tag, pero no se pudo leer su memoria Type 2." +
                   detail);
       return;
     }
 
     state.recordType = "UID only";
     state.payload =
-        "The UID was read successfully. This build reads and writes NDEF on "
-        "NFC Forum Type 2 memory. MIFARE Classic requires sector authentication "
-        "and is not modified by the web interface.";
-    finishSuccess("Tag UID read successfully.");
+        "Se leyó el UID. Este badge lee y escribe NDEF en memoria NFC Forum "
+        "Type 2. MIFARE Classic requiere autenticación y no se toca aquí.";
+    finishSuccess("UID del tag leído.");
     return;
   }
 
@@ -1450,7 +1513,7 @@ void processDetectedTag(uint8_t *uid, uint8_t uidLength) {
     return;
   }
   if (!writeType2Buffer(totalLength)) {
-    finishError("Writing failed before the complete NDEF record was stored. " +
+    finishError("Falló la escritura antes de guardar todo el registro NDEF. " +
                 type2IoError);
     return;
   }
@@ -1459,12 +1522,12 @@ void processDetectedTag(uint8_t *uid, uint8_t uidLength) {
   // of dumping the complete tag capacity.
   bool type2MemoryResponded = false;
   if (!readType2Tag(type2MemoryResponded)) {
-    finishError("The tag was written, but the verification read failed. " +
+    finishError("El tag se escribió, pero falló la lectura de prueba. " +
                 type2IoError);
     return;
   }
-  finishSuccess(recordType == "url" ? "URL written and verified."
-                                     : "Text written and verified.");
+  finishSuccess(recordType == "url" ? "URL escrita y verificada."
+                                     : "Texto escrito y verificado.");
 }
 
 // -----------------------------------------------------------------------------
@@ -1545,7 +1608,7 @@ void markCommandDequeued() {
 
 bool executeQueueNfcRead() {
   if (!beginOperation(NfcOperation::READ,
-                      "Hold an NFC tag over the PCB reader to scan it.")) {
+                      "Acerca un tag NFC al lector del PCB para leerlo.")) {
     return false;
   }
   pendingPayload = String();
@@ -1559,8 +1622,8 @@ bool executeQueueNfcWrite(const NfcCommand &command) {
       isUrl ? NfcOperation::WRITE_URL : NfcOperation::WRITE_TEXT;
   const char *message =
       isUrl
-          ? "Hold a writable Type 2 tag over the reader to write the URL."
-          : "Hold a writable Type 2 tag over the reader to write the text.";
+          ? "Acerca un tag Type 2 que se pueda escribir para guardar la URL."
+          : "Acerca un tag Type 2 que se pueda escribir para guardar el texto.";
 
   if (!beginOperation(operation, message)) return false;
 
@@ -1569,17 +1632,31 @@ bool executeQueueNfcWrite(const NfcCommand &command) {
   return true;
 }
 
+// Emulation and constant scanning both want the one radio. Whichever the
+// operator asks for last wins, and the other is switched off rather than left
+// reading as on while doing nothing. Called where emulation actually starts,
+// so a start that fails its checks leaves capture alone.
+void releaseCaptureForEmulation() {
+  if (!state.captureEnabled) return;
+  state.captureEnabled = false;
+  state.captureMessage = "La Ofrenda NFC se apagó para emular.";
+  lastCaptureUid = String();
+  lastCaptureAt = 0;
+  captureMisses = 0;
+  Serial.println("[NFC][CAPTURE] Disabled to free the reader for emulation");
+}
+
 bool executeStartTagEmulation(const NfcCommand &command) {
   if (!state.readerReady) {
     state.status = "error";
-    state.message = "PN532 reader is not available.";
+    state.message = "El lector PN532 no está disponible.";
     state.updatedAt = millis();
     return false;
   }
   if (pendingOperation != NfcOperation::NONE ||
       (state.busy && !state.tagEmulationEnabled)) {
     state.status = "error";
-    state.message = "Wait for the current external-tag operation to finish.";
+    state.message = "Espera a que termine la acción del tag.";
     state.updatedAt = millis();
     return false;
   }
@@ -1600,12 +1677,13 @@ bool executeStartTagEmulation(const NfcCommand &command) {
   resetTagEmulationSession();
   state.tagScans = 0;
   state.lastTagScanAt = 0;
+  releaseCaptureForEmulation();
   state.tagEmulationEnabled = true;
   state.wifiOnboardingActive = false;
   state.busy = true;
   state.status = "emulating";
   state.emulationMessage =
-      "Ready. Hold an NFC reader or phone over the PN532 antenna to scan the record.";
+      "Listo. Acerca un lector NFC o teléfono a la antena del PN532.";
   state.message = state.emulationMessage;
   state.updatedAt = millis();
   lastTargetAttempt = 0;
@@ -1619,14 +1697,14 @@ bool executeStartTagEmulation(const NfcCommand &command) {
 bool executeStartWifiOnboarding(const NfcCommand &command) {
   if (!state.readerReady) {
     state.status = "error";
-    state.message = "PN532 reader is not available for Wi-Fi onboarding.";
+    state.message = "El PN532 no está disponible para pasar Wi-Fi.";
     state.updatedAt = millis();
     return false;
   }
   if (pendingOperation != NfcOperation::NONE ||
       (state.busy && !state.tagEmulationEnabled)) {
     state.status = "error";
-    state.message = "Wait for the current NFC operation to finish.";
+    state.message = "Espera a que termine la acción NFC.";
     state.updatedAt = millis();
     return false;
   }
@@ -1651,12 +1729,13 @@ bool executeStartWifiOnboarding(const NfcCommand &command) {
   resetTagEmulationSession();
   state.tagScans = 0;
   state.lastTagScanAt = 0;
+  releaseCaptureForEmulation();
   state.tagEmulationEnabled = true;
   state.wifiOnboardingActive = true;
   state.busy = true;
   state.status = "emulating";
   state.emulationMessage =
-      "Wi-Fi onboarding ready. Scan the badge to connect to its network.";
+      "Wi-Fi listo. Lee el badge para conectarte a su red.";
   state.message = state.emulationMessage;
   state.updatedAt = millis();
   lastTargetAttempt = 0;
@@ -1674,13 +1753,13 @@ bool executeStopTagEmulation() {
   resetTagEmulationSession();
   state.busy = false;
   state.status = "idle";
-  state.emulationMessage = "Tag emulation is stopped.";
-  state.message = "Reader ready. Choose an operation, then present a tag.";
+  state.emulationMessage = "La emulación está parada.";
+  state.message = "Lector listo. Elige una acción y acerca un tag.";
   state.updatedAt = millis();
 
   if (state.readerReady &&
       !configurePassiveReader("stopping tag emulation")) {
-    state.message = "PN532 could not return to reader mode after tag emulation.";
+    state.message = "El PN532 no volvió al modo lector.";
     state.emulationMessage = state.message;
     state.updatedAt = millis();
     return false;
@@ -1688,6 +1767,120 @@ bool executeStopTagEmulation() {
 
   if (wasEnabled) Serial.println("[NFC] Tag emulation stopped");
   return true;
+}
+
+bool executeSetCapture(const NfcCommand &command) {
+  if (command.flag == state.captureEnabled) return true;
+
+  // The PN532 does one thing at a time, so constant scanning means taking the
+  // radio off emulation rather than refusing to start while it is busy.
+  if (command.flag && state.tagEmulationEnabled) {
+    Serial.println("[NFC][CAPTURE] Stopping emulation to take the reader");
+    (void)executeStopTagEmulation();
+  }
+
+  state.captureEnabled = command.flag;
+  lastCaptureUid = String();
+  lastCaptureAt = 0;
+  lastCapturePoll = 0;
+  captureMisses = 0;
+
+  if (command.flag) {
+    state.captureMessage =
+        "Ofrenda NFC encendida. Cada tag que se lea se va a las ofrendas.";
+    state.message = state.captureMessage;
+  } else {
+    state.captureMessage = "La Ofrenda NFC está apagada.";
+    state.message = "Lector listo. Elige una acción y acerca un tag.";
+  }
+  state.status = "idle";
+  state.updatedAt = millis();
+  Serial.printf("[NFC][CAPTURE] %s\n", command.flag ? "enabled" : "disabled");
+  return true;
+}
+
+// Queues one decoded payload for the loop task. Dropping on a full queue is
+// deliberate: the board is the slow end, and a burst of tags should not stall
+// the reader or grow memory without bound.
+void stageCapture(const String &text) {
+  if (!nfcCaptureQueue) return;
+
+  char buffer[MAX_CAPTURE_BYTES + 1] = {};
+  strncpy(buffer, text.c_str(), MAX_CAPTURE_BYTES);
+  buffer[MAX_CAPTURE_BYTES] = '\0';
+
+  if (xQueueSend(nfcCaptureQueue, buffer, 0) != pdTRUE) {
+    Serial.println("[NFC][CAPTURE] Queue full; dropped one capture");
+    return;
+  }
+  Serial.printf("[NFC][CAPTURE] Staged %u byte(s)\n",
+                static_cast<unsigned>(strlen(buffer)));
+}
+
+// Runs a read against a tag that capture mode found on its own. Reuses the
+// operator read path so decoding, tag typing and error text stay identical.
+void captureDetectedTag(uint8_t *uid, uint8_t uidLength) {
+  const String seenUid = uidToString(uid, uidLength);
+  const uint32_t now = millis();
+
+  if (seenUid == lastCaptureUid && lastCaptureAt != 0 &&
+      now - lastCaptureAt < CAPTURE_REPEAT_MS) {
+    return;
+  }
+
+  pendingOperation = NfcOperation::READ;
+  processDetectedTag(uid, uidLength);
+  pendingOperation = NfcOperation::NONE;
+
+  lastCaptureUid = seenUid;
+  lastCaptureAt = millis();
+
+  // Whatever the tag turned out to be, it becomes an offering. A Text or URL
+  // record posts its own payload; anything else -- a blank tag, an unsupported
+  // record, a card that only ever gives up its UID -- posts what was actually
+  // read, because a detection with nothing to show for it is still the badge
+  // having met something.
+  String offering = state.payload;
+  const bool hasPayload =
+      (state.recordType == "Text" || state.recordType == "URL") &&
+      offering.length() > 0;
+
+  if (!hasPayload) {
+    offering = "Tag ";
+    offering += seenUid;
+    if (state.tagType.length() > 0) {
+      offering += " // ";
+      offering += state.tagType;
+    }
+  }
+
+  stageCapture(offering);
+  ++state.captureCount;
+  state.captureMessage = hasPayload ? "Tag ofrendado. Va a las ofrendas."
+                                    : "Tag sin datos. Se ofrendó su UID.";
+  state.updatedAt = millis();
+}
+
+// The self-driven half of the worker: no deadline, no busy flag, and it yields
+// the moment an operator-initiated action is queued.
+void serviceCapture() {
+  const uint32_t now = millis();
+  if (now - lastCapturePoll < CAPTURE_POLL_INTERVAL_MS) return;
+  lastCapturePoll = now;
+
+  uint8_t uid[7] = {0};
+  uint8_t uidLength = 0;
+  if (!nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength,
+                               TAG_POLL_TIMEOUT_MS)) {
+    // Tag gone. Clearing the last-seen UID means presenting the same tag again
+    // posts again straight away, while a tag left sitting on the antenna still
+    // cannot spam: it never produces an empty poll, so the timed guard holds.
+    if (++captureMisses >= CAPTURE_CLEAR_MISSES) lastCaptureUid = String();
+    return;
+  }
+  captureMisses = 0;
+
+  captureDetectedTag(uid, uidLength);
 }
 
 void executeNfcCommand(const NfcCommand &command) {
@@ -1709,6 +1902,9 @@ void executeNfcCommand(const NfcCommand &command) {
     case NfcCommandType::STOP_EMULATION:
       (void)executeStopTagEmulation();
       break;
+    case NfcCommandType::SET_CAPTURE:
+      (void)executeSetCapture(command);
+      break;
   }
 }
 
@@ -1720,13 +1916,17 @@ void serviceNfcWorker() {
     return;
   }
 
-  if (pendingOperation == NfcOperation::NONE) return;
+  if (pendingOperation == NfcOperation::NONE) {
+    // An operator action always wins; capture only runs in the gaps.
+    if (state.captureEnabled) serviceCapture();
+    return;
+  }
 
   const uint32_t now = millis();
   if (static_cast<int32_t>(now - operationDeadline) >= 0) {
     Serial.printf("[NFC][TIMEOUT] %s expired without detecting a tag\n",
                   operationName(pendingOperation));
-    finishError("No tag was detected before the 15-second timeout.");
+    finishError("No se detectó ningún tag en 15 segundos.");
     return;
   }
   if (now - lastPoll < POLL_INTERVAL_MS) return;
@@ -1759,7 +1959,7 @@ void serviceNfcWorker() {
                 static_cast<unsigned long>(pollAttempts), uidLength);
 #endif
   state.status = "working";
-  state.message = "Tag detected. Processing...";
+  state.message = "Tag detectado. Procesando…";
   state.updatedAt = millis();
   processDetectedTag(uid, uidLength);
 }
@@ -1785,9 +1985,10 @@ void nfcWorkerTask(void *parameter) {
 
 String buildNfcStateJson(const NfcState &snapshot) {
   String json;
-  json.reserve(900 + snapshot.payload.length() + snapshot.raw.length() +
+  json.reserve(960 + snapshot.payload.length() + snapshot.raw.length() +
                snapshot.emulatedPayload.length() +
-               snapshot.emulationMessage.length());
+               snapshot.emulationMessage.length() +
+               snapshot.captureMessage.length());
   json += F("{\"readerReady\":");
   json += snapshot.readerReady ? F("true") : F("false");
   json += F(",\"busy\":");
@@ -1820,6 +2021,12 @@ String buildNfcStateJson(const NfcState &snapshot) {
   json += jsonEscape(snapshot.emulatedPayload);
   json += F("\",\"emulationMessage\":\"");
   json += jsonEscape(snapshot.emulationMessage);
+  json += F("\",\"captureEnabled\":");
+  json += snapshot.captureEnabled ? F("true") : F("false");
+  json += F(",\"captureCount\":");
+  json += snapshot.captureCount;
+  json += F(",\"captureMessage\":\"");
+  json += jsonEscape(snapshot.captureMessage);
   json += F("\",\"tagScans\":");
   json += snapshot.tagScans;
   json += F(",\"lastTagScanAt\":");
@@ -1836,11 +2043,13 @@ void setupNFC() {
   nfcStateMutex = xSemaphoreCreateMutex();
   nfcCommandQueue =
       xQueueCreate(NFC_COMMAND_QUEUE_DEPTH, sizeof(NfcCommand));
+  nfcCaptureQueue =
+      xQueueCreate(CAPTURE_QUEUE_DEPTH, MAX_CAPTURE_BYTES + 1);
 
-  if (!nfcStateMutex || !nfcCommandQueue) {
+  if (!nfcStateMutex || !nfcCommandQueue || !nfcCaptureQueue) {
     state.readerReady = false;
     state.status = "offline";
-    state.message = "NFC task synchronization could not be initialized.";
+        state.message = "No arrancó la sincronización NFC.";
     state.updatedAt = millis();
     publishedState = state;
     Serial.println("[NFC] ERROR: Could not create worker queue or state mutex");
@@ -1863,7 +2072,7 @@ void setupNFC() {
   if (!nfc.begin()) {
     state.readerReady = false;
     state.status = "offline";
-    state.message = "PN532 initialization failed.";
+    state.message = "Falló el inicio del PN532.";
     state.updatedAt = millis();
     publishNfcState();
     Serial.println("[NFC] ERROR: nfc.begin() failed");
@@ -1874,7 +2083,7 @@ void setupNFC() {
   if (!version) {
     state.readerReady = false;
     state.status = "offline";
-    state.message = "PN532 was not found. Check power, SPI selection, and wiring.";
+    state.message = "No se encontró el PN532. Revisa corriente, SPI y cables.";
     state.updatedAt = millis();
     publishNfcState();
     Serial.println("[NFC] ERROR: PN532 not found");
@@ -1888,7 +2097,7 @@ void setupNFC() {
 
   state.readerReady = true;
   state.status = "idle";
-  state.message = "Reader ready. Choose an operation, then present a tag.";
+  state.message = "Lector listo. Elige una acción y acerca un tag.";
   state.updatedAt = millis();
   publishNfcState();
 
@@ -1904,7 +2113,7 @@ void setupNFC() {
   if (taskCreated != pdPASS) {
     state.readerReady = false;
     state.status = "offline";
-    state.message = "The dedicated NFC worker task could not be started.";
+    state.message = "No arrancó la tarea NFC.";
     state.updatedAt = millis();
     publishNfcState();
     Serial.println("[NFC] ERROR: Could not create dedicated NFC task");
@@ -1921,6 +2130,124 @@ String getNfcStateJson() {
   return buildNfcStateJson(getPublishedStateSnapshot());
 }
 
+NfcTuiState getNfcTuiState() {
+  const NfcState source = getPublishedStateSnapshot();
+  NfcTuiState state;
+  state.readerReady = source.readerReady;
+  state.busy = source.busy;
+  state.captureEnabled = source.captureEnabled;
+  state.emulating = source.tagEmulationEnabled;
+  state.wifiOnboarding = source.wifiOnboardingActive;
+  state.captureCount = source.captureCount;
+  state.tagScans = source.tagScans;
+  state.status = source.status;
+  state.message = source.message;
+  state.payload = source.payload;
+  return state;
+}
+
+bool setNfcCaptureEnabled(bool enabled) {
+  if (!nfcStateMutex ||
+      xSemaphoreTake(nfcStateMutex, portMAX_DELAY) != pdTRUE) {
+    return false;
+  }
+
+  if (!publishedState.readerReady) {
+    setPublishedErrorLocked("El lector PN532 no está disponible.");
+    xSemaphoreGive(nfcStateMutex);
+    return false;
+  }
+  NfcCommand command;
+  command.type = NfcCommandType::SET_CAPTURE;
+  command.flag = enabled;
+
+  if (!sendCommandWhileLocked(command)) {
+    setPublishedErrorLocked("La cola de acciones NFC está llena.");
+    xSemaphoreGive(nfcStateMutex);
+    return false;
+  }
+
+  xSemaphoreGive(nfcStateMutex);
+  return true;
+}
+
+bool isNfcCaptureEnabled() {
+  return getPublishedStateSnapshot().captureEnabled;
+}
+
+bool takeNfcCapture(String &text) {
+  if (!nfcCaptureQueue) return false;
+
+  char buffer[MAX_CAPTURE_BYTES + 1] = {};
+  if (xQueueReceive(nfcCaptureQueue, buffer, 0) != pdTRUE) return false;
+
+  buffer[MAX_CAPTURE_BYTES] = '\0';
+  text = String(buffer);
+  return true;
+}
+
+void armNfcPersistence() {
+  nfcPersistenceArmed = true;
+  // Seed the observation from what the boot restore actually produced, so the
+  // first service pass has nothing to write.
+  if (nfcStateMutex && xSemaphoreTake(nfcStateMutex, portMAX_DELAY) == pdTRUE) {
+    haveObservedNfcSettings = nfcSettingsSnapshotLocked(observedNfcSettings);
+    xSemaphoreGive(nfcStateMutex);
+  }
+  observedNfcSettingsAt = millis();
+}
+
+void serviceNfcPersistence() {
+  if (!nfcPersistenceArmed) return;
+
+  // Nothing here needs to run at loop speed, and it used to: a quarter second
+  // is far finer than the 1.5s settle below and costs nothing.
+  const uint32_t now = millis();
+  if (now - lastNfcPersistencePoll < NFC_SETTINGS_POLL_MS) return;
+  lastNfcPersistencePoll = now;
+
+  StoredNfcSettings desired = {};
+  bool readerReady = false;
+  if (nfcStateMutex && xSemaphoreTake(nfcStateMutex, 0) == pdTRUE) {
+    // A badge whose PN532 is missing or failed its startup check reports every
+    // mode as stopped. Saving that would quietly turn a stored Wi-Fi or Text
+    // record into "off" for every future boot, so a reader that is not there
+    // gets no say in what is stored.
+    readerReady = nfcSettingsSnapshotLocked(desired);
+    xSemaphoreGive(nfcStateMutex);
+  }
+  if (!readerReady) return;
+
+  if (!haveObservedNfcSettings || !sameNfcSettings(desired, observedNfcSettings)) {
+    observedNfcSettings = desired;
+    observedNfcSettingsAt = millis();
+    haveObservedNfcSettings = true;
+    return;
+  }
+
+  if (observedNfcSettingsAt == 0) return;
+  if (static_cast<int32_t>(millis() - observedNfcSettingsAt) <
+      static_cast<int32_t>(NFC_SETTINGS_SAVE_DELAY_MS)) {
+    return;
+  }
+
+  observedNfcSettingsAt = 0;  // One write per settled change.
+  if (saveNfcSettings(desired)) Serial.println("[NFC] Settings saved");
+}
+
+void noteNfcCapturePosted() {
+  if (!nfcStateMutex ||
+      xSemaphoreTake(nfcStateMutex, portMAX_DELAY) != pdTRUE) {
+    return;
+  }
+  // The worker owns state.captureMessage and overwrites publishedState on its
+  // next publish, so this only brightens the page between two polls. That is
+  // enough: the count itself is authoritative on the worker side.
+  publishedState.captureMessage = "Tag ofrendado y publicado.";
+  publishedState.updatedAt = millis();
+  xSemaphoreGive(nfcStateMutex);
+}
+
 bool queueNfcRead() {
   if (!nfcStateMutex ||
       xSemaphoreTake(nfcStateMutex, portMAX_DELAY) != pdTRUE) {
@@ -1928,19 +2255,19 @@ bool queueNfcRead() {
   }
 
   if (!publishedState.readerReady) {
-    setPublishedErrorLocked("PN532 reader is not available.");
+    setPublishedErrorLocked("El lector PN532 no está disponible.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
   if (publishedState.tagEmulationEnabled) {
     setPublishedErrorLocked(
-        "Stop tag emulation before reading or writing an external tag.");
+        "Para la emulación antes de leer o escribir otro tag.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
   if (publishedState.busy || commandPending) {
     setPublishedErrorLocked(
-        "Another NFC operation is already waiting for a tag.");
+        "Ya hay otra acción NFC esperando un tag.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
@@ -1952,12 +2279,12 @@ bool queueNfcRead() {
   publishedState.busy = true;
   publishedState.status = "queued";
   publishedState.message =
-      "Hold an NFC tag over the PCB reader to scan it.";
+      "Acerca un tag NFC al lector del PCB para leerlo.";
   publishedState.updatedAt = millis();
 
   if (!sendCommandWhileLocked(command)) {
     publishedState = previous;
-    setPublishedErrorLocked("The NFC command queue is full.");
+    setPublishedErrorLocked("La cola de acciones NFC está llena.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
@@ -1970,14 +2297,14 @@ bool queueNfcWrite(const String &recordType, const String &payload) {
   String normalized = recordType;
   normalized.toLowerCase();
   if (normalized != "text" && normalized != "url") {
-    setPublishedError("Record type must be text or url.");
+    setPublishedError("El tipo debe ser texto o URL.");
     return false;
   }
   if (payload.length() == 0 || payload.length() > MAX_WEB_PAYLOAD_BYTES) {
     setPublishedError(
         payload.length() == 0
-            ? "Enter text or a URL before writing."
-            : "Payload exceeds the 700-byte controller limit.");
+            ? "Escribe texto o una URL antes de guardar."
+            : "El contenido pasa el límite de 700 bytes.");
     return false;
   }
 
@@ -1987,19 +2314,19 @@ bool queueNfcWrite(const String &recordType, const String &payload) {
   }
 
   if (!publishedState.readerReady) {
-    setPublishedErrorLocked("PN532 reader is not available.");
+    setPublishedErrorLocked("El lector PN532 no está disponible.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
   if (publishedState.tagEmulationEnabled) {
     setPublishedErrorLocked(
-        "Stop tag emulation before reading or writing an external tag.");
+        "Para la emulación antes de leer o escribir otro tag.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
   if (publishedState.busy || commandPending) {
     setPublishedErrorLocked(
-        "Another NFC operation is already waiting for a tag.");
+        "Ya hay otra acción NFC esperando un tag.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
@@ -2010,7 +2337,7 @@ bool queueNfcWrite(const String &recordType, const String &payload) {
                      ? NfcCommandType::WRITE_URL
                      : NfcCommandType::WRITE_TEXT;
   if (!copyCommandString(payload, command.payload, sizeof(command.payload))) {
-    setPublishedErrorLocked("The NFC payload could not be queued.");
+    setPublishedErrorLocked("No se pudo poner la acción NFC en cola.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
@@ -2019,13 +2346,13 @@ bool queueNfcWrite(const String &recordType, const String &payload) {
   publishedState.status = "queued";
   publishedState.message =
       normalized == "url"
-          ? "Hold a writable Type 2 tag over the reader to write the URL."
-          : "Hold a writable Type 2 tag over the reader to write the text.";
+          ? "Acerca un tag Type 2 para guardar la URL."
+          : "Acerca un tag Type 2 para guardar el texto.";
   publishedState.updatedAt = millis();
 
   if (!sendCommandWhileLocked(command)) {
     publishedState = previous;
-    setPublishedErrorLocked("The NFC command queue is full.");
+    setPublishedErrorLocked("La cola de acciones NFC está llena.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
@@ -2038,15 +2365,15 @@ bool startNfcTagEmulation(const String &recordType, const String &payload) {
   String normalized = recordType;
   normalized.toLowerCase();
   if (normalized != "text" && normalized != "url") {
-    setPublishedError("Record type must be text or url.");
+    setPublishedError("El tipo debe ser texto o URL.");
     return false;
   }
   if (payload.length() == 0 ||
       payload.length() > MAX_TAG_EMULATION_PAYLOAD_BYTES) {
     setPublishedError(
         payload.length() == 0
-            ? "Enter text or a URL before starting Tag Emulation."
-            : "The Tag Emulation payload exceeds the 220-byte limit.");
+            ? "Escribe texto o una URL antes de emular."
+            : "La emulación acepta hasta 220 bytes.");
     return false;
   }
 
@@ -2056,14 +2383,14 @@ bool startNfcTagEmulation(const String &recordType, const String &payload) {
   }
 
   if (!publishedState.readerReady) {
-    setPublishedErrorLocked("PN532 reader is not available.");
+    setPublishedErrorLocked("El lector PN532 no está disponible.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
   if ((publishedState.busy && !publishedState.tagEmulationEnabled) ||
       commandPending) {
     setPublishedErrorLocked(
-        "Wait for the current external-tag operation to finish.");
+        "Espera a que termine la acción del tag.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
@@ -2074,7 +2401,7 @@ bool startNfcTagEmulation(const String &recordType, const String &payload) {
                      ? NfcCommandType::START_URL_EMULATION
                      : NfcCommandType::START_TEXT_EMULATION;
   if (!copyCommandString(payload, command.payload, sizeof(command.payload))) {
-    setPublishedErrorLocked("The emulation payload could not be queued.");
+    setPublishedErrorLocked("No se pudo poner la emulación en cola.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
@@ -2087,14 +2414,14 @@ bool startNfcTagEmulation(const String &recordType, const String &payload) {
   publishedState.emulatedRecordType =
       normalized == "url" ? "URL" : "Text";
   publishedState.emulatedPayload = payload;
-  publishedState.emulationMessage =
-      "Preparing the configured NDEF record...";
+    publishedState.emulationMessage =
+        "Preparando el registro NDEF…";
   publishedState.message = publishedState.emulationMessage;
   publishedState.updatedAt = millis();
 
   if (!sendCommandWhileLocked(command)) {
     publishedState = previous;
-    setPublishedErrorLocked("The NFC command queue is full.");
+    setPublishedErrorLocked("La cola de acciones NFC está llena.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
@@ -2109,7 +2436,7 @@ bool startNfcWifiOnboarding(const String &ssid,
   if (ssid.length() == 0 || password.length() == 0 ||
       ssid.length() >= NFC_WIFI_SSID_BUFFER_SIZE ||
       password.length() >= NFC_WIFI_PASSWORD_BUFFER_SIZE) {
-    setPublishedError("The Wi-Fi onboarding credentials are invalid.");
+    setPublishedError("Los datos de Wi-Fi no son válidos.");
     return false;
   }
 
@@ -2120,14 +2447,14 @@ bool startNfcWifiOnboarding(const String &ssid,
 
   if (!publishedState.readerReady) {
     setPublishedErrorLocked(
-        "PN532 reader is not available for Wi-Fi onboarding.");
+        "El PN532 no está disponible para pasar Wi-Fi.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
   if ((publishedState.busy && !publishedState.tagEmulationEnabled) ||
       commandPending) {
     setPublishedErrorLocked(
-        "Wait for the current NFC operation to finish.");
+        "Espera a que termine la acción NFC.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
@@ -2138,7 +2465,7 @@ bool startNfcWifiOnboarding(const String &ssid,
   if (!copyCommandString(ssid, command.ssid, sizeof(command.ssid)) ||
       !copyCommandString(password, command.password,
                          sizeof(command.password))) {
-    setPublishedErrorLocked("The Wi-Fi onboarding record could not be queued.");
+    setPublishedErrorLocked("No se pudo poner Wi-Fi en cola.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
@@ -2154,14 +2481,14 @@ bool startNfcWifiOnboarding(const String &ssid,
   publishedState.status = "emulating";
   publishedState.emulatedRecordType = "Wi-Fi";
   publishedState.emulatedPayload = ssid;
-  publishedState.emulationMessage =
-      "Preparing the Wi-Fi onboarding records...";
+    publishedState.emulationMessage =
+        "Preparando los registros de Wi-Fi…";
   publishedState.message = publishedState.emulationMessage;
   publishedState.updatedAt = millis();
 
   if (!sendCommandWhileLocked(command)) {
     publishedState = previous;
-    setPublishedErrorLocked("The NFC command queue is full.");
+    setPublishedErrorLocked("La cola de acciones NFC está llena.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
@@ -2182,7 +2509,7 @@ bool stopNfcTagEmulation() {
   }
 
   if (commandPending) {
-    setPublishedErrorLocked("Another NFC command is still being queued.");
+    setPublishedErrorLocked("Todavía se está poniendo otra acción NFC en cola.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }
@@ -2196,13 +2523,13 @@ bool stopNfcTagEmulation() {
   publishedState.emulationReaderConnected = false;
   publishedState.busy = false;
   publishedState.status = "stopping";
-  publishedState.emulationMessage = "Stopping tag emulation...";
+  publishedState.emulationMessage = "Parando la emulación…";
   publishedState.message = publishedState.emulationMessage;
   publishedState.updatedAt = millis();
 
   if (!sendCommandWhileLocked(command)) {
     publishedState = previous;
-    setPublishedErrorLocked("The NFC command queue is full.");
+    setPublishedErrorLocked("La cola de acciones NFC está llena.");
     xSemaphoreGive(nfcStateMutex);
     return false;
   }

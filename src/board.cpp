@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
 
 #include "board.h"
@@ -8,20 +9,17 @@
 namespace {
 
 constexpr char BOARD_PATH[] = "/board.dat";
-constexpr char BOARD_IMAGE_PATH[] = "/board_img.dat";
+constexpr char BOARD_LEGACY_IMAGE_PATH[] = "/board_img.dat";
 constexpr uint32_t BOARD_FILE_MAGIC = 0x424D5342UL;    // "BMSB"
 constexpr uint32_t BOARD_RECORD_MAGIC = 0x50535442UL;  // "PSTB"
-constexpr uint32_t BOARD_IMAGE_FILE_MAGIC = 0x494D5342UL;    // "IMSB"
 constexpr uint32_t BOARD_IMAGE_RECORD_MAGIC = 0x494D4752UL;  // "IMGR"
-constexpr uint16_t BOARD_FORMAT_VERSION = 2;
+constexpr uint16_t BOARD_FORMAT_VERSION = 3;
 
-// Together the two rings come to about 1.05 MB of the 1.5 MB filesystem,
-// leaving roughly a quarter of it free for the pages and for the spare blocks
-// LittleFS needs to move its own metadata around.
+// The post ring is preallocated so text posts never grow the filesystem. Image
+// slots are short sequential files: that avoids the ESP32-S3 LittleFS panic
+// triggered by seeking/overwriting a large preallocated image ring.
 constexpr uint16_t BOARD_SLOT_COUNT = 512;
-constexpr uint16_t BOARD_IMAGE_SLOT_COUNT = 64;
-
-constexpr uint8_t BOARD_MAX_TAGS = 8;
+constexpr uint16_t BOARD_IMAGE_SLOT_COUNT = 76;
 
 struct __attribute__((packed)) BoardFileHeader {
   uint32_t magic;
@@ -31,25 +29,22 @@ struct __attribute__((packed)) BoardFileHeader {
   uint16_t reserved;
 };
 
-// Every field before the variable-length text is grouped at the front so a
-// lookup can read a 24-byte prefix instead of the whole 596-byte record.
+// Every field before the text is grouped at the front so a lookup can read a
+// 20-byte prefix instead of the whole record.
 struct __attribute__((packed)) BoardRecord {
   uint32_t magic;
   uint32_t id;
   uint32_t createdAt;
   uint16_t textLength;
-  uint16_t linkLength;
-  uint16_t tagsLength;
   uint16_t imageSlot;  // BOARD_NO_IMAGE when the post carries no picture
-  uint32_t imageLength;
+  uint16_t imageLength;
+  uint16_t authorId; // Previously the zero upper half of imageLength.
   char text[BOARD_MAX_TEXT_LENGTH];
-  char link[BOARD_MAX_LINK_LENGTH];
-  char tags[BOARD_MAX_TAGS_LENGTH];
   uint32_t checksum;
 };
 
-static_assert(sizeof(BoardRecord) == 596, "Unexpected BoardRecord packing");
-static_assert(offsetof(BoardRecord, text) == 24,
+static_assert(sizeof(BoardRecord) == 304, "Unexpected BoardRecord packing");
+static_assert(offsetof(BoardRecord, text) == 20,
               "Unexpected BoardRecord prefix size");
 
 // The image slot names the post it belongs to. A post whose slot has since
@@ -65,16 +60,16 @@ struct __attribute__((packed)) BoardImageHeader {
 static_assert(sizeof(BoardImageHeader) == 16,
               "Unexpected BoardImageHeader packing");
 
-constexpr uint32_t BOARD_IMAGE_SLOT_SIZE =
-    sizeof(BoardImageHeader) + BOARD_MAX_IMAGE_BYTES;
-
 File boardFile;
-File imageFile;
 bool boardReady = false;
 uint16_t nextSlot = 0;
 uint32_t nextId = 1;
 uint16_t storedCount = 0;
 uint16_t nextImageSlot = 0;
+
+void imageSlotPath(uint16_t slot, char *path, size_t capacity) {
+  snprintf(path, capacity, "/board_img_%u.dat", static_cast<unsigned>(slot));
+}
 
 uint32_t fnv1aUpdate(uint32_t hash, const uint8_t *data, size_t length) {
   for (size_t i = 0; i < length; ++i) {
@@ -98,16 +93,9 @@ uint32_t slotOffset(uint16_t slot) {
          static_cast<uint32_t>(slot) * sizeof(BoardRecord);
 }
 
-uint32_t imageSlotOffset(uint16_t slot) {
-  return sizeof(BoardFileHeader) +
-         static_cast<uint32_t>(slot) * BOARD_IMAGE_SLOT_SIZE;
-}
-
 bool validRecord(const BoardRecord &record) {
   return record.magic == BOARD_RECORD_MAGIC && record.id != 0 &&
          record.textLength <= BOARD_MAX_TEXT_LENGTH &&
-         record.linkLength <= BOARD_MAX_LINK_LENGTH &&
-         record.tagsLength <= BOARD_MAX_TAGS_LENGTH &&
          record.checksum == recordChecksum(record);
 }
 
@@ -211,12 +199,20 @@ bool openRing(File &file, const char *path, uint16_t slotCount,
 // kilobytes, so a listing checks only ownership and readBoardImage() does the
 // full check when the bytes are actually served.
 bool imageSlotHoldsPost(uint16_t slot, uint32_t postId, uint32_t &length) {
-  if (!imageFile || slot >= BOARD_IMAGE_SLOT_COUNT) return false;
-  if (!imageFile.seek(imageSlotOffset(slot))) return false;
+  if (slot >= BOARD_IMAGE_SLOT_COUNT) return false;
+
+  char path[24] = {};
+  imageSlotPath(slot, path, sizeof(path));
+  if (!LittleFS.exists(path)) return false;
+  File file = LittleFS.open(path, "r");
+  if (!file) return false;
 
   BoardImageHeader header = {};
-  if (imageFile.read(reinterpret_cast<uint8_t *>(&header), sizeof(header)) !=
-      sizeof(header)) {
+  const bool readHeader =
+      file.read(reinterpret_cast<uint8_t *>(&header), sizeof(header)) ==
+      sizeof(header);
+  file.close();
+  if (!readHeader) {
     return false;
   }
 
@@ -231,7 +227,12 @@ bool imageSlotHoldsPost(uint16_t slot, uint32_t postId, uint32_t &length) {
 
 bool writeImageSlot(uint16_t slot, uint32_t postId, const uint8_t *image,
                     size_t length) {
-  if (!imageFile || slot >= BOARD_IMAGE_SLOT_COUNT) return false;
+  if (slot >= BOARD_IMAGE_SLOT_COUNT) return false;
+
+  char path[24] = {};
+  imageSlotPath(slot, path, sizeof(path));
+  File file = LittleFS.open(path, "w");
+  if (!file) return false;
 
   BoardImageHeader header = {};
   header.magic = BOARD_IMAGE_RECORD_MAGIC;
@@ -242,14 +243,20 @@ bool writeImageSlot(uint16_t slot, uint32_t postId, const uint8_t *image,
             offsetof(BoardImageHeader, checksum)),
       image, length);
 
-  if (!imageFile.seek(imageSlotOffset(slot))) return false;
-  if (imageFile.write(reinterpret_cast<const uint8_t *>(&header),
-                      sizeof(header)) != sizeof(header)) {
+  if (file.write(reinterpret_cast<const uint8_t *>(&header),
+                 sizeof(header)) != sizeof(header)) {
+    file.close();
     return false;
   }
-  if (imageFile.write(image, length) != length) return false;
+  if (file.write(image, length) != length) {
+    file.close();
+    return false;
+  }
 
-  imageFile.flush();
+  // Images are written as short, sequential files. The previous in-place
+  // image ring made the next seek/flush enter LittleFS's allocator with a
+  // malformed state on the ESP32-S3 and panic with IntegerDivideByZero.
+  file.close();
   return true;
 }
 
@@ -259,6 +266,9 @@ bool writeImageSlot(uint16_t slot, uint32_t postId, const uint8_t *image,
 void recoverCursor() {
   uint32_t highestId = 0;
   uint16_t highestSlot = 0;
+  uint32_t highestImagePost = 0;
+  uint16_t highestImageSlot = 0;
+  uint16_t referencedImages = 0;
   storedCount = 0;
 
   for (uint16_t slot = 0; slot < BOARD_SLOT_COUNT; ++slot) {
@@ -270,31 +280,19 @@ void recoverCursor() {
       highestId = record.id;
       highestSlot = slot;
     }
+
+    if (record.imageSlot != BOARD_NO_IMAGE &&
+        record.imageSlot < BOARD_IMAGE_SLOT_COUNT && record.imageLength > 0) {
+      ++referencedImages;
+      if (record.id > highestImagePost) {
+        highestImagePost = record.id;
+        highestImageSlot = record.imageSlot;
+      }
+    }
   }
 
   nextId = highestId + 1;
   nextSlot = (highestId == 0) ? 0 : ((highestSlot + 1) % BOARD_SLOT_COUNT);
-
-  uint32_t highestImagePost = 0;
-  uint16_t highestImageSlot = 0;
-  uint16_t storedImages = 0;
-
-  for (uint16_t slot = 0; slot < BOARD_IMAGE_SLOT_COUNT; ++slot) {
-    if (!imageFile || !imageFile.seek(imageSlotOffset(slot))) continue;
-
-    BoardImageHeader header = {};
-    if (imageFile.read(reinterpret_cast<uint8_t *>(&header), sizeof(header)) !=
-            sizeof(header) ||
-        header.magic != BOARD_IMAGE_RECORD_MAGIC || header.postId == 0) {
-      continue;
-    }
-
-    ++storedImages;
-    if (header.postId > highestImagePost) {
-      highestImagePost = header.postId;
-      highestImageSlot = slot;
-    }
-  }
 
   nextImageSlot = (highestImagePost == 0)
                       ? 0
@@ -304,7 +302,7 @@ void recoverCursor() {
       "[BOARD] %u of %u posts and %u of %u images in use; next id %lu\n",
       static_cast<unsigned>(storedCount),
       static_cast<unsigned>(BOARD_SLOT_COUNT),
-      static_cast<unsigned>(storedImages),
+      static_cast<unsigned>(referencedImages),
       static_cast<unsigned>(BOARD_IMAGE_SLOT_COUNT),
       static_cast<unsigned long>(nextId));
 }
@@ -323,80 +321,14 @@ String sanitizeText(const String &value, size_t limit) {
     if (isPrintableOrNewline(character)) cleaned += character;
   }
 
-  cleaned.trim();
   return cleaned;
 }
 
-// Only http and https survive. The board renders links as media, so a
-// javascript: or data: URL reaching a viewer's browser would be an injection
-// vector rather than a post.
-String sanitizeLink(const String &value) {
-  String link = sanitizeText(value, BOARD_MAX_LINK_LENGTH);
-  if (link.length() == 0) return link;
-
-  String lowered = link;
-  lowered.toLowerCase();
-  if (!lowered.startsWith("http://") && !lowered.startsWith("https://")) {
-    return String();
-  }
-
-  // A link cannot contain whitespace, so anything past the first space was
-  // never part of the URL.
-  const int space = link.indexOf(' ');
-  if (space >= 0) link = link.substring(0, space);
-  return link;
-}
-
-String sanitizeTags(const String &value) {
-  String normalized;
-  normalized.reserve(BOARD_MAX_TAGS_LENGTH);
-
-  String current;
-  uint8_t tagCount = 0;
-
-  auto commit = [&]() {
-    if (current.length() == 0 || tagCount >= BOARD_MAX_TAGS) {
-      current = String();
-      return;
-    }
-    if (normalized.length() + current.length() + 1 > BOARD_MAX_TAGS_LENGTH) {
-      current = String();
-      return;
-    }
-    if (normalized.length() > 0) normalized += ' ';
-    normalized += current;
-    ++tagCount;
-    current = String();
-  };
-
+bool hasVisibleText(const String &value) {
   for (size_t i = 0; i < value.length(); ++i) {
-    const char character = tolower(value[i]);
-    if ((character >= 'a' && character <= 'z') ||
-        (character >= '0' && character <= '9') || character == '_' ||
-        character == '-') {
-      if (current.length() < 24) current += character;
-    } else {
-      commit();
-    }
+    if (value[i] != ' ' && value[i] != '\n') return true;
   }
-  commit();
-
-  return normalized;
-}
-
-bool tagsMatchFilter(const char *tags, uint16_t tagsLength,
-                     const String &filter) {
-  if (filter.length() == 0) return true;
-  if (tagsLength == 0) return false;
-
-  // Padding both sides turns a substring search into a whole-tag search, so
-  // filtering on "bone" does not also match "bonepile".
-  String haystack = " ";
-  haystack.concat(tags, tagsLength);
-  haystack += ' ';
-
-  String needle = " " + filter + " ";
-  return haystack.indexOf(needle) >= 0;
+  return false;
 }
 
 }  // namespace
@@ -410,10 +342,9 @@ bool setupBoard() {
     return false;
   }
 
-  if (!openRing(imageFile, BOARD_IMAGE_PATH, BOARD_IMAGE_SLOT_COUNT,
-                BOARD_IMAGE_SLOT_SIZE)) {
-    Serial.println("[BOARD] ERROR: The image ring is unavailable");
-    return false;
+  if (LittleFS.exists(BOARD_LEGACY_IMAGE_PATH) &&
+      LittleFS.remove(BOARD_LEGACY_IMAGE_PATH)) {
+    Serial.println("[BOARD] Retired the old in-place image ring");
   }
 
   recoverCursor();
@@ -432,44 +363,37 @@ uint16_t boardImageCapacity() { return BOARD_IMAGE_SLOT_COUNT; }
 uint32_t boardNewestId() { return nextId > 1 ? nextId - 1 : 0; }
 
 bool addBoardPost(const String &text,
-                  const String &link,
-                  const String &tags,
                   uint32_t createdAt,
                   const uint8_t *image,
                   size_t imageLength,
-                  String &error) {
+                  String &error,
+                  uint16_t authorId,
+                  bool textInImage) {
   error = String();
 
   if (!boardReady) {
-    error = F("The board storage is unavailable.");
+    error = F("El tablero no está disponible.");
     return false;
   }
 
   const String cleanText = sanitizeText(text, BOARD_MAX_TEXT_LENGTH);
-  const String cleanLink = sanitizeLink(link);
-  const String cleanTags = sanitizeTags(tags);
   const bool hasImage = image != nullptr && imageLength > 0;
 
-  if (cleanText.length() == 0 && cleanLink.length() == 0 && !hasImage) {
-    error = F("Write something, add a picture, or attach a link.");
-    return false;
-  }
-
-  if (link.length() > 0 && cleanLink.length() == 0) {
-    error = F("Links must start with http:// or https://");
+  if (!hasVisibleText(cleanText) && !hasImage) {
+    error = F("Dibuja, escribe o haz las dos.");
     return false;
   }
 
   if (hasImage && imageLength > BOARD_MAX_IMAGE_BYTES) {
-    error = F("That picture is too large for the badge.");
+    error = F("El dibujo pesa mucho para el badge.");
     return false;
   }
 
-  // JPEG only, checked by its own signature rather than by what the browser
-  // claimed, so that what is stored can always be served as image/jpeg.
+  // Images are JPEGs, checked by signature rather than by the browser's
+  // claimed MIME type so the stored bytes can always be served as an image.
   if (hasImage && (imageLength < 4 || image[0] != 0xFF || image[1] != 0xD8 ||
                    image[2] != 0xFF)) {
-    error = F("Pictures must be JPEG.");
+    error = F("La foto debe ser JPEG.");
     return false;
   }
 
@@ -477,24 +401,22 @@ bool addBoardPost(const String &text,
   record.magic = BOARD_RECORD_MAGIC;
   record.id = nextId;
   record.createdAt = createdAt;
+  record.authorId = authorId >= 1000 && authorId <= 9999 ? authorId : 0;
+  if (hasImage && textInImage) record.authorId |= 0x8000;
   record.textLength = cleanText.length();
-  record.linkLength = cleanLink.length();
-  record.tagsLength = cleanTags.length();
   record.imageSlot = BOARD_NO_IMAGE;
   record.imageLength = 0;
   memcpy(record.text, cleanText.c_str(), cleanText.length());
-  memcpy(record.link, cleanLink.c_str(), cleanLink.length());
-  memcpy(record.tags, cleanTags.c_str(), cleanTags.length());
 
   // The image goes down first. If it fails the post is refused outright,
   // rather than stored with a reference to bytes that were never written.
   if (hasImage) {
     if (!writeImageSlot(nextImageSlot, record.id, image, imageLength)) {
-      error = F("The picture could not be written to storage.");
+      error = F("No se pudo guardar el dibujo.");
       return false;
     }
     record.imageSlot = nextImageSlot;
-    record.imageLength = imageLength;
+    record.imageLength = static_cast<uint16_t>(imageLength);
     nextImageSlot = (nextImageSlot + 1) % BOARD_IMAGE_SLOT_COUNT;
   }
 
@@ -505,7 +427,7 @@ bool addBoardPost(const String &text,
       readRecord(nextSlot, replaced) && validRecord(replaced);
 
   if (!writeRecord(nextSlot, record)) {
-    error = F("The post could not be written to storage.");
+    error = F("No se pudo guardar la ofrenda.");
     return false;
   }
 
@@ -513,20 +435,15 @@ bool addBoardPost(const String &text,
   nextSlot = (nextSlot + 1) % BOARD_SLOT_COUNT;
   ++nextId;
 
-  Serial.printf("[BOARD] Post %lu stored (%u text, %u link, %u tag, %u image "
-                "bytes)%s\n",
+  Serial.printf("[BOARD] Post %lu stored (%u text, %u image bytes)%s\n",
                 static_cast<unsigned long>(record.id),
                 static_cast<unsigned>(record.textLength),
-                static_cast<unsigned>(record.linkLength),
-                static_cast<unsigned>(record.tagsLength),
                 static_cast<unsigned>(record.imageLength),
                 overwritingPost ? "; oldest post pruned" : "");
   return true;
 }
 
-bool readNextBoardPost(uint32_t &beforeId,
-                       const String &tagFilter,
-                       BoardPost &post) {
+bool readNextBoardPost(uint32_t &beforeId, BoardPost &post) {
   if (!boardReady || storedCount == 0) return false;
 
   // Slots are filled in order, so walking backwards from the write cursor
@@ -538,21 +455,19 @@ bool readNextBoardPost(uint32_t &beforeId,
     BoardRecord record = {};
     if (!readRecord(slot, record) || !validRecord(record)) continue;
     if (beforeId != 0 && record.id >= beforeId) continue;
-    if (!tagsMatchFilter(record.tags, record.tagsLength, tagFilter)) continue;
 
     post.id = record.id;
     post.createdAt = record.createdAt;
+    post.authorId = record.authorId & 0x7FFF;
+    post.textInImage = (record.authorId & 0x8000) != 0;
     post.text = String();
     post.text.concat(record.text, record.textLength);
-    post.link = String();
-    post.link.concat(record.link, record.linkLength);
-    post.tags = String();
-    post.tags.concat(record.tags, record.tagsLength);
 
     uint32_t imageLength = 0;
-    post.hasImage = record.imageSlot != BOARD_NO_IMAGE &&
-                    imageSlotHoldsPost(record.imageSlot, record.id,
-                                       imageLength);
+    const bool hasPayload = record.imageSlot != BOARD_NO_IMAGE &&
+                            imageSlotHoldsPost(record.imageSlot, record.id,
+                                               imageLength);
+    post.hasImage = hasPayload;
 
     beforeId = record.id;
     return true;
@@ -596,37 +511,35 @@ size_t readBoardImage(uint32_t postId, uint8_t *buffer, size_t capacity) {
   if (!readRecord(foundSlot, record) || !validRecord(record)) return 0;
   if (record.imageSlot == BOARD_NO_IMAGE) return 0;
 
-  uint32_t length = 0;
-  if (!imageSlotHoldsPost(record.imageSlot, postId, length)) return 0;
-  if (length > capacity) return 0;
+  char path[24] = {};
+  imageSlotPath(record.imageSlot, path, sizeof(path));
+  if (!LittleFS.exists(path)) return 0;
+  File file = LittleFS.open(path, "r");
+  if (!file) return 0;
 
-  // seek past the header that imageSlotHoldsPost() just validated.
-  if (!imageFile.seek(imageSlotOffset(record.imageSlot) +
-                      sizeof(BoardImageHeader))) {
+  BoardImageHeader stored = {};
+  if (file.read(reinterpret_cast<uint8_t *>(&stored), sizeof(stored)) !=
+          sizeof(stored) ||
+      stored.magic != BOARD_IMAGE_RECORD_MAGIC || stored.postId != postId ||
+      stored.length == 0 || stored.length > BOARD_MAX_IMAGE_BYTES ||
+      stored.length > capacity || file.read(buffer, stored.length) != stored.length) {
+    file.close();
     return 0;
   }
-  if (imageFile.read(buffer, length) != length) return 0;
 
-  BoardImageHeader header = {};
-  header.magic = BOARD_IMAGE_RECORD_MAGIC;
-  header.postId = postId;
-  header.length = length;
   const uint32_t expected = fnv1aUpdate(
-      fnv1a(reinterpret_cast<const uint8_t *>(&header),
+      fnv1a(reinterpret_cast<const uint8_t *>(&stored),
             offsetof(BoardImageHeader, checksum)),
-      buffer, length);
+      buffer, stored.length);
+  file.close();
 
-  if (!imageFile.seek(imageSlotOffset(record.imageSlot))) return 0;
-  BoardImageHeader stored = {};
-  if (imageFile.read(reinterpret_cast<uint8_t *>(&stored), sizeof(stored)) !=
-          sizeof(stored) ||
-      stored.checksum != expected) {
+  if (stored.checksum != expected) {
     Serial.printf("[BOARD] WARNING: Image for post %lu failed its checksum\n",
                   static_cast<unsigned long>(postId));
     return 0;
   }
 
-  return length;
+  return stored.length;
 }
 
 bool clearBoard() {
@@ -637,15 +550,14 @@ bool clearBoard() {
     if (!writeRecord(slot, empty)) return false;
   }
 
-  BoardImageHeader emptyImage = {};
   for (uint16_t slot = 0; slot < BOARD_IMAGE_SLOT_COUNT; ++slot) {
-    if (!imageFile.seek(imageSlotOffset(slot))) return false;
-    if (imageFile.write(reinterpret_cast<const uint8_t *>(&emptyImage),
-                        sizeof(emptyImage)) != sizeof(emptyImage)) {
-      return false;
-    }
+    char path[24] = {};
+    imageSlotPath(slot, path, sizeof(path));
+    if (LittleFS.exists(path)) LittleFS.remove(path);
   }
-  imageFile.flush();
+  if (LittleFS.exists(BOARD_LEGACY_IMAGE_PATH)) {
+    LittleFS.remove(BOARD_LEGACY_IMAGE_PATH);
+  }
 
   nextSlot = 0;
   nextId = 1;
