@@ -26,6 +26,14 @@ bool setPersistentAccessPointEnabled(bool enabled, String &error);
 bool getPersistentEnglishLanguage();
 bool setPersistentEnglishLanguage(bool english, String &error);
 
+// Offering numbers only ever count upward. The board itself cannot remember
+// that: clearing it rewrites every record, and re-flashing LittleFS replaces
+// the whole partition. NVS is a different partition and survives both, so the
+// high-water mark lives here. It is a reservation, not the exact next id --
+// see BOARD_ID_RESERVE_STEP in board.cpp.
+uint32_t getPersistentBoardIdWatermark();
+bool setPersistentBoardIdWatermark(uint32_t watermark);
+
 // Validates, stores, and reads back the dashboard Wi-Fi settings. The password
 // must satisfy WPA2: 8 to 63 printable-ASCII characters. It is not required to
 // follow the generated three-word form. On failure, the previous settings

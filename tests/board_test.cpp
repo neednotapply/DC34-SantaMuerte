@@ -16,6 +16,17 @@
 
 #include "board.h"
 
+// board.cpp keeps its id high-water mark in NVS through badge_settings, which
+// is not part of this host build. In-memory stubs stand in for it so the ring
+// logic stays testable and the monotonic-id promise can be asserted directly.
+uint32_t stubWatermark = 1;
+uint32_t getPersistentBoardIdWatermark() { return stubWatermark; }
+bool setPersistentBoardIdWatermark(uint32_t watermark) {
+  if (watermark > stubWatermark) stubWatermark = watermark;
+  return true;
+}
+
+
 namespace {
 
 int failures = 0;
@@ -65,6 +76,68 @@ std::vector<BoardPost> drain() {
   BoardPost item;
   while (readNextBoardPost(cursor, item)) found.push_back(item);
   return found;
+}
+
+// The reserved transport ids are what makes the board show "(NFC)" and "(USB)"
+// instead of a bare "Anonymous". They live below the browser range, and an
+// earlier range check accepted only 1000-9999 -- so every reader capture was
+// silently stored unattributed and the NFC tag never appeared once.
+void testTransportAuthorIds() {
+  std::printf("keeps the reserved transport ids and drops unknown ones\n");
+  check(clearBoard(), "the board clears");
+  String error;
+
+  check(addBoardPost(String("reader capture"), 0, nullptr, 0, error, NFC_CAPTURE_AUTHOR_ID),
+        "an NFC capture posts");
+  check(addBoardPost(String("console offering"), 0, nullptr, 0, error, USB_CONSOLE_AUTHOR_ID),
+        "a USB offering posts");
+  check(addBoardPost(String("browser offering"), 0, nullptr, 0, error, 4242),
+        "a browser offering posts");
+  check(addBoardPost(String("bogus author"), 0, nullptr, 0, error, 500),
+        "an id outside every known range still posts");
+
+  const std::vector<BoardPost> found = drain();
+  check(found.size() == 4, "all four stored");
+  if (found.size() == 4) {
+    check(found[3].authorId == NFC_CAPTURE_AUTHOR_ID, "the NFC id survives storage");
+    check(found[2].authorId == USB_CONSOLE_AUTHOR_ID, "the USB id survives storage");
+    check(found[1].authorId == 4242, "a browser pseudonym survives storage");
+    check(found[0].authorId == 0, "an unknown id is stored unattributed");
+  }
+}
+
+// An offering number is never reused. Clearing the wall, a reboot, or a
+// LittleFS re-flash all leave the ring empty, and each used to restart from 1.
+void testIdsNeverRepeat() {
+  std::printf("offering numbers only ever count upward\n");
+  check(clearBoard(), "the board clears");
+  String error;
+
+  addBoardPost(String("one"), 0, nullptr, 0, error);
+  addBoardPost(String("two"), 0, nullptr, 0, error);
+  const uint32_t beforeClear = boardNewestId();
+  check(beforeClear >= 2, "two offerings numbered");
+
+  check(clearBoard(), "the board clears again");
+  addBoardPost(String("after the clear"), 0, nullptr, 0, error);
+  std::vector<BoardPost> found = drain();
+  check(found.size() == 1, "one offering after the clear");
+  if (!found.empty()) {
+    check(found[0].id > beforeClear,
+          "a number handed out after a clear is higher than one before it");
+  }
+
+  // A reboot rebuilds state from the ring alone, which knows nothing of the
+  // numbers already spent.
+  const uint32_t beforeReboot = boardNewestId();
+  check(clearBoard(), "the board clears once more");
+  setupBoard();
+  addBoardPost(String("after the reboot"), 0, nullptr, 0, error);
+  found = drain();
+  if (!found.empty()) {
+    check(found[0].id > beforeReboot,
+          "a number survives a wipe followed by a restart");
+  }
 }
 
 void testWhatCountsAsAPost() {
@@ -265,6 +338,8 @@ int main() {
   }
 
   testWhatCountsAsAPost();
+  testTransportAuthorIds();
+  testIdsNeverRepeat();
   testNewestFirstOrdering();
   testRingPrunesOldest();
   testCursorSurvivesReboot();

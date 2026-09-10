@@ -27,18 +27,33 @@ constexpr size_t BOARD_MAX_IMAGE_BYTES = 12288;
 
 constexpr uint16_t BOARD_NO_IMAGE = 0xFFFF;
 
-// Posts the NFC reader made on its own, rather than a browser. Deliberately
-// below the browser pseudonym range so it can never collide with one, and
-// non-zero so it is distinguishable from a legacy post.
+// Posts the badge made on its own, rather than a browser. Deliberately below
+// the browser pseudonym range so they can never collide with one, and non-zero
+// so they are distinguishable from a legacy post. These name the transport an
+// offering arrived on; the board shows them as "(NFC)" and "(USB)".
 constexpr uint16_t NFC_CAPTURE_AUTHOR_ID = 1;
+constexpr uint16_t USB_CONSOLE_AUTHOR_ID = 2;
+
+// A browser picks its own pseudonym inside this range and keeps it in
+// localStorage. Reserved transport ids sit below it.
+constexpr uint16_t BOARD_FIRST_BROWSER_AUTHOR_ID = 1000;
+constexpr uint16_t BOARD_LAST_BROWSER_AUTHOR_ID = 9999;
+
+// True for every id the board will store as-is. Anything else becomes 0, which
+// renders as an unattributed offering.
+constexpr bool isStorableAuthorId(uint16_t id) {
+  return id == NFC_CAPTURE_AUTHOR_ID || id == USB_CONSOLE_AUTHOR_ID ||
+         (id >= BOARD_FIRST_BROWSER_AUTHOR_ID && id <= BOARD_LAST_BROWSER_AUTHOR_ID);
+}
 
 // One post as handed to the web layer. Only ever one of these exists at a
 // time; the board is never loaded into RAM as a whole.
 struct BoardPost {
   uint32_t id;
   uint32_t createdAt;  // Client-supplied Unix seconds. 0 when not provided.
-  uint16_t authorId; // Browser pseudonym 1000–9999, NFC_CAPTURE_AUTHOR_ID
-                     // for a reader capture, zero for legacy posts.
+  uint16_t authorId; // Browser pseudonym 1000–9999, NFC_CAPTURE_AUTHOR_ID or
+                     // USB_CONSOLE_AUTHOR_ID for a post the badge made itself,
+                     // zero for legacy posts.
   bool textInImage;
   String text;
   bool hasImage;

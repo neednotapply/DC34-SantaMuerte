@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "board.h"
+#include "badge_settings.h"
 
 namespace {
 
@@ -64,6 +65,13 @@ File boardFile;
 bool boardReady = false;
 uint16_t nextSlot = 0;
 uint32_t nextId = 1;
+uint32_t highestStoredId = 0;
+
+// Records the first number not yet used, before the record that uses it is
+// written. Losing power between the two skips a number, which is harmless;
+// doing it the other way round could hand the same number out twice, which is
+// the one thing this must never do. Offerings arrive at human pace and NVS
+// wear-levels, so writing on each one costs nothing worth saving.
 uint16_t storedCount = 0;
 uint16_t nextImageSlot = 0;
 
@@ -105,11 +113,15 @@ bool readRecord(uint16_t slot, BoardRecord &record) {
                         sizeof(record)) == sizeof(record);
 }
 
-bool writeRecord(uint16_t slot, const BoardRecord &record) {
+// commit=false leaves the sync to the caller. One post must be durable the
+// moment it is accepted, but a bulk rewrite that flushes every record forces a
+// LittleFS sync per slot, and 512 of those block the Arduino loop for minutes
+// -- no HTTP, no TUI, frozen LEDs, while lwIP keeps answering pings.
+bool writeRecord(uint16_t slot, const BoardRecord &record, bool commit = true) {
   if (!boardFile || !boardFile.seek(slotOffset(slot))) return false;
   const size_t written = boardFile.write(
       reinterpret_cast<const uint8_t *>(&record), sizeof(record));
-  boardFile.flush();
+  if (commit) boardFile.flush();
   return written == sizeof(record);
 }
 
@@ -119,7 +131,7 @@ bool writeRecord(uint16_t slot, const BoardRecord &record) {
 bool createRingFile(const char *path, uint16_t slotCount, uint16_t slotSize) {
   File file = LittleFS.open(path, "w");
   if (!file) {
-    Serial.printf("[BOARD] ERROR: Could not create %s\n", path);
+    Serial.printf("[BOARD] ERROR: Could not create %s\r\n", path);
     return false;
   }
 
@@ -147,12 +159,12 @@ bool createRingFile(const char *path, uint16_t slotCount, uint16_t slotSize) {
   file.close();
 
   if (!ok) {
-    Serial.printf("[BOARD] ERROR: Could not preallocate %s\n", path);
+    Serial.printf("[BOARD] ERROR: Could not preallocate %s\r\n", path);
     LittleFS.remove(path);
     return false;
   }
 
-  Serial.printf("[BOARD] Created %s: %u slots of %u bytes\n", path,
+  Serial.printf("[BOARD] Created %s: %u slots of %u bytes\r\n", path,
                 static_cast<unsigned>(slotCount),
                 static_cast<unsigned>(slotSize));
   return true;
@@ -184,7 +196,7 @@ bool openRing(File &file, const char *path, uint16_t slotCount,
   file = LittleFS.open(path, "r+");
   if (file && headerMatches(file, slotCount, slotSize)) return true;
 
-  Serial.printf("[BOARD] %s uses a different layout; starting a new one\n",
+  Serial.printf("[BOARD] %s uses a different layout; starting a new one\r\n",
                 path);
   if (file) file.close();
   LittleFS.remove(path);
@@ -291,7 +303,13 @@ void recoverCursor() {
     }
   }
 
+  // Never below what has already been handed out. The ring only knows the ids
+  // it currently holds, which says nothing about the ones pruned, cleared, or
+  // lost to a filesystem re-flash.
+  highestStoredId = highestId;
   nextId = highestId + 1;
+  const uint32_t used = getPersistentBoardIdWatermark();
+  if (used > nextId) nextId = used;
   nextSlot = (highestId == 0) ? 0 : ((highestSlot + 1) % BOARD_SLOT_COUNT);
 
   nextImageSlot = (highestImagePost == 0)
@@ -299,7 +317,7 @@ void recoverCursor() {
                       : ((highestImageSlot + 1) % BOARD_IMAGE_SLOT_COUNT);
 
   Serial.printf(
-      "[BOARD] %u of %u posts and %u of %u images in use; next id %lu\n",
+      "[BOARD] %u of %u posts and %u of %u images in use; next id %lu\r\n",
       static_cast<unsigned>(storedCount),
       static_cast<unsigned>(BOARD_SLOT_COUNT),
       static_cast<unsigned>(referencedImages),
@@ -360,7 +378,9 @@ uint16_t boardCapacity() { return BOARD_SLOT_COUNT; }
 
 uint16_t boardImageCapacity() { return BOARD_IMAGE_SLOT_COUNT; }
 
-uint32_t boardNewestId() { return nextId > 1 ? nextId - 1 : 0; }
+// The newest id actually on the board, which is not nextId - 1: nextId may have
+// jumped forward to clear a reservation without any post carrying those numbers.
+uint32_t boardNewestId() { return highestStoredId; }
 
 bool addBoardPost(const String &text,
                   uint32_t createdAt,
@@ -400,8 +420,12 @@ bool addBoardPost(const String &text,
   BoardRecord record = {};
   record.magic = BOARD_RECORD_MAGIC;
   record.id = nextId;
+  setPersistentBoardIdWatermark(nextId + 1);
   record.createdAt = createdAt;
-  record.authorId = authorId >= 1000 && authorId <= 9999 ? authorId : 0;
+  // This used to accept only the browser range, which silently discarded
+  // NFC_CAPTURE_AUTHOR_ID (1) -- so reader captures were stored unattributed
+  // and the board's "(NFC)" tag never once appeared.
+  record.authorId = isStorableAuthorId(authorId) ? authorId : 0;
   if (hasImage && textInImage) record.authorId |= 0x8000;
   record.textLength = cleanText.length();
   record.imageSlot = BOARD_NO_IMAGE;
@@ -433,9 +457,10 @@ bool addBoardPost(const String &text,
 
   if (!overwritingPost && storedCount < BOARD_SLOT_COUNT) ++storedCount;
   nextSlot = (nextSlot + 1) % BOARD_SLOT_COUNT;
+  highestStoredId = record.id;
   ++nextId;
 
-  Serial.printf("[BOARD] Post %lu stored (%u text, %u image bytes)%s\n",
+  Serial.printf("[BOARD] Post %lu stored (%u text, %u image bytes)%s\r\n",
                 static_cast<unsigned long>(record.id),
                 static_cast<unsigned>(record.textLength),
                 static_cast<unsigned>(record.imageLength),
@@ -534,7 +559,7 @@ size_t readBoardImage(uint32_t postId, uint8_t *buffer, size_t capacity) {
   file.close();
 
   if (stored.checksum != expected) {
-    Serial.printf("[BOARD] WARNING: Image for post %lu failed its checksum\n",
+    Serial.printf("[BOARD] WARNING: Image for post %lu failed its checksum\r\n",
                   static_cast<unsigned long>(postId));
     return 0;
   }
@@ -547,8 +572,9 @@ bool clearBoard() {
 
   BoardRecord empty = {};
   for (uint16_t slot = 0; slot < BOARD_SLOT_COUNT; ++slot) {
-    if (!writeRecord(slot, empty)) return false;
+    if (!writeRecord(slot, empty, false)) return false;
   }
+  if (boardFile) boardFile.flush();   // one sync for the whole wipe
 
   for (uint16_t slot = 0; slot < BOARD_IMAGE_SLOT_COUNT; ++slot) {
     char path[24] = {};
@@ -560,7 +586,10 @@ bool clearBoard() {
   }
 
   nextSlot = 0;
-  nextId = 1;
+  // nextId deliberately survives: clearing the wall does not un-write the
+  // offerings that were on it, and a number must never be handed out twice.
+  setPersistentBoardIdWatermark(nextId);
+  highestStoredId = 0;
   storedCount = 0;
   nextImageSlot = 0;
   Serial.println("[BOARD] Every post and picture was cleared");

@@ -16,6 +16,7 @@ constexpr char KEY_UI_LANGUAGE[] = "ui_lang";
 constexpr char KEY_STATION_WIFI[] = "sta_wifi";
 constexpr char KEY_LED_SETTINGS[] = "led_state";
 constexpr char KEY_NFC_SETTINGS[] = "nfc_state";
+constexpr char KEY_BOARD_NEXT_ID[] = "board_id";
 
 // WPA2 accepts an 8 to 63 character printable-ASCII passphrase. Both limits
 // are enforced on generated and user-supplied passwords alike.
@@ -131,6 +132,7 @@ bool settingsInitialized = false;
 bool cachedWifiHidden = false;
 bool cachedAccessPointEnabled = true;
 bool cachedEnglishLanguage = false;
+uint32_t cachedBoardIdWatermark = 1;
 char cachedStationWifiSsid[WIFI_SSID_MAX_LENGTH + 1] = {};
 char cachedStationWifiPassword[WIFI_PASSWORD_MAX_LENGTH + 1] = {};
 bool cachedStationWifiAvailable = false;
@@ -484,6 +486,7 @@ bool initializeBadgeSettings() {
   cachedWifiHidden = preferences.getBool(KEY_WIFI_HIDDEN, false);
   cachedAccessPointEnabled = preferences.getBool(KEY_AP_ENABLED, true);
   cachedEnglishLanguage = preferences.getBool(KEY_UI_LANGUAGE, false);
+  cachedBoardIdWatermark = preferences.getUInt(KEY_BOARD_NEXT_ID, 1);
 
   // Home-network credentials are optional. A corrupt or superseded station
   // record must never keep the badge's own access point from starting.
@@ -540,13 +543,32 @@ bool setPersistentAccessPointEnabled(bool enabled, String &error) {
     return false;
   }
   cachedAccessPointEnabled = enabled;
-  Serial.printf("[SETTINGS] Badge AP %s\n", enabled ? "enabled" : "disabled");
+  Serial.printf("[SETTINGS] Badge AP %s\r\n", enabled ? "enabled" : "disabled");
   return true;
 }
 
 bool getPersistentEnglishLanguage() {
   if (!settingsInitialized && !initializeBadgeSettings()) return false;
   return cachedEnglishLanguage;
+}
+
+uint32_t getPersistentBoardIdWatermark() {
+  if (!settingsInitialized && !initializeBadgeSettings()) return 1;
+  return cachedBoardIdWatermark;
+}
+
+bool setPersistentBoardIdWatermark(uint32_t watermark) {
+  if (!settingsInitialized && !initializeBadgeSettings()) return false;
+  // Only ever forward. A stale or rolled-back value would let a number repeat.
+  if (watermark <= cachedBoardIdWatermark) return true;
+
+  Preferences preferences;
+  if (!preferences.begin(SETTINGS_NAMESPACE, false)) return false;
+  const bool stored = preferences.putUInt(KEY_BOARD_NEXT_ID, watermark) != 0;
+  preferences.end();
+  if (!stored) return false;
+  cachedBoardIdWatermark = watermark;
+  return true;
 }
 
 bool setPersistentEnglishLanguage(bool english, String &error) {
@@ -570,7 +592,7 @@ bool setPersistentEnglishLanguage(bool english, String &error) {
     return false;
   }
   cachedEnglishLanguage = english;
-  Serial.printf("[SETTINGS] UI language: %s\n", english ? "English" : "Spanish");
+  Serial.printf("[SETTINGS] UI language: %s\r\n", english ? "English" : "Spanish");
   return true;
 }
 
@@ -640,7 +662,7 @@ bool setPersistentWifiSettings(const String &password,
   copyPassword(cachedWifiPassword, requestedPassword);
   cachedWifiHidden = hidden;
 
-  Serial.printf("[SETTINGS] Wi-Fi settings updated: hidden=%s\n",
+  Serial.printf("[SETTINGS] Wi-Fi settings updated: hidden=%s\r\n",
                 cachedWifiHidden ? "true" : "false");
   return true;
 }
@@ -698,7 +720,7 @@ bool setPersistentStationWifiSettings(const String &ssid,
   copySsid(cachedStationWifiSsid, requestedSsid);
   copyPassword(cachedStationWifiPassword, requestedPassword);
   cachedStationWifiAvailable = true;
-  Serial.printf("[SETTINGS] Home Wi-Fi updated: ssid=%s\n", requestedSsid);
+  Serial.printf("[SETTINGS] Home Wi-Fi updated: ssid=%s\r\n", requestedSsid);
   return true;
 }
 
