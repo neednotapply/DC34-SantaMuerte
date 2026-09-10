@@ -188,7 +188,7 @@ void restoreLedSettings() {
   animationSpeed = settings.speed;
 
   Serial.printf(
-      "[LED] Restored pattern=%s rgb=%u,%u,%u brightness=%u speed=%u\n",
+      "[LED] Restored pattern=%s rgb=%u,%u,%u brightness=%u speed=%u\r\n",
       patternToString(currentPattern), selectedR, selectedG, selectedB,
       ledBrightness, animationSpeed);
 }
@@ -209,6 +209,8 @@ void serviceLedSettingsPersistence() {
 // -----------------------------------------------------------------------------
 // LED setup and animation engine
 // -----------------------------------------------------------------------------
+void ledRenderTask(void *parameter);
+
 void setupLEDs() {
   Serial.println("[LED] begin");
   strip.begin();
@@ -220,6 +222,11 @@ void setupLEDs() {
   for (int i = 0; i < LED_COUNT; i++) {
     auroraHue[i] = random(PURPLE_MIN, PURPLE_MAX);
     auroraVelocity[i] = random(8, 18) / 100.0f;
+  }
+
+  if (xTaskCreatePinnedToCore(ledRenderTask, "leds", 4096, nullptr, 2, nullptr,
+                              1) != pdPASS) {
+    Serial.println("[LED] WARNING: render task not created; animating from loop()");
   }
   Serial.println("[LED] ready");
 }
@@ -591,13 +598,13 @@ void printIdentifyFrame() {
   }
 
   Serial.println();
-  Serial.printf("===== IDENTIFY FRAME %u of %u =====\n", identifyFrame,
+  Serial.printf("===== IDENTIFY FRAME %u of %u =====\r\n", identifyFrame,
                 IDENTIFY_FRAME_COUNT);
   const uint8_t first = (identifyFrame - 1) * 4;
   for (uint8_t slot = 0; slot < 4; ++slot) {
     const uint8_t index = first + slot;
     if (index >= LED_COUNT) break;
-    Serial.printf("  strand index %2u -> %s\n", index,
+    Serial.printf("  strand index %2u -> %s\r\n", index,
                   IDENTIFY_COLOURS[slot].name);
   }
   Serial.println("  Every other pixel is off. Photograph the badge front-on,");
@@ -673,6 +680,23 @@ void updateLEDs() {
   strip.show();
 }
 
+// The web server hands out a whole file inside a single handleClient() call,
+// so anything sharing the Arduino loop with it stops for the length of a
+// transfer. That is why the strip froze -- usually at the dark end of a pulse,
+// which reads as "the lights turned off" -- whenever a phone loaded the portal.
+// Rendering from a dedicated task decouples the animation from page serving.
+// espShow() drives the strip over RMT and deliberately does not disable
+// interrupts on ESP32, so this is safe to run alongside Wi-Fi. Pinned to core 1
+// to stay off the core the Wi-Fi stack uses, above loop() priority so a
+// blocking transfer cannot starve it.
+void ledRenderTask(void *parameter) {
+  (void)parameter;
+  for (;;) {
+    updateLEDs();
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+}
+
 // -----------------------------------------------------------------------------
 // LED state interface used by wifi.cpp
 // All LED state validation and mutation stays in this file.
@@ -732,7 +756,7 @@ void applyLedWebSettings(const String &pattern,
   if (brightness >= 0) ledBrightness = (uint8_t)constrain(brightness, 0, 255);
   if (speed >= 0) animationSpeed = (uint8_t)constrain(speed, 1, 100);
 
-  Serial.printf("[WEB] pattern=%s rgb=%u,%u,%u brightness=%u speed=%u\n",
+  Serial.printf("[WEB] pattern=%s rgb=%u,%u,%u brightness=%u speed=%u\r\n",
                 patternToString(currentPattern), selectedR, selectedG, selectedB,
                 ledBrightness, animationSpeed);
 
@@ -771,10 +795,10 @@ void printBadgeCredentials() {
   Serial.println();
   Serial.println("==================================================");
   Serial.println("  SANTA MUERTE // WI-FI");
-  Serial.printf("  SSID:     %s\n", ssid && ssid[0] ? ssid : "(not ready)");
-  Serial.printf("  PASSWORD: %s\n",
+  Serial.printf("  SSID:     %s\r\n", ssid && ssid[0] ? ssid : "(not ready)");
+  Serial.printf("  PASSWORD: %s\r\n",
                 password && password[0] ? password : "(not ready)");
-  Serial.printf("  BADGE AP: %s\n", isBadgeAccessPointActive() ? "ON" : "OFF");
+  Serial.printf("  BADGE AP: %s\r\n", isBadgeAccessPointActive() ? "ON" : "OFF");
   if (isBadgeAccessPointActive()) {
     Serial.println("  PORTAL:   http://10.69.4.20/");
     Serial.println("  Hidden SSID: type it by hand if your phone cannot see it.");
@@ -782,7 +806,7 @@ void printBadgeCredentials() {
     Serial.println("  PORTAL:   AP is off; use home Wi-Fi or press a to restore it.");
   }
   if (hasPersistentStationWifiSettings()) {
-    Serial.printf("  HOME:     %s // http://SantaMuerte.local/\n",
+    Serial.printf("  HOME:     %s // http://SantaMuerte.local/\r\n",
                   getPersistentStationWifiSsid());
   }
   Serial.println("--------------------------------------------------");
@@ -803,7 +827,7 @@ void printBadgeCredentials() {
 // allocation for a base64 drawing, so a heap that is roomy but shredded will
 // fail that write while still reporting plenty free.
 void printHeap(const char *when) {
-  Serial.printf("[HEAP] %s free=%u largest=%u min-ever=%u\n", when,
+  Serial.printf("[HEAP] %s free=%u largest=%u min-ever=%u\r\n", when,
                 static_cast<unsigned>(ESP.getFreeHeap()),
                 static_cast<unsigned>(ESP.getMaxAllocHeap()),
                 static_cast<unsigned>(ESP.getMinFreeHeap()));
@@ -838,7 +862,7 @@ void serviceSerialConsole() {
   // Preview the tag acknowledgement without needing a tag to hand.
   if (sawCue || sawCueFail) {
     signalTagCue(sawCue);
-    Serial.printf("[CUE] %s preview\n", sawCue ? "accepted" : "rejected");
+    Serial.printf("[CUE] %s preview\r\n", sawCue ? "accepted" : "rejected");
     return;
   }
 
@@ -846,9 +870,9 @@ void serviceSerialConsole() {
     String error;
     const bool next = !isBadgeAccessPointActive();
     if (setBadgeAccessPointEnabled(next, error)) {
-      Serial.printf("[WIFI] Badge AP turning %s\n", next ? "on" : "off");
+      Serial.printf("[WIFI] Badge AP turning %s\r\n", next ? "on" : "off");
     } else {
-      Serial.printf("[WIFI] Badge AP change failed: %s\n", error.c_str());
+      Serial.printf("[WIFI] Badge AP change failed: %s\r\n", error.c_str());
     }
     return;
   }
@@ -895,12 +919,12 @@ void restoreNfcSettings() {
     case NFC_MODE_URL: {
       const char *type = stored.mode == NFC_MODE_URL ? "url" : "text";
       if (startNfcTagEmulation(type, String(stored.payload))) {
-        Serial.printf("[MAIN] NFC %s emulation restored\n", type);
+        Serial.printf("[MAIN] NFC %s emulation restored\r\n", type);
         return;
       }
       Serial.printf(
           "[MAIN] WARNING: stored NFC %s record could not be restored; "
-          "falling back to Wi-Fi sharing\n",
+          "falling back to Wi-Fi sharing\r\n",
           type);
       break;
     }
@@ -946,9 +970,9 @@ void setup() {
   // claim most of the filesystem, so the space left over is only meaningful
   // once they have been allocated.
   if (setupBoard()) {
-    Serial.printf("[MAIN] Message board ready: %u of %u posts stored\n",
+    Serial.printf("[MAIN] Message board ready: %u of %u posts stored\r\n",
                   boardStoredCount(), boardCapacity());
-    Serial.printf("[MAIN] LittleFS: %u of %u bytes used, %u free\n",
+    Serial.printf("[MAIN] LittleFS: %u of %u bytes used, %u free\r\n",
                   static_cast<unsigned>(LittleFS.usedBytes()),
                   static_cast<unsigned>(LittleFS.totalBytes()),
                   static_cast<unsigned>(LittleFS.totalBytes() -
@@ -983,7 +1007,6 @@ void loop() {
   serviceNfcCapture();
   serviceNfcPersistence();
   usbTuiService();
-  updateLEDs();
   serviceLedSettingsPersistence();
   delay(1);
 }

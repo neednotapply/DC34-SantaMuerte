@@ -416,7 +416,7 @@ void clearTagResult() {
 }
 
 void finishSuccess(const String &message) {
-  Serial.printf("[NFC][DONE] %s: %s\n", operationName(pendingOperation),
+  Serial.printf("[NFC][DONE] %s: %s\r\n", operationName(pendingOperation),
                 message.c_str());
   state.busy = false;
   state.status = "success";
@@ -427,7 +427,7 @@ void finishSuccess(const String &message) {
 }
 
 void finishError(const String &message) {
-  Serial.printf("[NFC][ERROR] %s: %s\n", operationName(pendingOperation),
+  Serial.printf("[NFC][ERROR] %s: %s\r\n", operationName(pendingOperation),
                 message.c_str());
   state.busy = false;
   state.status = "error";
@@ -438,7 +438,7 @@ void finishError(const String &message) {
 }
 
 bool configurePassiveReader(const char *reason) {
-  Serial.printf("[NFC][READER] Configuring passive reader mode: %s\n", reason);
+  Serial.printf("[NFC][READER] Configuring passive reader mode: %s\r\n", reason);
 
   if (!nfc.SAMConfig()) {
     state.readerReady = false;
@@ -460,14 +460,14 @@ bool configurePassiveReader(const char *reason) {
 
   delay(20);
   state.readerReady = true;
-  Serial.printf("[NFC][READER] Ready; retries=0x%02X pollTimeout=%u ms\n",
+  Serial.printf("[NFC][READER] Ready; retries=0x%02X pollTimeout=%u ms\r\n",
                 PASSIVE_ACTIVATION_RETRIES, TAG_POLL_TIMEOUT_MS);
   return true;
 }
 
 bool beginOperation(NfcOperation operation, const String &message) {
   if (!state.readerReady) {
-    Serial.printf("[NFC][REJECT] %s: PN532 reader is not available\n",
+    Serial.printf("[NFC][REJECT] %s: PN532 reader is not available\r\n",
                   operationName(operation));
     state.status = "error";
     state.message = "El lector PN532 no está disponible.";
@@ -475,7 +475,7 @@ bool beginOperation(NfcOperation operation, const String &message) {
     return false;
   }
   if (state.tagEmulationEnabled) {
-    Serial.printf("[NFC][REJECT] %s: tag emulation is active\n",
+    Serial.printf("[NFC][REJECT] %s: tag emulation is active\r\n",
                   operationName(operation));
     state.status = "error";
     state.message = "Para la emulación antes de leer o escribir otro tag.";
@@ -483,7 +483,7 @@ bool beginOperation(NfcOperation operation, const String &message) {
     return false;
   }
   if (state.busy) {
-    Serial.printf("[NFC][REJECT] %s: %s is already active\n",
+    Serial.printf("[NFC][REJECT] %s: %s is already active\r\n",
                   operationName(operation), operationName(pendingOperation));
     state.message = "Ya hay otra acción NFC esperando un tag.";
     state.updatedAt = millis();
@@ -497,7 +497,7 @@ bool beginOperation(NfcOperation operation, const String &message) {
 
   pendingOperation = operation;
 #if NFC_DEBUG_VERBOSE
-  Serial.printf("[NFC][QUEUE] %s queued; timeout=%lu ms\n",
+  Serial.printf("[NFC][QUEUE] %s queued; timeout=%lu ms\r\n",
                 operationName(operation),
                 static_cast<unsigned long>(OPERATION_TIMEOUT_MS));
 #endif
@@ -532,7 +532,7 @@ bool readType2Page(uint16_t page, uint8_t output[TYPE2_PAGE_BYTES]) {
       return true;
     }
 #if NFC_DEBUG_VERBOSE
-    Serial.printf("[NFC][PAGE] Read page %u failed (attempt %u/%u)\n",
+    Serial.printf("[NFC][PAGE] Read page %u failed (attempt %u/%u)\r\n",
                   static_cast<unsigned>(page), attempt, TYPE2_READ_RETRIES);
 #endif
     delay(TYPE2_RETRY_DELAY_MS);
@@ -541,7 +541,7 @@ bool readType2Page(uint16_t page, uint8_t output[TYPE2_PAGE_BYTES]) {
 
   type2IoError = "No se pudo leer la página Type 2 " + String(page) +
                  " después de " + String(TYPE2_READ_RETRIES) + " intentos.";
-  Serial.printf("[NFC] ERROR: %s\n", type2IoError.c_str());
+  Serial.printf("[NFC] ERROR: %s\r\n", type2IoError.c_str());
   return false;
 }
 
@@ -573,7 +573,7 @@ bool writeType2PageVerified(uint16_t page,
 #endif
     } else {
 #if NFC_DEBUG_VERBOSE
-      Serial.printf("[NFC][PAGE] Write page %u command failed (attempt %u/%u)\n",
+      Serial.printf("[NFC][PAGE] Write page %u command failed (attempt %u/%u)\r\n",
                     static_cast<unsigned>(page), attempt, TYPE2_WRITE_RETRIES);
 #endif
     }
@@ -583,7 +583,7 @@ bool writeType2PageVerified(uint16_t page,
   }
 
   type2IoError = "No se pudo escribir y verificar la página Type 2 " + String(page) + ".";
-  Serial.printf("[NFC] ERROR: %s\n", type2IoError.c_str());
+  Serial.printf("[NFC] ERROR: %s\r\n", type2IoError.c_str());
   return false;
 }
 
@@ -648,7 +648,7 @@ bool parseNdefRecord(const uint8_t *message, size_t messageLength) {
   const uint8_t *payload = message + offset;
 
 #if NFC_DEBUG_VERBOSE
-  Serial.printf("[NFC][NDEF] header=%02X tnf=%u typeLen=%u payloadLen=%lu short=%s id=%s\n",
+  Serial.printf("[NFC][NDEF] header=%02X tnf=%u typeLen=%u payloadLen=%lu short=%s id=%s\r\n",
                 header, tnf, typeLength, static_cast<unsigned long>(payloadLength),
                 shortRecord ? "yes" : "no", hasId ? "yes" : "no");
   logNfcBytes("NDEF record", message, messageLength);
@@ -671,7 +671,7 @@ bool parseNdefRecord(const uint8_t *message, size_t messageLength) {
     state.payload = bytesToString(payload + 1 + languageLength,
                                   payloadLength - 1 - languageLength);
 #if NFC_DEBUG_VERBOSE
-    Serial.printf("[NFC][NDEF] Decoded Text: %s\n", state.payload.c_str());
+    Serial.printf("[NFC][NDEF] Decoded Text: %s\r\n", state.payload.c_str());
 #endif
     return true;
   }
@@ -685,7 +685,7 @@ bool parseNdefRecord(const uint8_t *message, size_t messageLength) {
     state.payload = String(uriPrefix(payload[0]));
     state.payload += bytesToString(payload + 1, payloadLength - 1);
 #if NFC_DEBUG_VERBOSE
-    Serial.printf("[NFC][NDEF] Decoded URL: %s\n", state.payload.c_str());
+    Serial.printf("[NFC][NDEF] Decoded URL: %s\r\n", state.payload.c_str());
 #endif
     return true;
   }
@@ -728,7 +728,12 @@ bool readType2Tag(bool &type2MemoryResponded) {
   logType2Page("CAPABILITY", 3, capability);
 
   if (capability[0] != 0xE1) {
-    state.tagType = "Memoria compatible con Type 2 (sin formato NDEF)";
+    // tagType is baked verbatim into the offering text a capture posts, so it
+    // has to read the same in both languages -- exactly like the ISO14443A and
+    // "NFC Forum Type 2" identifiers it sits alongside. A translated string
+    // here would be frozen into board content in whatever language happened to
+    // be active at capture time.
+    state.tagType = "Type 2 compatible (no NDEF)";
     state.message = "Se vio memoria Type 2, pero sin contenedor válido.";
     return readUnformattedType2Preview();
   }
@@ -740,7 +745,7 @@ bool readType2Tag(bool &type2MemoryResponded) {
   state.writable = (capability[3] & 0x0F) != 0x0F;
 
 #if NFC_DEBUG_VERBOSE
-  Serial.printf("[NFC] Type 2 CC: %02X %02X %02X %02X, data area %u bytes\n",
+  Serial.printf("[NFC] Type 2 CC: %02X %02X %02X %02X, data area %u bytes\r\n",
                 capability[0], capability[1], capability[2], capability[3],
                 static_cast<unsigned>(state.capacity));
 #endif
@@ -763,7 +768,7 @@ bool readType2Tag(bool &type2MemoryResponded) {
     if (!loadType2Bytes(offset + 1U, state.capacity, loadedBytes)) return false;
     const uint8_t tlvType = type2Buffer[offset++];
 #if NFC_DEBUG_VERBOSE
-    Serial.printf("[NFC][TLV] offset=%u type=%02X\n",
+    Serial.printf("[NFC][TLV] offset=%u type=%02X\r\n",
                   static_cast<unsigned>(offset - 1U), tlvType);
 #endif
 
@@ -785,7 +790,7 @@ bool readType2Tag(bool &type2MemoryResponded) {
     }
 
 #if NFC_DEBUG_VERBOSE
-    Serial.printf("[NFC][TLV] type=%02X length=%u payloadOffset=%u\n", tlvType,
+    Serial.printf("[NFC][TLV] type=%02X length=%u payloadOffset=%u\r\n", tlvType,
                   static_cast<unsigned>(tlvLength),
                   static_cast<unsigned>(offset));
 #endif
@@ -809,7 +814,7 @@ bool readType2Tag(bool &type2MemoryResponded) {
       }
 
 #if NFC_DEBUG_VERBOSE
-      Serial.printf("[NFC] NDEF read completed after %u user bytes (%u pages)\n",
+      Serial.printf("[NFC] NDEF read completed after %u user bytes (%u pages)\r\n",
                     static_cast<unsigned>(loadedBytes),
                     static_cast<unsigned>((loadedBytes + 3U) / 4U));
 #endif
@@ -899,7 +904,7 @@ bool buildNdef(const String &recordType, const String &input, size_t capacity,
   type2Buffer[offset++] = 0xFE;
   totalLength = offset;
 #if NFC_DEBUG_VERBOSE
-  Serial.printf("[NFC][NDEF] Built %s record: input=%u bytes, encoded=%u bytes\n",
+  Serial.printf("[NFC][NDEF] Built %s record: input=%u bytes, encoded=%u bytes\r\n",
                 recordType.c_str(), static_cast<unsigned>(input.length()),
                 static_cast<unsigned>(totalLength));
 #endif
@@ -917,7 +922,7 @@ bool writeType2Buffer(size_t totalLength) {
 
   const size_t pages = (totalLength + TYPE2_PAGE_BYTES - 1U) / TYPE2_PAGE_BYTES;
 #if NFC_DEBUG_VERBOSE
-  Serial.printf("[NFC][WRITE] Storing %u bytes across %u page(s); commit page 4 last\n",
+  Serial.printf("[NFC][WRITE] Storing %u bytes across %u page(s); commit page 4 last\r\n",
                 static_cast<unsigned>(totalLength),
                 static_cast<unsigned>(pages));
 #endif
@@ -938,7 +943,7 @@ bool writeType2Buffer(size_t totalLength) {
          std::min<size_t>(TYPE2_PAGE_BYTES, totalLength));
   if (!writeType2PageVerified(4, firstPage)) return false;
 
-  Serial.printf("[NFC] NDEF write committed and verified across %u pages\n",
+  Serial.printf("[NFC] NDEF write committed and verified across %u pages\r\n",
                 static_cast<unsigned>(pages));
   return true;
 }
@@ -1110,7 +1115,7 @@ bool buildWifiOnboardingNdef(const String &ssid, const String &password,
 #if NFC_DEBUG_VERBOSE
   Serial.printf(
       "[NFC][WIFI] Built dual-record onboarding message: "
-      "SSID=%s total=%u bytes WSC=%u bytes Text=%u bytes\n",
+      "SSID=%s total=%u bytes WSC=%u bytes Text=%u bytes\r\n",
       ssid.c_str(), static_cast<unsigned>(ndefLength),
       static_cast<unsigned>(wscPayloadLength),
       static_cast<unsigned>(textPayloadLength));
@@ -1361,7 +1366,7 @@ bool processTagEmulationApdu(const uint8_t *apdu, uint8_t length) {
         state.emulationMessage = "Registro NDEF leído del tag emulado.";
         state.message = state.emulationMessage;
         state.updatedAt = millis();
-        Serial.printf("[NFC] Emulated %s record scanned (%u bytes)\n",
+        Serial.printf("[NFC] Emulated %s record scanned (%u bytes)\r\n",
                       state.emulatedRecordType.c_str(),
                       static_cast<unsigned>(emulatedNdefLength));
       }
@@ -1462,7 +1467,7 @@ void identifyTag(const uint8_t *uid, uint8_t uidLength) {
 void processDetectedTag(uint8_t *uid, uint8_t uidLength) {
   identifyTag(uid, uidLength);
 #if NFC_DEBUG_VERBOSE
-  Serial.printf("[NFC][TAG] Detected UID=%s length=%u operation=%s\n",
+  Serial.printf("[NFC][TAG] Detected UID=%s length=%u operation=%s\r\n",
                 state.uid.c_str(), uidLength, operationName(pendingOperation));
 #endif
 
@@ -1503,7 +1508,7 @@ void processDetectedTag(uint8_t *uid, uint8_t uidLength) {
   const String recordType =
       pendingOperation == NfcOperation::WRITE_URL ? "url" : "text";
 #if NFC_DEBUG_VERBOSE
-  Serial.printf("[NFC][WRITE] Preparing %s payload (%u bytes): %s\n",
+  Serial.printf("[NFC][WRITE] Preparing %s payload (%u bytes): %s\r\n",
                 recordType.c_str(), static_cast<unsigned>(pendingPayload.length()),
                 pendingPayload.c_str());
 #endif
@@ -1688,7 +1693,7 @@ bool executeStartTagEmulation(const NfcCommand &command) {
   state.updatedAt = millis();
   lastTargetAttempt = 0;
 
-  Serial.printf("[NFC] Tag emulation started: %s, %u payload bytes\n",
+  Serial.printf("[NFC] Tag emulation started: %s, %u payload bytes\r\n",
                 state.emulatedRecordType.c_str(),
                 static_cast<unsigned>(payload.length()));
   return true;
@@ -1721,7 +1726,7 @@ bool executeStartWifiOnboarding(const NfcCommand &command) {
     state.message = error;
     state.emulationMessage = error;
     state.updatedAt = millis();
-    Serial.printf("[NFC][WIFI] ERROR: %s\n", error.c_str());
+    Serial.printf("[NFC][WIFI] ERROR: %s\r\n", error.c_str());
     return false;
   }
 
@@ -1740,7 +1745,7 @@ bool executeStartWifiOnboarding(const NfcCommand &command) {
   state.updatedAt = millis();
   lastTargetAttempt = 0;
 
-  Serial.printf("[NFC][WIFI] Tag emulation started for SSID: %s\n",
+  Serial.printf("[NFC][WIFI] Tag emulation started for SSID: %s\r\n",
                 ssid.c_str());
   return true;
 }
@@ -1795,7 +1800,7 @@ bool executeSetCapture(const NfcCommand &command) {
   }
   state.status = "idle";
   state.updatedAt = millis();
-  Serial.printf("[NFC][CAPTURE] %s\n", command.flag ? "enabled" : "disabled");
+  Serial.printf("[NFC][CAPTURE] %s\r\n", command.flag ? "enabled" : "disabled");
   return true;
 }
 
@@ -1813,7 +1818,7 @@ void stageCapture(const String &text) {
     Serial.println("[NFC][CAPTURE] Queue full; dropped one capture");
     return;
   }
-  Serial.printf("[NFC][CAPTURE] Staged %u byte(s)\n",
+  Serial.printf("[NFC][CAPTURE] Staged %u byte(s)\r\n",
                 static_cast<unsigned>(strlen(buffer)));
 }
 
@@ -1924,7 +1929,7 @@ void serviceNfcWorker() {
 
   const uint32_t now = millis();
   if (static_cast<int32_t>(now - operationDeadline) >= 0) {
-    Serial.printf("[NFC][TIMEOUT] %s expired without detecting a tag\n",
+    Serial.printf("[NFC][TIMEOUT] %s expired without detecting a tag\r\n",
                   operationName(pendingOperation));
     finishError("No se detectó ningún tag en 15 segundos.");
     return;
@@ -1946,7 +1951,7 @@ void serviceNfcWorker() {
           static_cast<int32_t>(operationDeadline - afterPoll) > 0
               ? operationDeadline - afterPoll
               : 0;
-      Serial.printf("[NFC][POLL] No target yet; attempts=%lu remaining=%lu ms\n",
+      Serial.printf("[NFC][POLL] No target yet; attempts=%lu remaining=%lu ms\r\n",
                     static_cast<unsigned long>(pollAttempts),
                     static_cast<unsigned long>(remaining));
     }
@@ -1955,7 +1960,7 @@ void serviceNfcWorker() {
   }
 
 #if NFC_DEBUG_VERBOSE
-  Serial.printf("[NFC][POLL] Target activated after %lu attempt(s); UID length=%u\n",
+  Serial.printf("[NFC][POLL] Target activated after %lu attempt(s); UID length=%u\r\n",
                 static_cast<unsigned long>(pollAttempts), uidLength);
 #endif
   state.status = "working";
@@ -1966,7 +1971,7 @@ void serviceNfcWorker() {
 
 void nfcWorkerTask(void *parameter) {
   (void)parameter;
-  Serial.printf("[NFC][TASK] Worker started on core %d\n", xPortGetCoreID());
+  Serial.printf("[NFC][TASK] Worker started on core %d\r\n", xPortGetCoreID());
 
   for (;;) {
     NfcCommand command;
@@ -2120,9 +2125,9 @@ void setupNFC() {
     return;
   }
 
-  Serial.printf("[NFC] Found PN5%02X firmware %u.%u\n", (version >> 24) & 0xFF,
+  Serial.printf("[NFC] Found PN5%02X firmware %u.%u\r\n", (version >> 24) & 0xFF,
                 (version >> 16) & 0xFF, (version >> 8) & 0xFF);
-  Serial.printf("[NFC] Advanced NFC serial diagnostics: %s\n",
+  Serial.printf("[NFC] Advanced NFC serial diagnostics: %s\r\n",
                 NFC_DEBUG_VERBOSE ? "enabled" : "disabled");
 }
 
