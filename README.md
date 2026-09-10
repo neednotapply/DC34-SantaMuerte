@@ -36,16 +36,21 @@ running its own AP or has joined home Wi-Fi.
 3. The dashboard opens on its own. Press `p` if the serial program is a basic
    monitor: that switches to the same plain-text menu with no ANSI escapes.
 
-The top-level keys are `1` Dashboard, `2` Network, `3` LED Studio, `4` NFC
-Studio, `5` Offerings, and `6` System. `?` opens help; `Esc`/`q` returns to
-the dashboard; `r` temporarily streams raw diagnostics until the next key;
-and `v` briefly reveals masked network passwords on the Network page.
+Move between sections from the dashboard with the arrow keys or `j`/`k` — the
+`>` marks the selection — and press `Enter` to open one. Number keys are never
+section jumps: on any screen a digit is one of that screen's own actions, so
+`3` means "Change AP password" on Network and "Chase" in LED Tools. `?` opens
+help; `Esc`/`q` returns to the dashboard; `r` temporarily streams raw
+diagnostics until the next key; and `v` briefly reveals masked network
+passwords on the Network page.
 
 Network mode is deliberately exclusive: choose **Santa Muerte AP** or saved
 **home Wi-Fi**, never both. Changes, credential saves, clearing offerings, NFC
 writes/emulation, and reboot all require `y/n` confirmation. If a terminal
-session gets lost in a menu, capital `A` starts the AP/home-mode recovery
-switch from anywhere except a text entry prompt.
+session gets lost in a menu, capital `W` starts the AP/home-mode recovery
+switch from anywhere except a text entry prompt. It is capital so it cannot
+collide with the lowercase per-screen menus, and it avoids `A`-`D` because
+those are the bytes that terminate an arrow-key sequence.
 
 The USB menu includes live LED controls and identify frames; NFC reading,
 writing, offering capture, and emulation; and recent text offerings, creating
@@ -59,9 +64,9 @@ firmware flashing remain web/host workflows rather than USB TUI features.
 - **Network** — choose the exclusive AP/home mode, change the AP password,
   save a home SSID/password, toggle the AP hidden setting, and inspect the
   connection state.
-- **LED Studio** — choose any of the sixteen patterns, set `#RRGGBB`,
+- **LED Tools** — choose any of the sixteen patterns, set `#RRGGBB`,
   brightness, speed, and step through physical LED identify frames.
-- **NFC Studio** — queue a read or text/URL write, turn NFC Offering on/off,
+- **NFC Tools** — queue a read or text/URL write, turn NFC Offering on/off,
   emulate text, URL, or the badge's Wi-Fi record, and stop emulation.
 - **Offerings** — browse the newest text posts, add one text-only offering,
   inspect ring capacity, or erase the board after confirmation.
