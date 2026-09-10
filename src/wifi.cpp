@@ -5,6 +5,8 @@
 #include <DNSServer.h>
 #include <LittleFS.h>
 #include <esp_wifi.h>
+#include <esp_netif_sta_list.h>
+#include <lwip/etharp.h>
 #include <cstring>
 #include "badge_wifi.h"
 #include "badge_settings.h"
@@ -39,6 +41,13 @@ constexpr uint16_t HTTP_PORT = 80;
 constexpr uint16_t DNS_PORT = 53;
 constexpr char STATION_HOSTNAME[] = "SantaMuerte";
 constexpr uint32_t STATION_RETRY_MS = 20000;
+// Home mode is exclusive: joining the house network takes the badge's own
+// access point down, so a join that never succeeds used to leave the badge
+// reachable over USB and nothing else. After this long with no connection it
+// gives up and brings the AP back, which is the only route left to a portal
+// that can change the setting. Roughly six retry cycles -- long enough to ride
+// out a router restart, short enough that nobody goes looking for a cable.
+constexpr uint32_t STATION_FALLBACK_MS = 120000;
 
 WebServer server(HTTP_PORT);
 DNSServer dnsServer;
@@ -52,6 +61,14 @@ bool accessPointTogglePending = false;
 bool requestedAccessPointEnabled = true;
 uint32_t accessPointToggleAt = 0;
 bool stationConnectionRequested = false;
+// A join that never succeeds used to look identical to one still in progress:
+// WiFi.status() was only ever compared against WL_CONNECTED, so the reason was
+// discarded. Keep the last reason so USB, the TUI and the portal can say it.
+uint32_t stationAttempts = 0;
+String stationLastFailure;
+// millis() when the station link was last seen down; 0 while it is up. Covers
+// both a join that never lands and a connection that drops later.
+uint32_t stationOfflineSince = 0;
 bool mdnsRunning = false;
 uint32_t stationConnectionStartedAt = 0;
 
@@ -244,6 +261,19 @@ void stopMdns() {
   Serial.println("[WIFI] mDNS stopped");
 }
 
+const char *stationStatusName(int status) {
+  switch (status) {
+    case WL_NO_SSID_AVAIL: return "SSID not found on air";
+    case WL_CONNECT_FAILED: return "association rejected (wrong password?)";
+    case WL_CONNECTION_LOST: return "connection lost";
+    case WL_DISCONNECTED: return "disconnected";
+    case WL_IDLE_STATUS: return "idle";
+    case WL_SCAN_COMPLETED: return "scan completed";
+    case WL_CONNECTED: return "connected";
+    default: return "unknown";
+  }
+}
+
 void startStationConnection() {
   // Home Wi-Fi is the alternate mode, never a second network alongside the
   // badge AP. Leaving AP mode selected also suppresses automatic reconnects.
@@ -259,24 +289,30 @@ void startStationConnection() {
              getPersistentStationWifiPassword());
   stationConnectionRequested = true;
   stationConnectionStartedAt = millis();
-  Serial.printf("[WIFI] Joining home Wi-Fi: %s\n",
+  Serial.printf("[WIFI] Joining home Wi-Fi: %s\r\n",
                 getPersistentStationWifiSsid());
 }
 
 void serviceStationConnection() {
   if (getPersistentAccessPointEnabled()) {
     stationConnectionRequested = false;
+    // Whether this was the operator's choice or the fallback below, the next
+    // switch to home Wi-Fi starts its own clock rather than inheriting one.
+    stationOfflineSince = 0;
     stopMdns();
     return;
   }
   if (!hasPersistentStationWifiSettings()) return;
 
   if (WiFi.status() == WL_CONNECTED) {
+    stationOfflineSince = 0;
     if (!mdnsRunning) {
       if (MDNS.begin(STATION_HOSTNAME)) {
         MDNS.addService("http", "tcp", HTTP_PORT);
         mdnsRunning = true;
-        Serial.printf("[WIFI] Home Wi-Fi connected: %s // http://%s.local/\n",
+        stationAttempts = 0;
+        stationLastFailure = String();
+        Serial.printf("[WIFI] Home Wi-Fi connected: %s // http://%s.local/\r\n",
                       WiFi.localIP().toString().c_str(), STATION_HOSTNAME);
       } else {
         Serial.println("[WIFI] WARNING: Could not start mDNS");
@@ -286,8 +322,48 @@ void serviceStationConnection() {
   }
 
   stopMdns();
+
+  const uint32_t now = millis();
+  if (stationOfflineSince == 0) stationOfflineSince = now;
+  if (now - stationOfflineSince >= STATION_FALLBACK_MS) {
+    Serial.printf("[WIFI] No home Wi-Fi for %lus -- bringing the badge access "
+                  "point back so the portal stays reachable.\r\n",
+                  static_cast<unsigned long>((now - stationOfflineSince) / 1000));
+    String error;
+    if (setBadgeAccessPointEnabled(true, error)) {
+      // Persisted deliberately: a reboot must not strand the badge again on a
+      // network that is not there. Home Wi-Fi stays saved, so switching back is
+      // one tap in the portal once the network is.
+      stationConnectionRequested = false;
+      stationOfflineSince = 0;
+      stationAttempts = 0;
+      stationLastFailure = String();
+    } else {
+      Serial.printf("[WIFI] Could not fall back to the access point: %s\r\n",
+                    error.c_str());
+      stationOfflineSince = now;   // try the fallback again next cycle
+    }
+    return;
+  }
+
   if (!stationConnectionRequested ||
-      millis() - stationConnectionStartedAt >= STATION_RETRY_MS) {
+      now - stationConnectionStartedAt >= STATION_RETRY_MS) {
+    if (stationConnectionRequested) {
+      const int status = WiFi.status();
+      ++stationAttempts;
+      stationLastFailure = stationStatusName(status);
+      Serial.printf("[WIFI] Home Wi-Fi attempt %lu failed: %s (status %d)\r\n",
+                    static_cast<unsigned long>(stationAttempts),
+                    stationStatusName(status), status);
+      if (status == WL_NO_SSID_AVAIL) {
+        // The single most common cause, and invisible without saying it: this
+        // radio is 2.4 GHz only, so a 5 GHz SSID simply is not there.
+        Serial.printf("[WIFI]   '%s' is not visible. This radio is 2.4 GHz "
+                      "only -- a 5 GHz SSID cannot be joined. Check the name "
+                      "and the band.\r\n",
+                      getPersistentStationWifiSsid());
+      }
+    }
     startStationConnection();
   }
 }
@@ -295,6 +371,9 @@ void serviceStationConnection() {
 String stationWifiStatusText() {
   if (!hasPersistentStationWifiSettings()) return F("Red de casa sin configurar.");
   if (WiFi.status() == WL_CONNECTED) return F("Conectado a la red de casa.");
+  if (stationConnectionRequested && stationLastFailure.length() > 0) {
+    return String(F("Conectando a la red de casa… ")) + stationLastFailure;
+  }
   if (stationConnectionRequested) return F("Conectando a la red de casa…");
   return F("La red de casa no está conectada.");
 }
@@ -528,7 +607,7 @@ void servicePendingAccessPointRestart() {
     return;
   }
 
-  Serial.printf("[WIFI] SSID visibility: %s\n",
+  Serial.printf("[WIFI] SSID visibility: %s\r\n",
                 getPersistentWifiHidden() ? "hidden" : "visible");
   Serial.println("[WIFI] Password: masked (USB Altar Network > v reveals briefly)");
 
@@ -797,6 +876,147 @@ void handleBoardState() {
 // Posts are streamed one at a time. Building the whole page of JSON in a
 // String first would put several kilobytes on a heap that is already carrying
 // Wi-Fi, the web server and the PN532 worker.
+// A browser will not tell us a username or a hostname -- neither will the DHCP
+// server, which only reports a client IP. The User-Agent is the one piece of
+// identity a browser volunteers, and it names a device class at best
+// ("Pixel 6a", "iPhone"). That is remembered here in RAM only: the board record
+// is packed to a fixed 304 bytes with no room for a name, and widening it would
+// change the on-disk layout and wipe every stored offering. So a label lives
+// only until the badge reboots, after which posts show their pseudonym again.
+// The label is keyed to the author, not the post, so it applies to everything
+// that pseudonym has ever written -- including retroactively. Normally one
+// browser means one device and that reads correctly, but two devices that
+// happen to draw the same 1000-9999 pseudonym would share a label.
+constexpr uint8_t AUTHOR_NAME_SLOTS = 16;
+constexpr uint8_t AUTHOR_NAME_LENGTH = 24;
+struct AuthorName {
+  uint16_t id;
+  char name[AUTHOR_NAME_LENGTH];  // device type, e.g. "Pixel 6a"
+  char mac[5];                    // last two octets of the MAC, e.g. "4B5C"
+};
+AuthorName authorNames[AUTHOR_NAME_SLOTS] = {};
+uint8_t authorNameNext = 0;
+
+String deviceLabelFromUserAgent(const String &agent) {
+  if (agent.length() == 0) return String();
+  if (agent.indexOf("Android") >= 0) {
+    // Android carries the model last inside the platform parens, as in
+    // "(Linux; Android 14; Pixel 6a)". A WebView adds "; wv" and some builds
+    // append " Build/...", neither of which is a device name.
+    const int open = agent.indexOf('(');
+    const int close = agent.indexOf(')', open + 1);
+    if (open >= 0 && close > open) {
+      String inside = agent.substring(open + 1, close);
+      int cut = inside.lastIndexOf(';');
+      String model = cut >= 0 ? inside.substring(cut + 1) : String();
+      model.trim();
+      if (model == "wv" && cut >= 0) {
+        inside = inside.substring(0, cut);
+        cut = inside.lastIndexOf(';');
+        model = cut >= 0 ? inside.substring(cut + 1) : String();
+        model.trim();
+      }
+      const int build = model.indexOf(" Build/");
+      if (build >= 0) model = model.substring(0, build);
+      model.trim();
+      // Two non-models can end up here. Stripping "wv" can leave the version
+      // segment ("Android 13"), and Chrome's reduced user agent substitutes a
+      // single placeholder letter ("Android 10; K"). Neither names a device.
+      if (model.startsWith("Android")) model = String();
+      if (model.length() < 2) model = String();
+      if (model.length() > 0) return model;
+    }
+    return String(F("Android"));
+  }
+  if (agent.indexOf("iPhone") >= 0) return String(F("iPhone"));
+  if (agent.indexOf("iPad") >= 0) return String(F("iPad"));
+  if (agent.indexOf("CrOS") >= 0) return String(F("Chromebook"));
+  if (agent.indexOf("Macintosh") >= 0) return String(F("Mac"));
+  if (agent.indexOf("Windows") >= 0) return String(F("Windows"));
+  if (agent.indexOf("Linux") >= 0) return String(F("Linux"));
+  return String();
+}
+
+// The last octet of the client's MAC, as two uppercase hex digits. Two routes,
+// because the badge is either the access point or just another station:
+//   - as the AP, esp_netif_get_sta_list pairs every associated MAC with its
+//     leased IP directly;
+//   - on home Wi-Fi it has no station list, but any peer it has just exchanged
+//     packets with is in the ARP cache, which etharp_get_entry walks.
+// Empty when the address cannot be resolved, which is normal for a client
+// reached through a router rather than sitting on the same link.
+String clientMacSuffix(const IPAddress &address) {
+  const uint32_t wanted = static_cast<uint32_t>(address);
+  // Two octets, not one: a single octet is 256 values, and at a busy con two
+  // devices colliding is likelier than not once a couple of dozen have posted.
+  char out[5] = {};
+
+  if (isBadgeAccessPointActive()) {
+    wifi_sta_list_t stations = {};
+    esp_netif_sta_list_t leases = {};
+    if (esp_wifi_ap_get_sta_list(&stations) == ESP_OK &&
+        esp_netif_get_sta_list(&stations, &leases) == ESP_OK) {
+      for (int i = 0; i < leases.num; ++i) {
+        if (leases.sta[i].ip.addr == wanted) {
+          snprintf(out, sizeof(out), "%02X%02X", leases.sta[i].mac[4],
+                   leases.sta[i].mac[5]);
+          return String(out);
+        }
+      }
+    }
+  }
+
+  ip4_addr_t *entryIp = nullptr;
+  struct netif *entryNetif = nullptr;
+  struct eth_addr *entryMac = nullptr;
+  for (size_t i = 0; i < ARP_TABLE_SIZE; ++i) {
+    if (etharp_get_entry(i, &entryIp, &entryNetif, &entryMac) && entryIp &&
+        entryMac && entryIp->addr == wanted) {
+      snprintf(out, sizeof(out), "%02X%02X", entryMac->addr[4],
+               entryMac->addr[5]);
+      return String(out);
+    }
+  }
+  return String();
+}
+
+void rememberAuthorName(uint16_t id, const String &raw, const String &mac) {
+  if (id == 0 || (raw.length() == 0 && mac.length() == 0)) return;
+  String name;
+  name.reserve(AUTHOR_NAME_LENGTH);
+  for (size_t i = 0; i < raw.length() && name.length() < AUTHOR_NAME_LENGTH - 1; ++i) {
+    const char character = raw[i];
+    // Only visible ASCII: this is echoed into JSON and then into the page.
+    if (character >= 0x20 && character != 0x7F && character != '"' &&
+        character != '\\') {
+      name += character;
+    }
+  }
+  name.trim();
+
+  for (AuthorName &slot : authorNames) {
+    if (slot.id == id) {
+      if (name.length()) strlcpy(slot.name, name.c_str(), sizeof(slot.name));
+      if (mac.length()) strlcpy(slot.mac, mac.c_str(), sizeof(slot.mac));
+      return;
+    }
+  }
+  AuthorName &slot = authorNames[authorNameNext];
+  authorNameNext = (authorNameNext + 1) % AUTHOR_NAME_SLOTS;
+  slot = AuthorName{};
+  slot.id = id;
+  strlcpy(slot.name, name.c_str(), sizeof(slot.name));
+  strlcpy(slot.mac, mac.c_str(), sizeof(slot.mac));
+}
+
+const AuthorName *lookupAuthor(uint16_t id) {
+  if (id == 0) return nullptr;
+  for (const AuthorName &slot : authorNames) {
+    if (slot.id == id && (slot.name[0] || slot.mac[0])) return &slot;
+  }
+  return nullptr;
+}
+
 void handleBoardPosts() {
   const uint32_t requestedBefore =
       server.hasArg("before")
@@ -825,6 +1045,17 @@ void handleBoardPosts() {
     chunk += post.createdAt;
     chunk += F(",\"authorId\":");
     chunk += post.authorId;
+    const AuthorName *author = lookupAuthor(post.authorId);
+    if (author && author->name[0]) {
+      chunk += F(",\"authorName\":\"");
+      chunk += jsonEscape(String(author->name));
+      chunk += '"';
+    }
+    if (author && author->mac[0]) {
+      chunk += F(",\"authorMac\":\"");
+      chunk += jsonEscape(String(author->mac));
+      chunk += '"';
+    }
     chunk += F(",\"textInImage\":");
     chunk += post.textInImage ? F("true") : F("false");
     chunk += F(",\"text\":\"");
@@ -884,7 +1115,14 @@ void handleBoardCreate() {
 
   String error;
   const long claimedAuthor = server.hasArg("authorId") ? server.arg("authorId").toInt() : 0;
-  const uint16_t authorId = claimedAuthor >= 1000 && claimedAuthor <= 9999 ? claimedAuthor : 0;
+  // Deliberately the browser range only, not isStorableAuthorId(): a web
+  // client must not be able to claim it is the NFC reader or the USB console.
+  const uint16_t authorId = claimedAuthor >= BOARD_FIRST_BROWSER_AUTHOR_ID &&
+                                    claimedAuthor <= BOARD_LAST_BROWSER_AUTHOR_ID
+                                ? static_cast<uint16_t>(claimedAuthor)
+                                : 0;
+  rememberAuthorName(authorId, deviceLabelFromUserAgent(server.header("User-Agent")),
+                     clientMacSuffix(server.client().remoteIP()));
   if (!addBoardPost(text, createdAt,
                     imageLength > 0 ? boardImageBuffer : nullptr, imageLength,
                     error, authorId, server.arg("textInImage") == "1")) {
@@ -1027,6 +1265,11 @@ void setupWebServer() {
 
   server.onNotFound(handleNotFound);
 
+  // WebServer discards every header it was not told to keep, and User-Agent is
+  // the only identity a browser offers for naming an offering.
+  static const char *collected[] = {"User-Agent"};
+  server.collectHeaders(collected, 1);
+
   server.begin();
   Serial.println("[WEB] HTTP server started");
 }
@@ -1043,7 +1286,7 @@ void serviceNfcCapture() {
 
   String error;
   if (!addBoardPost(captured, 0, nullptr, 0, error, NFC_CAPTURE_AUTHOR_ID)) {
-    Serial.printf("[BOARD][NFC] Capture rejected: %s\n", error.c_str());
+    Serial.printf("[BOARD][NFC] Capture rejected: %s\r\n", error.c_str());
     // Whoever tapped is most likely not on the access point, so the failure has
     // to be visible on the badge or it is invisible entirely.
     signalTagCue(false);
@@ -1052,7 +1295,7 @@ void serviceNfcCapture() {
 
   noteNfcCapturePosted();
   signalTagCue(true);
-  Serial.printf("[BOARD][NFC] Captured tag posted (%u bytes)\n",
+  Serial.printf("[BOARD][NFC] Captured tag posted (%u bytes)\r\n",
                 static_cast<unsigned>(captured.length()));
 }
 
@@ -1122,13 +1365,13 @@ void setupWiFiAccessPoint() {
   if (!fileSystemReady) {
     Serial.println("[WIFI] ERROR: LittleFS mount failed");
   } else {
-    Serial.printf("[WIFI] /index.html: %s\n",
+    Serial.printf("[WIFI] /index.html: %s\r\n",
                   LittleFS.exists("/index.html") ? "ready" : "missing");
-    Serial.printf("[WIFI] /led.html: %s\n",
+    Serial.printf("[WIFI] /led.html: %s\r\n",
                   LittleFS.exists("/led.html") ? "ready" : "missing");
-    Serial.printf("[WIFI] /nfc.html: %s\n",
+    Serial.printf("[WIFI] /nfc.html: %s\r\n",
                   LittleFS.exists("/nfc.html") ? "ready" : "missing");
-    Serial.printf("[WIFI] /board.html: %s\n",
+    Serial.printf("[WIFI] /board.html: %s\r\n",
                   LittleFS.exists("/board.html") ? "ready" : "missing");
   }
 
@@ -1161,10 +1404,10 @@ void setupWiFiAccessPoint() {
   if (accessPointActive) startCaptivePortalDns();
   startStationConnection();
 
-  Serial.printf("[WIFI] Badge AP: %s\n", accessPointActive ? "on" : "off");
+  Serial.printf("[WIFI] Badge AP: %s\r\n", accessPointActive ? "on" : "off");
   if (accessPointActive) {
-    Serial.printf("[WIFI] SSID: %s\n", apSsid);
-    Serial.printf("[WIFI] SSID visibility: %s\n",
+    Serial.printf("[WIFI] SSID: %s\r\n", apSsid);
+    Serial.printf("[WIFI] SSID visibility: %s\r\n",
                   getPersistentWifiHidden() ? "hidden" : "visible");
     Serial.println("[WIFI] Password: masked (USB Altar Network > v reveals briefly)");
     Serial.print("[WIFI] Dashboard: http://");
