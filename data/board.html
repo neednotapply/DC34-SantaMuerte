@@ -48,6 +48,11 @@
     h1{margin:0;font-size:1.5rem;font-weight:850;letter-spacing:-.03em}
     h2{margin:0 0 14px;font-size:1.05rem;font-weight:800;letter-spacing:-.02em}
     .subtitle{color:var(--muted);font-size:.84rem}
+    /* The offerings are notes taped to the corridor wall, not the contents of
+       a panel. Card chrome around them read as a second frame drawn inside the
+       page. min-width:0 is kept from .card so a long word cannot widen the
+       grid column. */
+    .hall{min-width:0}
     .card{
       border:1px solid var(--line);border-radius:18px;padding:16px;
       background:linear-gradient(145deg,var(--panel),rgba(13,14,23,.94));
@@ -166,7 +171,10 @@
     .post-text .type-letter:nth-child(11n){transform:translateY(-1px) rotate(.35deg)}
     .media{border-radius:12px;overflow:hidden;border:1px solid var(--line-soft);
       background:#000}
-    .media img{display:block;width:100%;max-height:420px;object-fit:contain}
+    /* height:auto, not a max-height cap with object-fit:contain -- that
+       height-capped a portrait photo and centred it, so the picture rendered
+       narrower than the post's own text. Full content width, natural height. */
+    .media img{display:block;width:100%;height:auto}
 
     .empty{text-align:center;padding:34px 12px;color:var(--muted)}
     .more{display:grid;place-items:center;padding:6px 0}
@@ -181,8 +189,8 @@
           <img class="brand-mark" src="assets/logo-candle.png" alt="">
         </summary>
         <nav class="nav-menu-list" aria-label="Navegación del badge">
-          <a href="/led">LED Studio</a>
-          <a href="/nfc">NFC Studio</a>
+          <a href="/led">LED Tools</a>
+          <a href="/nfc">NFC Tools</a>
           <a href="/settings">Ajustes</a>
         </nav>
       </details>
@@ -192,14 +200,14 @@
           <img class="brand-mark" src="assets/logo-candle.png" alt="">
         </summary>
         <nav class="nav-menu-list" aria-label="Navegación del badge">
-          <a href="/led">LED Studio</a>
-          <a href="/nfc">NFC Studio</a>
+          <a href="/led">LED Tools</a>
+          <a href="/nfc">NFC Tools</a>
           <a href="/settings">Ajustes</a>
         </nav>
       </details>
     </header>
     <div class="page-title"><h1>Offerings</h1></div>
-    <section class="card">
+    <section class="hall">
       <div id="postList" style="display:grid;gap:12px">
         <div class="empty" id="feedEmpty">Leyendo el pasillo&hellip;</div>
       </div>
@@ -278,13 +286,20 @@
     }
     function labelAuthor(node) {
       const english = window.PortalLocale?.locale === 'en-US';
-      const name = english ? 'Anonymous' : 'Anónimo';
+      const anon = english ? 'Anonymous' : 'Anónimo';
       const id = node.dataset.authorId;
-      // Every poster is anonymous; the parenthesis says which one. A browser
-      // shows its pseudonym, the badge's own reader says NFC, and a post from
-      // before author ids existed says nothing at all.
-      // 1 is NFC_CAPTURE_AUTHOR_ID, below the 1000-9999 browser range.
-      const tag = id === '1' ? 'NFC' : (id !== '0' ? id : '');
+      // The name is the device when the badge could work one out, and falls
+      // back to Anonymous when it could not -- a request relayed through a
+      // router, or a client whose User-Agent names nothing.
+      const name = node.dataset.authorName || anon;
+      // 1 and 2 match NFC_CAPTURE_AUTHOR_ID / USB_CONSOLE_AUTHOR_ID in
+      // src/board.h, both below the 1000-9999 browser pseudonym range.
+      const TRANSPORT = {'1': 'NFC', '2': 'USB'};
+      // The parenthesis identifies which one: the transport for an offering the
+      // badge made itself, otherwise the last octet of the poster's MAC. The
+      // 4-digit pseudonym is the last resort, for a client whose MAC the badge
+      // could not resolve. All of this is RAM-only and resets on reboot.
+      const tag = TRANSPORT[id] || node.dataset.authorMac || (id !== '0' ? id : '');
       typewriter(node, tag ? `${name} (${tag})` : name);
     }
     document.addEventListener('portal-locale-change', () => {
@@ -318,6 +333,12 @@
     // stay legible on the square paper without requiring many retraced lines.
     const PAD_NIBS = [18, 32, 48];
     const PAD_INK_ALPHA = .84;
+    // The pad is square only while it is blank paper. A picked photo reshapes
+    // it, so the drawing surface IS the photo rather than a square window onto
+    // it -- which is what used to crop, and what left letterbox bars once the
+    // crop was removed. The longest edge is held at PAD_EDGE so the drawing
+    // resolution does not depend on how big the photo happened to be.
+    const PAD_EDGE = 512;
 
     let pendingImage = null;
     let padImage = null;
@@ -478,6 +499,7 @@
       pendingImage = null;
       $('imageInput').value = '';
       $('dropImage').hidden = true;
+      resizePad(PAD_EDGE, PAD_EDGE);   // blank paper is square again
     }
 
     function loadCanvasPhoto(url) {
@@ -502,6 +524,7 @@
         const image = await loadCanvasPhoto(url);
         pendingImage = {...shrunk, url, image};
         padImage = null;
+        resizePad(...padShapeForPhoto(shrunk.width, shrunk.height));
         redrawPad();
         $('dropImage').hidden = false;
         setStatus(status, '');
@@ -515,6 +538,34 @@
     // ---- drawing pad ----------------------------------------------------
     const pad = $('pad');
     const paperText = $('text');
+
+    // Strokes and the paper caret are stored in pad pixels, so a resize has to
+    // carry them across or existing ink would jump.
+    function resizePad(width, height) {
+      if (pad.width === width && pad.height === height) return;
+      const sx = width / pad.width;
+      const sy = height / pad.height;
+      const sn = (sx + sy) / 2;
+      for (const stroke of strokes) {
+        stroke.size *= sn;
+        for (const point of stroke.points) {
+          point.x *= sx;
+          point.y *= sy;
+          if (point.width) point.width *= sn;
+        }
+      }
+      paperOrigin = {x: paperOrigin.x * sx, y: paperOrigin.y * sy};
+      paperCursor = {x: paperCursor.x * sx, y: paperCursor.y * sy, offset: paperCursor.offset};
+      pad.width = width;
+      pad.height = height;
+      pad.style.aspectRatio = `${width} / ${height}`;
+      redrawPad();
+    }
+
+    function padShapeForPhoto(width, height) {
+      const scale = PAD_EDGE / Math.max(width, height);
+      return [Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale))];
+    }
 
     function padContext() {
       const context = pad.getContext('2d');
@@ -652,8 +703,12 @@
       context.fillRect(0, 0, pad.width, pad.height);
 
       if (pendingImage?.image) {
+        // Contain, not cover. Cover filled the square by scaling to the LONGER
+        // edge and letting the rest fall outside the canvas, which silently
+        // cropped every photo that was not already square -- including the
+        // parts the preview never showed.
         const {image} = pendingImage;
-        const scale = Math.max(pad.width / image.naturalWidth, pad.height / image.naturalHeight);
+        const scale = Math.min(pad.width / image.naturalWidth, pad.height / image.naturalHeight);
         const width = image.naturalWidth * scale;
         const height = image.naturalHeight * scale;
         context.drawImage(image, (pad.width - width) / 2, (pad.height - height) / 2, width, height);
@@ -711,6 +766,14 @@
       };
     }
 
+    // A photo with nothing drawn or written on it is an offering in its own
+    // right and keeps its own proportions. The square pad is only the right
+    // thing to store for a composite: strokes and paper text are positioned in
+    // pad coordinates and mean nothing detached from it.
+    function photoStandsAlone() {
+      return Boolean(pendingImage) && strokes.length === 0 && !paperText.value.trim();
+    }
+
     let padTimer = 0;
     function schedulePadRender() {
       clearTimeout(padTimer);
@@ -721,6 +784,16 @@
       if (!strokes.length && !pendingImage) {
         padImage = null;
         $('padMeta').textContent = 'vacía';
+        return;
+      }
+
+      if (photoStandsAlone()) {
+        // shrinkImage() already fitted this inside MAX_EDGE and MAX_IMAGE_BYTES
+        // without altering its proportions, so there is nothing left to do and
+        // no reason to re-encode it through the square canvas.
+        padImage = null;
+        $('padMeta').textContent =
+          `${pendingImage.width}×${pendingImage.height} JPEG, ${formatBytes(pendingImage.blob.size)}`;
         return;
       }
 
@@ -930,9 +1003,11 @@
       const head = document.createElement('div');
       head.className = 'post-head';
       const num = document.createElement('span');
-      typewriter(num, `#${post.id}`);
+      typewriter(num, `#${String(post.id).padStart(4, '0')}`);
       const author = document.createElement('span');
       author.dataset.authorId = String(post.authorId || 0);
+      if (post.authorName) author.dataset.authorName = post.authorName;
+      if (post.authorMac) author.dataset.authorMac = post.authorMac;
       labelAuthor(author);
       const when = document.createElement('span');
       when.dataset.createdAt = String(post.createdAt || 0);
@@ -1063,7 +1138,7 @@
         setStatus(status, 'El dibujo no se pudo compactar. Intenta de nuevo.', 'error');
         return;
       }
-      const picture = padImage || pendingImage?.blob || null;
+      const picture = photoStandsAlone() ? pendingImage.blob : (padImage || pendingImage?.blob || null);
       if (!text.trim() && !picture) {
         $('submit').disabled = false;
         setStatus(status, 'Dibuja, escribe o haz las dos.', 'error');

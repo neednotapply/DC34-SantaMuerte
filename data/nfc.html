@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#151615">
-  <title>Santa Muerte // NFC Studio</title>
+  <title>Santa Muerte // NFC Tools</title>
   <link rel="stylesheet" href="theme.css?v=24">
   <link rel="icon" type="image/png" href="assets/logo-candle.png">
   <script src="locale.js?v=12"></script>
@@ -38,7 +38,13 @@
     .status.disconnected .dot{background:var(--red);box-shadow:0 0 0 4px rgba(255,95,114,.11)}
     .status.checking .dot{animation:pulse 1.2s ease infinite}
     @keyframes pulse{50%{opacity:.35}}
-    .grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:18px;align-items:start}
+    /* stretch, not start: two cards sharing a row read as a pair, and letting
+       the shorter one stop early left a ragged hole beside it. */
+    .grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:18px;align-items:stretch}
+    /* An odd number of cards in a two-column grid leaves one cell empty. The
+       last single-column card takes the full width instead of sitting beside a
+       void. Harmless once the grid collapses to one column. */
+    .wide-card{grid-column:1 / -1}
     .card{border:1px solid var(--line);border-radius:23px;background:linear-gradient(155deg,rgba(20,24,35,.97),rgba(13,16,24,.98));box-shadow:var(--shadow);overflow:hidden}
     .pad{padding:22px}
     .card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px}
@@ -122,7 +128,7 @@
         </summary>
         <nav class="nav-menu-list" aria-label="Navegación del badge">
           <a href="/board">Offerings</a>
-          <a href="/led">LED Studio</a>
+          <a href="/led">LED Tools</a>
           <a href="/settings">Ajustes</a>
         </nav>
       </details>
@@ -133,13 +139,13 @@
         </summary>
         <nav class="nav-menu-list" aria-label="Navegación del badge">
           <a href="/board">Offerings</a>
-          <a href="/led">LED Studio</a>
+          <a href="/led">LED Tools</a>
           <a href="/settings">Ajustes</a>
         </nav>
       </details>
     </header>
     <div class="page-title">
-      <h1>NFC Studio</h1>
+      <h1>NFC Tools</h1>
       <div id="connectionStatus" class="status checking" role="status" aria-live="polite"><span class="dot"></span><span id="connectionText">Revisando…</span></div>
     </div>
 
@@ -195,7 +201,7 @@
         </div>
       </section>
 
-      <section class="card pad">
+      <section class="card pad wide-card">
         <div><div class="eyebrow">Escritura</div><h2>Crea un registro NDEF</h2></div>
 
         <div class="activity">
@@ -356,16 +362,18 @@
     zone.classList.remove('busy','success','error');
     if(state.busy)zone.classList.add('busy');else if(state.status==='success')zone.classList.add('success');else if(state.status==='error'||state.status==='offline')zone.classList.add('error');
 
+    // Every string below is assigned after the locale walker has already run,
+    // so each one has to go through t() itself or it stays Spanish in English.
     const titleMap={waiting:'Acerca un tag',working:'Leyendo tag…',emulating:'Emulación activa',success:'Listo',error:'No pasó',offline:'Lector fuera',idle:'Listo para leer'};
-    $('#scanTitle').textContent=emulating?(connected?'Lector NFC conectado':'Emulación activa'):(state.busy?(state.status==='working'?'Leyendo tag…':'Esperando tag'):(titleMap[state.status]||'Lector NFC'));
-    $('#scanMessage').textContent=state.message||'Elige una acción NFC.';
-    $('#activityText').textContent=state.message||'No hay acción activa.';
+    $('#scanTitle').textContent=t(emulating?(connected?'Lector NFC conectado':'Emulación activa'):(state.busy?(state.status==='working'?'Leyendo tag…':'Esperando tag'):(titleMap[state.status]||'Lector NFC')));
+    $('#scanMessage').textContent=t(state.message||'Elige una acción NFC.');
+    $('#activityText').textContent=t(state.message||'No hay acción activa.');
     $('#activityIcon').textContent=state.busy?'…':state.status==='error'||state.status==='offline'?'!':'✓';
 
     $('#uidValue').textContent=state.uid||'—';
     $('#tagTypeValue').textContent=state.tagType||'—';
     $('#capacityValue').textContent=state.capacity?`${state.capacity} bytes`:'—';
-    $('#recordPill').textContent=state.recordType||'Sin registro';
+    $('#recordPill').textContent=t(state.recordType||'Sin registro');
     $('#payloadValue').textContent=state.payload||t('Lee un tag para ver su texto o URL.');
     $('#rawValue').textContent=state.raw||'—';
     $('#rawDetails').style.display=state.raw?'block':'none';

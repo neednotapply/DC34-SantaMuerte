@@ -190,7 +190,10 @@ input[type="range"]::-moz-range-thumb {
 /* Message board: passed paper notes over a dark corridor */
 body.board-page main { width: min(720px, 100%) !important; }
 body.board-page .card { border-color: var(--sm-line) !important; }
-body.board-page #postList { gap: 20px !important; padding:8px 3px 12px; }
+/* Roomier now that the surrounding card is gone: each note is tilted and
+   shifted up to ~10px and carries a strip of tape 10px above its top edge,
+   which the card's own padding used to absorb. */
+body.board-page #postList { gap: 20px !important; padding:14px 12px 12px; }
 body.board-page .post {
   position: relative;
   border: 1px solid #918878 !important;

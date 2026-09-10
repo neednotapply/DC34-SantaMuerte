@@ -4,8 +4,8 @@
     'Santa Muerte // Inicio': 'Santa Muerte // Home',
     'Santa Muerte // Ofrendas': 'Santa Muerte // Offerings',
     'Santa Muerte // Las Ofrendas': 'Santa Muerte // Offerings',
-    'Santa Muerte // Estudio LED': 'Santa Muerte // LED Studio',
-    'Santa Muerte // Estudio NFC': 'Santa Muerte // NFC Studio',
+    'Santa Muerte // Herramientas LED': 'Santa Muerte // LED Tools',
+    'Santa Muerte // Herramientas NFC': 'Santa Muerte // NFC Tools',
     'Santa Muerte // Ajustes': 'Santa Muerte // Settings',
     'Ajustes': 'Settings',
     'Santa Muerte // Luces': 'Santa Muerte // Lights',
@@ -13,7 +13,7 @@
     'Control local // ofrendas anónimas // sin internet': 'Local control // anonymous offerings // no internet',
     'ofrendas anónimas // solo local': 'anonymous offerings // local only',
     'Inicio': 'Home', 'Luces': 'Lights', 'Ofrendas': 'Offerings',
-    'Estudio LED': 'LED Studio', 'Estudio NFC': 'NFC Studio',
+    'Herramientas LED': 'LED Tools', 'Herramientas NFC': 'NFC Tools',
     'Ofrendas // Tablero': 'Offerings // Board',
     'Menú': 'Menu', 'Abrir menú': 'Open menu', 'Navegación del badge': 'Badge navigation',
     'Deja una ofrenda': 'Leave an offering',
@@ -47,7 +47,7 @@
     'Ola morada': 'Purple wave', 'Patrones': 'Patterns', 'Fijo': 'Solid', 'Arcoíris': 'Rainbow',
     'Carrera': 'Chase', 'Pulso': 'Pulse', 'Destello': 'Twinkle', 'Teatro': 'Theater',
     'Apagado': 'Off', 'Animación': 'Animation', 'Brillo': 'Brightness', 'Velocidad': 'Speed',
-    'Rueda de color': 'Color wheel', 'Ajustes de color': 'Color settings',
+    'Rueda de color': 'Color wheel',
     'Color hexadecimal': 'Hex color', 'Ajustes guardados': 'Settings saved',
     'El ESP32 no respondió.': 'The ESP32 did not respond.', 'Se perdió la conexión.': 'Connection lost.',
     'Los controles van directo al ESP32 por su Wi-Fi local.': 'Controls go straight to the ESP32 over its local Wi-Fi.',
@@ -108,6 +108,8 @@
     'Comunión del badge // tags y emulación': 'Badge communion // tags and emulation',
     'Lector': 'Reader', 'Lee un tag': 'Read a tag', 'Lector sin datos': 'Reader idle',
     'PN532 fuera': 'PN532 offline', 'PN532 listo': 'PN532 ready', 'Listo para leer': 'Ready to read',
+    'Listo': 'Ready', 'Lector fuera': 'Reader offline',
+    'Lector NFC': 'NFC reader', 'Lector NFC conectado': 'NFC reader connected',
     'Elige una acción y acerca un tag compatible al lector del PCB.': 'Pick an action and bring a compatible tag to the PCB reader.',
     'Leer tag': 'Read tag', 'Tipo de tag': 'Tag type', 'Capacidad': 'Capacity', 'Resultado': 'Result',
     'Sin registro': 'No record', 'Lee un tag para ver su texto o URL.': 'Read a tag to see its text or URL.',
@@ -176,7 +178,6 @@
     'Se detectó texto UTF-16; aquí solo se muestra UTF-8.': 'UTF-16 text detected; only UTF-8 is shown here.',
     'Tipo de registro NDEF no compatible. Abajo salen los bytes crudos.': 'Unsupported NDEF record type. The raw bytes are shown below.',
     'El tag responde como memoria Type 2, pero no está en formato NDEF.': 'The tag answers as Type 2 memory but is not NDEF formatted.',
-    'Memoria compatible con Type 2 (sin formato NDEF)': 'Type 2 compatible memory (not NDEF formatted)',
     'Se vio memoria Type 2, pero sin contenedor válido.': 'Type 2 memory seen, but no valid container.',
     'El tag no tiene memoria de usuario.': 'The tag has no user memory.',
     'El tag trae un largo TLV mayor que su área de datos.': 'The tag reports a TLV longer than its data area.',
@@ -272,7 +273,6 @@
     'aro': 'ring',
     'manos': 'hands',
     'todo': 'all',
-    'Tono': 'Hue',
     'Respuesta inválida.': 'Invalid response.',
     'El ESP32 no aceptó los ajustes.': 'The ESP32 did not accept the settings.',
     'Sin cambios. El badge sigue igual.': 'No changes. The badge is unchanged.',
@@ -304,10 +304,16 @@
     const key = normalize(value);
     let converted = table[key];
     if (!converted) {
+      // else-if, not two independent ifs: `match = match || ...` left the
+      // minutes match truthy, so the hours branch overwrote it and every
+      // "hace N min" rendered as "Nh ago" -- an offering from 10 minutes ago
+      // read as 10 hours old.
       let match = key.match(/^hace (\d+) min$/);
-      if (match) converted = target === 'en-US' ? `${match[1]} min ago` : `hace ${match[1]} min`;
-      match = match || key.match(/^hace (\d+) h$/);
-      if (match) converted = target === 'en-US' ? `${match[1]}h ago` : `hace ${match[1]} h`;
+      if (match) {
+        converted = target === 'en-US' ? `${match[1]} min ago` : `hace ${match[1]} min`;
+      } else if ((match = key.match(/^hace (\d+) h$/))) {
+        converted = target === 'en-US' ? `${match[1]}h ago` : `hace ${match[1]} h`;
+      }
       if (/^Los dibujos ocupan más\./.test(key)) converted = target === 'en-US' ? key.replace('Los dibujos ocupan más. El texto se queda; solo caben los ', 'Drawings take more room. Text stays; only the newest ') .replace(' dibujos más nuevos.', ' drawings fit.') : key;
       if (/^Drawings take more room\./.test(key)) converted = target === 'en-US' ? key : key.replace('Drawings take more room. Text stays; only the newest ', 'Los dibujos ocupan más. El texto se queda; solo caben los ').replace(' drawings fit.', ' dibujos más nuevos.');
     }
@@ -316,7 +322,13 @@
     return `${value.slice(0, start)}${converted}${value.slice(end)}`;
   }
   function skipped(element) {
-    return element && element.closest('textarea, input, script, style, .post-text, .payload, .raw, .emulation-preview, [data-locale-control]');
+    // .type-letter holds exactly one character: the board's typewriter effect
+    // splits a string into one span per letter. Walking those as text nodes
+    // asks the dictionary to translate single letters, and Spanish "o" is
+    // English "or" -- which turned Anonymous into Anornymorus. They need no
+    // translating here anyway; portal-locale-change rebuilds them through
+    // convert() with the whole string intact.
+    return element && element.closest('textarea, input, script, style, .type-letter, .post-text, .payload, .raw, .emulation-preview, [data-locale-control]');
   }
   function translateText(root) {
     const walker = document.createTreeWalker(root || document.body, NodeFilter.SHOW_TEXT);
