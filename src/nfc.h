@@ -13,6 +13,10 @@ struct NfcTuiState {
   String status;
   String message;
   String payload;
+  // The last Text/URL record prepared for tag emulation.  The serial console
+  // uses this to offer the same "Emulate tag" mode switch as the web portal.
+  String emulatedRecordType;
+  String emulatedPayload;
 };
 
 // Initializes the PN532 and starts its dedicated FreeRTOS worker task.

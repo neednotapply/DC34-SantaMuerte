@@ -5,18 +5,23 @@
 #include <cstring>
 
 #include "badge_settings.h"
+#include "usb_console.h"
 
 namespace {
 
 constexpr char SETTINGS_NAMESPACE[] = "badgecfg";
 constexpr char KEY_WIFI_CREDENTIAL[] = "wifi_cred";
 constexpr char KEY_WIFI_HIDDEN[] = "wifi_hidden";
+constexpr char KEY_AP_SSID[] = "ap_ssid";
 constexpr char KEY_AP_ENABLED[] = "ap_enabled";
 constexpr char KEY_UI_LANGUAGE[] = "ui_lang";
 constexpr char KEY_STATION_WIFI[] = "sta_wifi";
+constexpr char KEY_STATION_WIFI_SLOT_PREFIX[] = "sta";
 constexpr char KEY_LED_SETTINGS[] = "led_state";
 constexpr char KEY_NFC_SETTINGS[] = "nfc_state";
 constexpr char KEY_BOARD_NEXT_ID[] = "board_id";
+constexpr char KEY_USB_BUTTON_SETTINGS[] = "usb_button";
+constexpr char KEY_USB_DEVICE_PROFILE[] = "usb_profile";
 
 // WPA2 accepts an 8 to 63 character printable-ASCII passphrase. Both limits
 // are enforced on generated and user-supplied passwords alike.
@@ -127,15 +132,29 @@ struct __attribute__((packed)) StoredNfcRecord {
 static_assert(sizeof(StoredNfcRecord) == 232,
               "Unexpected StoredNfcRecord packing");
 
+constexpr uint32_t USB_BUTTON_SETTINGS_MAGIC = 0x55534242UL;  // "USBB"
+constexpr uint8_t USB_BUTTON_SETTINGS_VERSION = 1;
+
+struct __attribute__((packed)) StoredUsbButtonRecord {
+  uint32_t magic;
+  uint8_t version;
+  uint8_t shortAction;
+  uint8_t longAction;
+  uint32_t checksum;
+};
+
+static_assert(sizeof(StoredUsbButtonRecord) == 11,
+              "Unexpected StoredUsbButtonRecord packing");
+
 char cachedWifiPassword[WIFI_PASSWORD_MAX_LENGTH + 1] = {};
 bool settingsInitialized = false;
 bool cachedWifiHidden = false;
+char cachedAccessPointSsid[WIFI_SSID_MAX_LENGTH + 1] = {};
 bool cachedAccessPointEnabled = true;
 bool cachedEnglishLanguage = false;
 uint32_t cachedBoardIdWatermark = 1;
-char cachedStationWifiSsid[WIFI_SSID_MAX_LENGTH + 1] = {};
-char cachedStationWifiPassword[WIFI_PASSWORD_MAX_LENGTH + 1] = {};
-bool cachedStationWifiAvailable = false;
+StoredStationWifi cachedStationWifi[MAX_SAVED_STATION_NETWORKS] = {};
+uint8_t cachedStationWifiCount = 0;
 
 uint32_t updateFnv1a(uint32_t hash, const uint8_t *data, size_t length) {
   for (size_t i = 0; i < length; ++i) {
@@ -176,12 +195,13 @@ bool isPrintableAscii(char character) {
   return character >= 0x20 && character <= 0x7E;
 }
 
-// Accepts any WPA2-legal passphrase, not only the generated three-word form,
-// so a password chosen from the dashboard is stored and reloaded unchanged.
+// An empty badge password deliberately means an open access point. Any
+// non-empty password remains subject to WPA2's 8–63 printable-ASCII rule.
 bool isValidPassword(const char *password) {
   if (!password) return false;
 
   const size_t length = strnlen(password, WIFI_PASSWORD_MAX_LENGTH + 1);
+  if (length == 0) return true;
   if (length < WIFI_PASSWORD_MIN_LENGTH ||
       length > WIFI_PASSWORD_MAX_LENGTH) {
     return false;
@@ -193,7 +213,8 @@ bool isValidPassword(const char *password) {
   return true;
 }
 
-String wifiPasswordValidationError(const String &password);
+String wifiPasswordValidationError(const String &password,
+                                   bool allowOpenAccessPoint);
 
 // The whole buffer is rewritten, not just the characters in use. Trailing
 // bytes are part of the checksummed region, so leaving stale content behind
@@ -239,6 +260,18 @@ bool readStationWifi(Preferences &preferences, StoredStationWifi &settings) {
          validateStationWifi(settings);
 }
 
+String stationWifiSlotKey(uint8_t index) {
+  return String(KEY_STATION_WIFI_SLOT_PREFIX) + String(index);
+}
+
+bool readStationWifiSlot(Preferences &preferences, uint8_t index,
+                         StoredStationWifi &settings) {
+  const String key = stationWifiSlotKey(index);
+  if (preferences.getBytesLength(key.c_str()) != sizeof(settings)) return false;
+  return preferences.getBytes(key.c_str(), &settings, sizeof(settings)) ==
+             sizeof(settings) && validateStationWifi(settings);
+}
+
 bool storeAndVerifyStationWifi(Preferences &preferences,
                                const char *ssid,
                                const char *password) {
@@ -260,9 +293,9 @@ bool storeAndVerifyStationWifi(Preferences &preferences,
 
 String stationWifiValidationError(const String &ssid, const String &password) {
   if (!isValidStationSsid(ssid.c_str())) {
-    return F("El SSID de casa debe tener 1 a 32 bytes sin controles.");
+    return F("El SSID guardado debe tener 1 a 32 bytes sin controles.");
   }
-  String passwordError = wifiPasswordValidationError(password);
+  String passwordError = wifiPasswordValidationError(password, false);
   if (passwordError.length() > 0) return passwordError;
   return String();
 }
@@ -349,7 +382,9 @@ bool storeAndVerifyCredential(Preferences &preferences,
                  WIFI_PASSWORD_MAX_LENGTH + 1) == 0;
 }
 
-String wifiPasswordValidationError(const String &password) {
+String wifiPasswordValidationError(const String &password,
+                                   bool allowOpenAccessPoint) {
+  if (allowOpenAccessPoint && password.length() == 0) return String();
   if (password.length() < WIFI_PASSWORD_MIN_LENGTH ||
       password.length() > WIFI_PASSWORD_MAX_LENGTH) {
     return F("La contraseña debe tener 8 a 63 caracteres.");
@@ -428,6 +463,12 @@ uint32_t nfcRecordChecksum(const StoredNfcRecord &record) {
                      offsetof(StoredNfcRecord, checksum));
 }
 
+uint32_t usbButtonRecordChecksum(const StoredUsbButtonRecord &record) {
+  return updateFnv1a(2166136261UL,
+                     reinterpret_cast<const uint8_t *>(&record),
+                     offsetof(StoredUsbButtonRecord, checksum));
+}
+
 }  // namespace
 
 bool initializeBadgeSettings() {
@@ -484,22 +525,37 @@ bool initializeBadgeSettings() {
   }
 
   cachedWifiHidden = preferences.getBool(KEY_WIFI_HIDDEN, false);
+  const String savedAccessPointSsid = preferences.getString(KEY_AP_SSID, "");
+  if (savedAccessPointSsid.length() > 0) {
+    if (isValidStationSsid(savedAccessPointSsid.c_str())) {
+      copySsid(cachedAccessPointSsid, savedAccessPointSsid.c_str());
+      Serial.println("[SETTINGS] Loaded custom badge AP SSID");
+    } else {
+      Serial.println("[SETTINGS] WARNING: Saved badge AP SSID is invalid; using the MAC-derived name");
+    }
+  }
   cachedAccessPointEnabled = preferences.getBool(KEY_AP_ENABLED, true);
   cachedEnglishLanguage = preferences.getBool(KEY_UI_LANGUAGE, false);
   cachedBoardIdWatermark = preferences.getUInt(KEY_BOARD_NEXT_ID, 1);
 
-  // Home-network credentials are optional. A corrupt or superseded station
-  // record must never keep the badge's own access point from starting.
+  // Saved station networks are ordered most-recently successful first. Migrate
+  // the original single-record layout into slot zero once, without discarding it.
   StoredStationWifi station = {};
-  if (preferences.isKey(KEY_STATION_WIFI)) {
-    if (readStationWifi(preferences, station)) {
-      copySsid(cachedStationWifiSsid, station.ssid);
-      copyPassword(cachedStationWifiPassword, station.password);
-      cachedStationWifiAvailable = true;
-      Serial.println("[SETTINGS] Loaded saved home Wi-Fi settings");
-    } else {
-      Serial.println("[SETTINGS] WARNING: Saved home Wi-Fi settings are invalid");
+  for (uint8_t index = 0; index < MAX_SAVED_STATION_NETWORKS; ++index) {
+    if (readStationWifiSlot(preferences, index, station)) {
+      cachedStationWifi[cachedStationWifiCount++] = station;
     }
+  }
+  if (!cachedStationWifiCount && preferences.isKey(KEY_STATION_WIFI) &&
+      readStationWifi(preferences, station)) {
+    cachedStationWifi[0] = station;
+    cachedStationWifiCount = 1;
+    (void)preferences.putBytes(stationWifiSlotKey(0).c_str(), &station,
+                               sizeof(station));
+  }
+  if (cachedStationWifiCount) {
+    Serial.printf("[SETTINGS] Loaded %u saved Wi-Fi network(s)\r\n",
+                  cachedStationWifiCount);
   }
   preferences.end();
 
@@ -515,6 +571,46 @@ const char *getPersistentWifiPassword() {
 bool getPersistentWifiHidden() {
   if (!settingsInitialized && !initializeBadgeSettings()) return false;
   return cachedWifiHidden;
+}
+
+const char *getPersistentAccessPointSsid() {
+  if (!settingsInitialized && !initializeBadgeSettings()) return "";
+  return cachedAccessPointSsid;
+}
+
+bool setPersistentAccessPointSsid(const String &ssid, String &error) {
+  error = String();
+  if (!isValidStationSsid(ssid.c_str())) {
+    error = F("El SSID del badge debe tener 1 a 32 bytes sin controles.");
+    return false;
+  }
+  if (!settingsInitialized && !initializeBadgeSettings()) {
+    error = F("Los ajustes guardados no están disponibles.");
+    return false;
+  }
+
+  char requestedSsid[WIFI_SSID_MAX_LENGTH + 1] = {};
+  copySsid(requestedSsid, ssid.c_str());
+  if (strncmp(requestedSsid, cachedAccessPointSsid, sizeof(requestedSsid)) == 0) {
+    return true;
+  }
+
+  Preferences preferences;
+  if (!preferences.begin(SETTINGS_NAMESPACE, false)) {
+    error = F("No se pudo abrir NVS para guardar el SSID del badge.");
+    return false;
+  }
+  const bool stored = preferences.putString(KEY_AP_SSID, ssid) > 0 &&
+                      preferences.getString(KEY_AP_SSID, "") == ssid;
+  preferences.end();
+  if (!stored) {
+    error = F("No se pudo guardar el SSID del badge.");
+    return false;
+  }
+
+  copySsid(cachedAccessPointSsid, requestedSsid);
+  Serial.println("[SETTINGS] Badge AP SSID updated");
+  return true;
 }
 
 bool getPersistentAccessPointEnabled() {
@@ -605,7 +701,7 @@ bool setPersistentWifiSettings(const String &password,
     return false;
   }
 
-  error = wifiPasswordValidationError(password);
+  error = wifiPasswordValidationError(password, true);
   if (error.length() > 0) return false;
 
   char requestedPassword[WIFI_PASSWORD_MAX_LENGTH + 1] = {};
@@ -669,17 +765,31 @@ bool setPersistentWifiSettings(const String &password,
 
 bool hasPersistentStationWifiSettings() {
   if (!settingsInitialized && !initializeBadgeSettings()) return false;
-  return cachedStationWifiAvailable;
+  return cachedStationWifiCount > 0;
+}
+
+uint8_t getPersistentStationWifiCount() {
+  if (!settingsInitialized && !initializeBadgeSettings()) return 0;
+  return cachedStationWifiCount;
+}
+
+bool getPersistentStationWifi(uint8_t index, String &ssid, String &password) {
+  ssid = String(); password = String();
+  if ((!settingsInitialized && !initializeBadgeSettings()) ||
+      index >= cachedStationWifiCount) return false;
+  ssid = cachedStationWifi[index].ssid;
+  password = cachedStationWifi[index].password;
+  return true;
 }
 
 const char *getPersistentStationWifiSsid() {
   if (!settingsInitialized && !initializeBadgeSettings()) return "";
-  return cachedStationWifiAvailable ? cachedStationWifiSsid : "";
+  return cachedStationWifiCount ? cachedStationWifi[0].ssid : "";
 }
 
 const char *getPersistentStationWifiPassword() {
   if (!settingsInitialized && !initializeBadgeSettings()) return "";
-  return cachedStationWifiAvailable ? cachedStationWifiPassword : "";
+  return cachedStationWifiCount ? cachedStationWifi[0].password : "";
 }
 
 bool setPersistentStationWifiSettings(const String &ssid,
@@ -696,31 +806,37 @@ bool setPersistentStationWifiSettings(const String &ssid,
   char requestedPassword[WIFI_PASSWORD_MAX_LENGTH + 1] = {};
   copySsid(requestedSsid, ssid.c_str());
   copyPassword(requestedPassword, password.c_str());
-  if (cachedStationWifiAvailable &&
-      strncmp(requestedSsid, cachedStationWifiSsid, sizeof(requestedSsid)) ==
-          0 &&
-      strncmp(requestedPassword, cachedStationWifiPassword,
-              sizeof(requestedPassword)) == 0) {
-    return true;
-  }
-
   Preferences preferences;
   if (!preferences.begin(SETTINGS_NAMESPACE, false)) {
-    error = F("No se pudo abrir NVS para guardar el Wi-Fi de casa.");
+    error = F("No se pudo abrir NVS para guardar el Wi-Fi guardado.");
     return false;
   }
-  const bool stored =
-      storeAndVerifyStationWifi(preferences, requestedSsid, requestedPassword);
+  uint8_t existing = cachedStationWifiCount;
+  for (uint8_t i = 0; i < cachedStationWifiCount; ++i) {
+    if (strncmp(cachedStationWifi[i].ssid, requestedSsid, sizeof(requestedSsid)) == 0) { existing = i; break; }
+  }
+  StoredStationWifi ordered[MAX_SAVED_STATION_NETWORKS] = {};
+  uint8_t count = 0;
+  copySsid(ordered[count].ssid, requestedSsid); copyPassword(ordered[count].password, requestedPassword);
+  ordered[count].magic = STATION_WIFI_MAGIC; ordered[count].version = STATION_WIFI_VERSION;
+  ordered[count++].checksum = stationWifiChecksum(ordered[0]);
+  for (uint8_t i = 0; i < cachedStationWifiCount && count < MAX_SAVED_STATION_NETWORKS; ++i) {
+    if (i != existing) ordered[count++] = cachedStationWifi[i];
+  }
+  bool stored = true;
+  for (uint8_t i = 0; i < count; ++i) {
+    const String key = stationWifiSlotKey(i);
+    stored = stored && preferences.putBytes(key.c_str(), &ordered[i], sizeof(ordered[i])) == sizeof(ordered[i]);
+  }
   preferences.end();
   if (!stored) {
-    error = F("La red de casa no se pudo guardar.");
+    error = F("El Wi-Fi guardado no se pudo guardar.");
     return false;
   }
 
-  copySsid(cachedStationWifiSsid, requestedSsid);
-  copyPassword(cachedStationWifiPassword, requestedPassword);
-  cachedStationWifiAvailable = true;
-  Serial.printf("[SETTINGS] Home Wi-Fi updated: ssid=%s\r\n", requestedSsid);
+  memcpy(cachedStationWifi, ordered, sizeof(ordered));
+  cachedStationWifiCount = count;
+  Serial.printf("[SETTINGS] Saved Wi-Fi updated: ssid=%s\r\n", requestedSsid);
   return true;
 }
 
@@ -862,4 +978,95 @@ bool saveNfcSettings(const StoredNfcSettings &settings) {
     return false;
   }
   return true;
+}
+
+bool loadUsbButtonSettings(StoredUsbButtonSettings &settings) {
+  Preferences preferences;
+  if (!preferences.begin(SETTINGS_NAMESPACE, true)) {
+    Serial.println(
+        "[SETTINGS] WARNING: Could not open NVS to restore USB button settings");
+    return false;
+  }
+
+  StoredUsbButtonRecord record = {};
+  const bool sizeMatches =
+      preferences.isKey(KEY_USB_BUTTON_SETTINGS) &&
+      preferences.getBytesLength(KEY_USB_BUTTON_SETTINGS) == sizeof(record);
+  const bool readComplete =
+      sizeMatches && preferences.getBytes(KEY_USB_BUTTON_SETTINGS, &record,
+                                          sizeof(record)) == sizeof(record);
+  preferences.end();
+
+  if (!readComplete || record.magic != USB_BUTTON_SETTINGS_MAGIC ||
+      record.version != USB_BUTTON_SETTINGS_VERSION ||
+      record.checksum != usbButtonRecordChecksum(record)) {
+    return false;
+  }
+
+  settings.shortAction = record.shortAction;
+  settings.longAction = record.longAction;
+  return true;
+}
+
+bool saveUsbButtonSettings(const StoredUsbButtonSettings &settings) {
+  StoredUsbButtonSettings existing = {};
+  if (loadUsbButtonSettings(existing) &&
+      existing.shortAction == settings.shortAction &&
+      existing.longAction == settings.longAction) {
+    return true;
+  }
+
+  StoredUsbButtonRecord record = {};
+  record.magic = USB_BUTTON_SETTINGS_MAGIC;
+  record.version = USB_BUTTON_SETTINGS_VERSION;
+  record.shortAction = settings.shortAction;
+  record.longAction = settings.longAction;
+  record.checksum = usbButtonRecordChecksum(record);
+
+  Preferences preferences;
+  if (!preferences.begin(SETTINGS_NAMESPACE, false)) {
+    Serial.println(
+        "[SETTINGS] ERROR: Could not open NVS to save USB button settings");
+    return false;
+  }
+
+  const size_t written = preferences.putBytes(KEY_USB_BUTTON_SETTINGS, &record,
+                                              sizeof(record));
+  preferences.end();
+  if (written != sizeof(record)) {
+    Serial.println("[SETTINGS] ERROR: USB button settings write was short");
+    return false;
+  }
+  return true;
+}
+
+UsbDeviceProfile getPersistentUsbDeviceProfile() {
+  Preferences preferences;
+  if (!preferences.begin(SETTINGS_NAMESPACE, true)) {
+    return UsbDeviceProfile::NETWORK;
+  }
+  const uint8_t value = preferences.getUChar(KEY_USB_DEVICE_PROFILE, 0);
+  preferences.end();
+  return value == static_cast<uint8_t>(UsbDeviceProfile::DRIVE)
+             ? UsbDeviceProfile::DRIVE
+             : UsbDeviceProfile::NETWORK;
+}
+
+bool setPersistentUsbDeviceProfile(UsbDeviceProfile profile, String &error) {
+  error = String();
+  if (profile != UsbDeviceProfile::NETWORK && profile != UsbDeviceProfile::DRIVE) {
+    error = "USB profile is invalid.";
+    return false;
+  }
+  if (getPersistentUsbDeviceProfile() == profile) return true;
+  Preferences preferences;
+  if (!preferences.begin(SETTINGS_NAMESPACE, false)) {
+    error = "Could not open settings for the USB profile.";
+    return false;
+  }
+  const bool saved = preferences.putUChar(KEY_USB_DEVICE_PROFILE,
+                                          static_cast<uint8_t>(profile)) == 1;
+  preferences.end();
+  if (!saved) error = "Could not save the USB profile.";
+  return saved;
 }

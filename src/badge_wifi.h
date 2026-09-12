@@ -34,12 +34,15 @@ const char *getBadgeWifiPassword();
 // access point has not been initialized or the destination is null.
 bool getBadgeWifiApMac(uint8_t outMac[6]);
 
-// Selects the badge SoftAP or the saved home Wi-Fi; only one is active at a
+// Selects the badge SoftAP or saved Wi-Fi; only one is active at a
 // time. The choice is saved and restored after reboot.
 bool setBadgeAccessPointEnabled(bool enabled, String &error);
 bool isBadgeAccessPointActive();
 WifiTuiState getWifiTuiState();
-bool setBadgeAccessPointSettings(const String &password, bool hidden,
-                                 String &error);
+// Applies the same complete access-point form exposed by the web portal.
+// Keeping SSID, password, and visibility together makes USB serial a full
+// substitute when the badge is not reachable over Wi-Fi.
+bool setBadgeAccessPointSettings(const String &ssid, const String &password,
+                                 bool hidden, String &error);
 bool setBadgeHomeWifiSettings(const String &ssid, const String &password,
                               String &error);

@@ -12,6 +12,7 @@
 
 #include "nfc.h"
 #include "badge_settings.h"
+#include "usb_console.h"
 
 // Single switch for every advanced NFC diagnostic: APDU byte dumps, Type 2
 // pages, TLV/NDEF internals, polling detail, and write preparation detail.
@@ -68,7 +69,9 @@ constexpr uint16_t WSC_AUTH_TYPE = 0x1003;
 constexpr uint16_t WSC_ENCRYPTION_TYPE = 0x100F;
 constexpr uint16_t WSC_NETWORK_KEY = 0x1027;
 constexpr uint16_t WSC_MAC_ADDRESS = 0x1020;
+constexpr uint16_t WSC_AUTH_OPEN = 0x0001;
 constexpr uint16_t WSC_AUTH_WPA2_PSK = 0x0020;
+constexpr uint16_t WSC_ENCRYPTION_NONE = 0x0001;
 constexpr uint16_t WSC_ENCRYPTION_AES = 0x0008;
 constexpr char WSC_MIME_TYPE[] = "application/vnd.wfa.wsc";
 constexpr uint32_t TARGET_RETRY_INTERVAL_MS = 160;
@@ -171,7 +174,7 @@ struct NfcState {
 
   bool captureEnabled = false;
   uint32_t captureCount = 0;
-  String captureMessage = "La Ofrenda NFC está apagada.";
+  String captureMessage = "Notas NFC apagadas.";
 
   // Internal published-state field used by the Wi-Fi settings workflow.
   bool wifiOnboardingActive = false;
@@ -1005,7 +1008,8 @@ bool buildWifiOnboardingNdef(const String &ssid, const String &password,
     error = "El SSID está vacío o pasa de 32 bytes.";
     return false;
   }
-  if (password.length() < 8U || password.length() > 63U) {
+  const bool openNetwork = password.length() == 0;
+  if (!openNetwork && (password.length() < 8U || password.length() > 63U)) {
     error = "La contraseña debe tener 8 a 63 caracteres.";
     return false;
   }
@@ -1016,12 +1020,14 @@ bool buildWifiOnboardingNdef(const String &ssid, const String &password,
   uint8_t credential[160] = {0};
   size_t credentialLength = 0;
   const uint8_t networkIndex = 1;
-  const uint8_t authType[] = {
-      static_cast<uint8_t>((WSC_AUTH_WPA2_PSK >> 8) & 0xFF),
-      static_cast<uint8_t>(WSC_AUTH_WPA2_PSK & 0xFF)};
+  const uint16_t auth = openNetwork ? WSC_AUTH_OPEN : WSC_AUTH_WPA2_PSK;
+  const uint16_t encryption =
+      openNetwork ? WSC_ENCRYPTION_NONE : WSC_ENCRYPTION_AES;
+  const uint8_t authType[] = {static_cast<uint8_t>((auth >> 8) & 0xFF),
+                              static_cast<uint8_t>(auth & 0xFF)};
   const uint8_t encryptionType[] = {
-      static_cast<uint8_t>((WSC_ENCRYPTION_AES >> 8) & 0xFF),
-      static_cast<uint8_t>(WSC_ENCRYPTION_AES & 0xFF)};
+      static_cast<uint8_t>((encryption >> 8) & 0xFF),
+      static_cast<uint8_t>(encryption & 0xFF)};
   const uint8_t zeroMac[6] = {0};
   const uint8_t *mac = apMac ? apMac : zeroMac;
 
@@ -1037,10 +1043,11 @@ bool buildWifiOnboardingNdef(const String &ssid, const String &password,
       appendWscAttribute(credential, sizeof(credential), credentialLength,
                          WSC_ENCRYPTION_TYPE, encryptionType,
                          sizeof(encryptionType)) &&
-      appendWscAttribute(credential, sizeof(credential), credentialLength,
-                         WSC_NETWORK_KEY,
-                         reinterpret_cast<const uint8_t *>(password.c_str()),
-                         password.length()) &&
+      (openNetwork || appendWscAttribute(
+                          credential, sizeof(credential), credentialLength,
+                          WSC_NETWORK_KEY,
+                          reinterpret_cast<const uint8_t *>(password.c_str()),
+                          password.length())) &&
       appendWscAttribute(credential, sizeof(credential), credentialLength,
                          WSC_MAC_ADDRESS, mac, 6);
 
@@ -1059,8 +1066,10 @@ bool buildWifiOnboardingNdef(const String &ssid, const String &password,
 
   // The second NDEF record is a standard NFC Forum Well Known Text record.
   // Dedicated iPhone NFC apps can enumerate the message and decode this record.
-  const String textPayload =
-      "Wi-Fi Network: " + ssid + "\nPassword: " + password;
+  const String textPayload = openNetwork
+                                 ? "Wi-Fi Network: " + ssid + "\nSecurity: Open"
+                                 : "Wi-Fi Network: " + ssid +
+                                       "\nPassword: " + password;
   const size_t textPayloadLength = 3U + textPayload.length();
 
   constexpr size_t mimeTypeLength = sizeof(WSC_MIME_TYPE) - 1U;
@@ -1644,7 +1653,7 @@ bool executeQueueNfcWrite(const NfcCommand &command) {
 void releaseCaptureForEmulation() {
   if (!state.captureEnabled) return;
   state.captureEnabled = false;
-  state.captureMessage = "La Ofrenda NFC se apagó para emular.";
+  state.captureMessage = "Las notas NFC se apagaron para emular.";
   lastCaptureUid = String();
   lastCaptureAt = 0;
   captureMisses = 0;
@@ -1792,10 +1801,10 @@ bool executeSetCapture(const NfcCommand &command) {
 
   if (command.flag) {
     state.captureMessage =
-        "Ofrenda NFC encendida. Cada tag que se lea se va a las ofrendas.";
+        "Notas NFC encendidas. Cada tag que se lea va a Field Notes.";
     state.message = state.captureMessage;
   } else {
-    state.captureMessage = "La Ofrenda NFC está apagada.";
+    state.captureMessage = "Notas NFC apagadas.";
     state.message = "Lector listo. Elige una acción y acerca un tag.";
   }
   state.status = "idle";
@@ -1861,8 +1870,8 @@ void captureDetectedTag(uint8_t *uid, uint8_t uidLength) {
 
   stageCapture(offering);
   ++state.captureCount;
-  state.captureMessage = hasPayload ? "Tag ofrendado. Va a las ofrendas."
-                                    : "Tag sin datos. Se ofrendó su UID.";
+  state.captureMessage = hasPayload ? "Tag guardado en Field Notes."
+                                    : "Tag sin datos. Su UID se guardó en Field Notes.";
   state.updatedAt = millis();
 }
 
@@ -2018,6 +2027,8 @@ String buildNfcStateJson(const NfcState &snapshot) {
   json += snapshot.capacity;
   json += F(",\"tagEmulationEnabled\":");
   json += snapshot.tagEmulationEnabled ? F("true") : F("false");
+  json += F(",\"wifiOnboardingActive\":");
+  json += snapshot.wifiOnboardingActive ? F("true") : F("false");
   json += F(",\"emulationReaderConnected\":");
   json += snapshot.emulationReaderConnected ? F("true") : F("false");
   json += F(",\"emulatedRecordType\":\"");
@@ -2148,6 +2159,8 @@ NfcTuiState getNfcTuiState() {
   state.status = source.status;
   state.message = source.message;
   state.payload = source.payload;
+  state.emulatedRecordType = source.emulatedRecordType;
+  state.emulatedPayload = source.emulatedPayload;
   return state;
 }
 
@@ -2248,7 +2261,7 @@ void noteNfcCapturePosted() {
   // The worker owns state.captureMessage and overwrites publishedState on its
   // next publish, so this only brightens the page between two polls. That is
   // enough: the count itself is authoritative on the worker side.
-  publishedState.captureMessage = "Tag ofrendado y publicado.";
+  publishedState.captureMessage = "Tag guardado en Field Notes.";
   publishedState.updatedAt = millis();
   xSemaphoreGive(nfcStateMutex);
 }
@@ -2438,8 +2451,7 @@ bool startNfcTagEmulation(const String &recordType, const String &payload) {
 bool startNfcWifiOnboarding(const String &ssid,
                             const String &password,
                             const uint8_t apMac[6]) {
-  if (ssid.length() == 0 || password.length() == 0 ||
-      ssid.length() >= NFC_WIFI_SSID_BUFFER_SIZE ||
+  if (ssid.length() == 0 || ssid.length() >= NFC_WIFI_SSID_BUFFER_SIZE ||
       password.length() >= NFC_WIFI_PASSWORD_BUFFER_SIZE) {
     setPublishedError("Los datos de Wi-Fi no son válidos.");
     return false;

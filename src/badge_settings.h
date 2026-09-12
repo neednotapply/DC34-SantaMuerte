@@ -15,8 +15,14 @@ const char *getPersistentWifiPassword();
 // Returns whether the SoftAP SSID is hidden. This setting is stored in NVS.
 bool getPersistentWifiHidden();
 
+// The access point normally uses its MAC-derived name. A saved custom name is
+// validated as a 1–32 byte Wi-Fi SSID and survives restarts and filesystem
+// flashes. It never contains a password or other secret.
+const char *getPersistentAccessPointSsid();
+bool setPersistentAccessPointSsid(const String &ssid, String &error);
+
 // Whether the badge should broadcast its own walk-up access point. This is
-// persistent so an owner can keep the AP off while using the home network;
+// persistent so an owner can keep the AP off while using saved Wi-Fi;
 // USB serial can always turn it back on.
 bool getPersistentAccessPointEnabled();
 bool setPersistentAccessPointEnabled(bool enabled, String &error);
@@ -35,9 +41,9 @@ uint32_t getPersistentBoardIdWatermark();
 bool setPersistentBoardIdWatermark(uint32_t watermark);
 
 // Validates, stores, and reads back the dashboard Wi-Fi settings. The password
-// must satisfy WPA2: 8 to 63 printable-ASCII characters. It is not required to
-// follow the generated three-word form. On failure, the previous settings
-// remain active.
+// may be empty for an open access point, or satisfy WPA2's 8 to 63
+// printable-ASCII character rule. It is not required to follow the generated
+// three-word form. On failure, the previous settings remain active.
 bool setPersistentWifiSettings(const String &password,
                                bool hidden,
                                String &error);
@@ -46,6 +52,9 @@ bool setPersistentWifiSettings(const String &password,
 // own access point remains available. The home-network password is never sent
 // back through the web API after it has been saved.
 bool hasPersistentStationWifiSettings();
+constexpr uint8_t MAX_SAVED_STATION_NETWORKS = 4;
+uint8_t getPersistentStationWifiCount();
+bool getPersistentStationWifi(uint8_t index, String &ssid, String &password);
 const char *getPersistentStationWifiSsid();
 const char *getPersistentStationWifiPassword();
 bool setPersistentStationWifiSettings(const String &ssid,
@@ -96,3 +105,21 @@ struct StoredNfcSettings {
 bool loadNfcSettings(StoredNfcSettings &settings);
 
 bool saveNfcSettings(const StoredNfcSettings &settings);
+
+// USB BOOT-button mappings are separate from LED state: an owner can use the
+// same physical button for host controls while keeping the chosen animation.
+// Values are UsbControlAction enum ordinals, kept as bytes here to avoid a
+// dependency from persistent settings onto the USB subsystem.
+struct StoredUsbButtonSettings {
+  uint8_t shortAction;
+  uint8_t longAction;
+};
+
+bool loadUsbButtonSettings(StoredUsbButtonSettings &settings);
+bool saveUsbButtonSettings(const StoredUsbButtonSettings &settings);
+
+// The S3 has room for either NCM or mass storage alongside CDC + HID, not
+// both. USB serial remains present in every profile.
+enum class UsbDeviceProfile : uint8_t { NETWORK = 0, DRIVE = 1 };
+UsbDeviceProfile getPersistentUsbDeviceProfile();
+bool setPersistentUsbDeviceProfile(UsbDeviceProfile profile, String &error);

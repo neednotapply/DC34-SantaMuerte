@@ -164,21 +164,22 @@ input[type="range"]::-moz-range-thumb {
 
 /* Flags keep the language switch compact and understandable without text. */
 .language-toggle {
-  display:inline-flex; align-items:center; gap:2px; padding:2px;
-  border:1px solid var(--sm-line) !important; border-radius:2px !important;
-  background:var(--sm-panel) !important;
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:0; border:0 !important; border-radius:0 !important;
+  background:transparent !important;
 }
-.language-toggle button {
+.language-toggle .flag {
   min-width:30px; min-height:28px; padding:2px 5px;
   border:1px solid transparent !important; background:transparent !important;
   color:var(--sm-muted) !important; font-family:var(--sm-ui) !important;
   font-size:1.05rem !important; line-height:1; letter-spacing:0 !important;
-  text-transform:none !important;
+  text-transform:none !important; display:inline-grid; place-items:center;
 }
-.language-toggle button.active {
-  border-color:var(--sm-brass) !important; background:var(--sm-bg-deep) !important;
+.language-toggle .flag.active {
+  border-color:transparent !important; background:transparent !important;
   color:var(--sm-paper-hi) !important;
 }
+.language-toggle button:hover:not(:disabled) { border-color:transparent !important; background:transparent !important; }
 .language-toggle button:focus-visible { outline:2px solid var(--sm-brass) !important; outline-offset:1px; }
 .language-toggle .divider { color:var(--sm-faint); font:700 11px/1 var(--sm-mono); }
 .install-note {
@@ -296,31 +297,6 @@ body.board-page .empty { color: var(--sm-muted) !important; }
   .wrap, body > main[aria-label="Badge dashboard"] { padding-left: 12px !important; padding-right: 12px !important; }
 }
 
-/* One board layout at every width: only the tools wrap on narrow screens. */
-/* The page title sits between the Santa Muerte wordmark and the first card,
-   not inside one, so every page reads name-then-title down the page.
-   Three columns keep the title optically centred whatever sits beside it: the
-   status pill takes the right column without shifting the heading. */
-.page-title { position:relative; display:flex; justify-content:center; align-items:center;
-  gap:10px; margin:18px 0 2px; text-align:center; }
-/* Keep a visible breath between the header rule and every page title, whether
-   the page uses main directly or its own .wrap container. */
-main > .page-title { margin-top:10px; }
-.wrap > .page-title { margin-top:26px; }
-.page-title h1 { font-size:1.35rem; margin:0; }
-/* Out of flow, so the heading centres on the page rather than on whatever
-   space the pill leaves it. In a three-column grid the pill's min-content
-   width exceeded its share and pulled the title off-centre on narrow screens. */
-.page-title > .status { position:absolute; right:0; top:50%; transform:translateY(-50%); }
-/* On the narrowest phones the pill reaches the centred title. Shrinking it
-   there keeps both on one row without moving the heading off centre. */
-@media (max-width: 400px) {
-  body.led-page .page-title > .status, body.nfc-page .page-title > .status {
-    padding: 4px 7px !important;
-    font-size: .6rem !important;
-    gap: 5px;
-  }
-}
 /* Leave the mode selector clearly separate from the paper it controls. */
 body.board-page .mode-tabs { margin:0 0 14px; }
 body.board-page .composer-actions { justify-content:center; margin-top:18px; }
@@ -353,28 +329,57 @@ body.board-page #imageNote:empty { display:none; }
 body.board-page .post-head { flex-wrap:wrap; overflow-wrap:anywhere; }
 body.board-page .card, body.board-page form { min-width:0; }
 .saint-footer { padding:14px 0 6px; border-top:1px solid var(--sm-line); display:flex; justify-content:center; align-items:center; gap:12px; flex-wrap:wrap; color:var(--sm-faint); font:700 10px/1.5 var(--sm-mono); letter-spacing:.14em; }
-/* Two matching candle menus sit at the separator's ends, with the intentionally
-   two-line wordmark held exactly in the header centre. The title starts at the
-   header's top edge; offsetting each candle by its own half-height puts its
-   visual centre exactly on the lower edge of "Santa". */
+/* Field Notes and Network place their footer in a grid, which gives it a
+   16px row gap above the footer rule. The tool pages use a plain wrapper, so
+   add that same separation before their shared footer. */
+.wrap > .saint-footer { margin-top:16px; }
+/* Two matching candle menus frame the current page name. The heading takes the
+   former wordmark slot and stays on one line; the smaller connection state,
+   when a tool has one, sits directly below it. */
 .saint-header {
   --mark-w:clamp(42px, 13vw, 64px);
   --mark-h:clamp(63px, 19.5vw, 96px);
-  --mark-half:clamp(31.5px, 9.75vw, 48px);
-  --title-size:clamp(37px, 4.7vw, 56px);
-  display:grid; grid-template-columns:1fr auto 1fr; align-items:flex-start;
-  padding:max(10px, env(safe-area-inset-top)) 0 12px;
-  margin-bottom:0; border-bottom:1px solid var(--sm-line);
+  --header-title-size:clamp(22px, 7.5vw, 64px);
+  display:grid; grid-template-columns:var(--mark-w) minmax(0,1fr) var(--mark-w); align-items:center;
+  padding:max(10px, env(safe-area-inset-top)) clamp(10px, 2vw, 18px) 12px;
+  margin-bottom:18px; border-bottom:1px solid var(--sm-line);
 }
-.saint-header .nav-menu { margin-top:calc(var(--title-size) - var(--mark-half)); }
+.saint-header .nav-menu { margin-top:0; align-self:center; }
 .saint-header .nav-menu:first-child { justify-self:start; }
 .saint-header .nav-menu--right { justify-self:end; }
 .saint-header .brand-mark { width:var(--mark-w); height:var(--mark-h); }
-.saint-header .saint-title {
-  display:grid; font-size:var(--title-size); line-height:1; text-align:center;
-  min-width:0; padding-bottom:5px; text-decoration:none;
+.saint-header .header-page-title {
+  display:grid; justify-items:center; min-width:0; width:100%;
+  text-align:center;
 }
-.saint-header .saint-title > span { display:block; }
+.saint-header .header-page-title h1 {
+  margin:0; color:var(--sm-paper-hi); font-family:var(--sm-display); font-size:var(--header-title-size);
+  font-weight:700; line-height:1; letter-spacing:.035em; text-shadow:1px 1px 0 #000; white-space:nowrap;
+  position:relative; top:clamp(10px, 1.35vw, 18px);
+}
+@media (max-width:600px) {
+  /* Keep the mobile header proportionate to the desktop masthead: the title
+     stays dominant and the candle marks frame it instead of swallowing it. */
+  .saint-header {
+    --mark-w:48px;
+    --mark-h:72px;
+    --header-title-size:clamp(32px, 11vw, 42px);
+    padding:10px 10px 10px;
+  }
+  .saint-header .header-page-title h1 { top:8px; }
+}
+.page-status-row {
+  display:flex; align-items:center; justify-content:flex-end; min-height:26px; padding:7px 0 0;
+}
+.page-status-row .status, .animation-window-head .status {
+  display:flex !important; align-items:center; justify-content:center; gap:6px; width:auto; min-height:0; height:auto;
+  margin:0 !important; padding:0 !important; border:0 !important; border-radius:0 !important;
+  background:transparent !important; box-shadow:none !important; color:var(--sm-muted) !important;
+  font:700 .62rem/1 var(--sm-mono) !important; letter-spacing:.1em; white-space:nowrap;
+}
+.page-status-row .status .dot, .animation-window-head .status .dot { width:6px; height:6px; }
+.animation-window-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+.animation-window-head h2 { margin:0; }
 body { position:relative; }
 /* ---- Lights + NFC: pull the neon pages onto the print-room palette ----
    Both pages set their own violet/pink accents on :root. Redefining the same
@@ -569,7 +574,7 @@ body.board-page .post .type-letter:nth-child(11n) { transform:translateY(-1px) r
 /* Full width forces the wrap, so the flag is always a line of its own
    under the footer text rather than trailing it. */
 .footer-language { display:flex; align-items:center; justify-content:center; flex:0 0 100%; width:100%; margin-top:4px; }
-.language-toggle button { min-width:44px; min-height:44px; }
+.language-toggle .flag { min-width:44px; min-height:44px; }
 body.board-page .swatch, body.board-page .nib { min-width:36px; min-height:36px; }
 @media (max-width:380px) {
   .footer-brand { gap:10px; }

@@ -5,13 +5,26 @@
 #include <DNSServer.h>
 #include <LittleFS.h>
 #include <esp_wifi.h>
+#if __has_include(<esp_netif_sta_list.h>)
 #include <esp_netif_sta_list.h>
+#define SM_HAS_NETIF_STA_LIST 1
+#else
+// ESP-IDF 5.5 folded the AP station/IP pairing API out of the public Arduino
+// headers. The suffix is only a cosmetic Field Notes label, so retain the
+// lookup where the legacy API exists and otherwise fall back to ARP below.
+#define SM_HAS_NETIF_STA_LIST 0
+#endif
 #include <lwip/etharp.h>
 #include <cstring>
 #include "badge_wifi.h"
+#include "badge_button.h"
 #include "badge_settings.h"
 #include "board.h"
 #include "nfc.h"
+#include "usb_hid.h"
+#include "usb_network.h"
+#include "usb_drive.h"
+#include "usb_console.h"
 
 // Implemented in main.cpp. wifi.cpp only transports and parses LED requests;
 // main.cpp remains responsible for LED state, validation, and animation logic.
@@ -40,14 +53,12 @@ const IPAddress AP_SUBNET(255, 255, 255, 0);
 constexpr uint16_t HTTP_PORT = 80;
 constexpr uint16_t DNS_PORT = 53;
 constexpr char STATION_HOSTNAME[] = "SantaMuerte";
-constexpr uint32_t STATION_RETRY_MS = 20000;
-// Home mode is exclusive: joining the house network takes the badge's own
-// access point down, so a join that never succeeds used to leave the badge
-// reachable over USB and nothing else. After this long with no connection it
-// gives up and brings the AP back, which is the only route left to a portal
-// that can change the setting. Roughly six retry cycles -- long enough to ride
-// out a router restart, short enough that nobody goes looking for a cable.
-constexpr uint32_t STATION_FALLBACK_MS = 120000;
+constexpr uint32_t STATION_RETRY_MS = 6000;
+// Boot always gives saved Wi-Fi first chance, even if the previous
+// session ended in AP mode. After this long with no connection it restores the
+// badge AP, which keeps the portal reachable without a cable. Roughly six
+// retry cycles is long enough to ride out a router restart.
+constexpr uint32_t STATION_FALLBACK_MS = 30000;
 
 WebServer server(HTTP_PORT);
 DNSServer dnsServer;
@@ -61,6 +72,10 @@ bool accessPointTogglePending = false;
 bool requestedAccessPointEnabled = true;
 uint32_t accessPointToggleAt = 0;
 bool stationConnectionRequested = false;
+// The AP/home toggle represents the *result* of a boot attempt, not its
+// starting preference. This flag temporarily overrides that toggle while the
+// badge gives saved Wi-Fi a chance to connect.
+bool bootHomeConnectionPending = false;
 // A join that never succeeds used to look identical to one still in progress:
 // WiFi.status() was only ever compared against WL_CONNECTED, so the reason was
 // discarded. Keep the last reason so USB, the TUI and the portal can say it.
@@ -71,6 +86,19 @@ String stationLastFailure;
 uint32_t stationOfflineSince = 0;
 bool mdnsRunning = false;
 uint32_t stationConnectionStartedAt = 0;
+uint8_t stationCandidate = 0;
+char lastSuccessfulApSsid[33] = {};
+char lastSuccessfulApPassword[64] = {};
+bool lastSuccessfulApHidden = false;
+bool hasLastSuccessfulApSettings = false;
+
+void rememberSuccessfulAccessPoint() {
+  strlcpy(lastSuccessfulApSsid, apSsid, sizeof(lastSuccessfulApSsid));
+  strlcpy(lastSuccessfulApPassword, getPersistentWifiPassword(),
+          sizeof(lastSuccessfulApPassword));
+  lastSuccessfulApHidden = getPersistentWifiHidden();
+  hasLastSuccessfulApSettings = true;
+}
 
 bool activeApMatchesExpectedSettings(const char *expectedSsid,
                                     const char *expectedPassword,
@@ -110,9 +138,9 @@ bool configureVerifiedAccessPoint() {
   const char *password = getPersistentWifiPassword();
   const bool hidden = getPersistentWifiHidden();
   const size_t passwordLength = password ? strlen(password) : 0;
-  if (passwordLength < 8 || passwordLength > 63) {
+  if (passwordLength != 0 && (passwordLength < 8 || passwordLength > 63)) {
     Serial.println(
-        "[WIFI] ERROR: No verified WPA2 Wi-Fi passphrase is available");
+        "[WIFI] ERROR: No valid access-point password is available");
     return false;
   }
 
@@ -141,6 +169,7 @@ bool configureVerifiedAccessPoint() {
       if (activeApMatchesExpectedSettings(apSsid, password, hidden)) {
         stationConnectionRequested = false;
         accessPointActive = true;
+        rememberSuccessfulAccessPoint();
         Serial.println(
             "[WIFI] Active access-point credentials verified");
         return true;
@@ -162,7 +191,13 @@ bool configureVerifiedAccessPoint() {
   return false;
 }
 
-void createMacDerivedSsid() {
+void refreshAccessPointSsid() {
+  const char *customSsid = getPersistentAccessPointSsid();
+  if (customSsid && customSsid[0] != '\0') {
+    strlcpy(apSsid, customSsid, sizeof(apSsid));
+    return;
+  }
+
   // ESP.getEfuseMac() writes the factory base MAC into the low six bytes of
   // its return value, least significant byte first, so bytes four and five are
   // the last pair-group printed on the module. Sixteen bits is short enough to
@@ -176,6 +211,22 @@ void createMacDerivedSsid() {
            AP_SSID_PREFIX,
            static_cast<unsigned>((efuseMac >> 32) & 0xFF),
            static_cast<unsigned>((efuseMac >> 40) & 0xFF));
+}
+
+bool restoreLastSuccessfulAccessPoint() {
+  if (!hasLastSuccessfulApSettings) return false;
+
+  String error;
+  if (!setPersistentWifiSettings(lastSuccessfulApPassword,
+                                 lastSuccessfulApHidden, error) ||
+      !setPersistentAccessPointSsid(lastSuccessfulApSsid, error)) {
+    Serial.printf("[WIFI] Could not restore the last working AP settings: %s\r\n",
+                  error.c_str());
+    return false;
+  }
+  refreshAccessPointSsid();
+  Serial.println("[WIFI] Restoring the last verified access-point settings");
+  return configureVerifiedAccessPoint();
 }
 
 // Answering every name with the badge's own address is what turns a phone's
@@ -274,30 +325,38 @@ const char *stationStatusName(int status) {
   }
 }
 
-void startStationConnection() {
-  // Home Wi-Fi is the alternate mode, never a second network alongside the
-  // badge AP. Leaving AP mode selected also suppresses automatic reconnects.
-  if (getPersistentAccessPointEnabled() ||
+void startStationConnection(bool forceBootAttempt = false) {
+  // A normal operator-selected AP suppresses station reconnects. At boot,
+  // though, saved Wi-Fi is deliberately tried once regardless of the
+  // toggle left by the preceding session.
+  if ((!forceBootAttempt && getPersistentAccessPointEnabled()) ||
       !hasPersistentStationWifiSettings()) return;
 
   stopMdns();
   // setHostname applies to the station interface; it must be set before
   // begin() for DHCP and the local network to see SantaMuerte consistently.
+  const uint8_t savedCount = getPersistentStationWifiCount();
+  if (!savedCount) return;
+  stationCandidate %= savedCount;
+  String ssid, password;
+  if (!getPersistentStationWifi(stationCandidate, ssid, password)) return;
   WiFi.mode(accessPointActive ? WIFI_AP_STA : WIFI_STA);
   WiFi.disconnect(false, false);
-  WiFi.begin(getPersistentStationWifiSsid(),
-             getPersistentStationWifiPassword());
+  WiFi.begin(ssid.c_str(), password.c_str());
   stationConnectionRequested = true;
   stationConnectionStartedAt = millis();
-  Serial.printf("[WIFI] Joining home Wi-Fi: %s\r\n",
-                getPersistentStationWifiSsid());
+  Serial.printf("[WIFI] Joining saved Wi-Fi: %s\r\n",
+                ssid.c_str());
 }
 
 void serviceStationConnection() {
-  if (getPersistentAccessPointEnabled()) {
+  // NCM only advertises an active cable link while the badge's saved Wi-Fi is
+  // associated. Serial and HID remain independently available.
+  usbNetworkSetStationConnected(WiFi.status() == WL_CONNECTED);
+  if (getPersistentAccessPointEnabled() && !bootHomeConnectionPending) {
     stationConnectionRequested = false;
     // Whether this was the operator's choice or the fallback below, the next
-    // switch to home Wi-Fi starts its own clock rather than inheriting one.
+    // switch to saved Wi-Fi starts its own clock rather than inheriting one.
     stationOfflineSince = 0;
     stopMdns();
     return;
@@ -305,6 +364,17 @@ void serviceStationConnection() {
   if (!hasPersistentStationWifiSettings()) return;
 
   if (WiFi.status() == WL_CONNECTED) {
+    if (bootHomeConnectionPending) {
+      bootHomeConnectionPending = false;
+      requestedAccessPointEnabled = false;
+      String error;
+      if (!setPersistentAccessPointEnabled(false, error)) {
+        Serial.printf("[WIFI] WARNING: Saved Wi-Fi connected, but the mode "
+                      "could not be saved: %s\r\n", error.c_str());
+      } else {
+        Serial.println("[WIFI] Boot home-Wi-Fi attempt succeeded");
+      }
+    }
     stationOfflineSince = 0;
     if (!mdnsRunning) {
       if (MDNS.begin(STATION_HOSTNAME)) {
@@ -312,7 +382,7 @@ void serviceStationConnection() {
         mdnsRunning = true;
         stationAttempts = 0;
         stationLastFailure = String();
-        Serial.printf("[WIFI] Home Wi-Fi connected: %s // http://%s.local/\r\n",
+        Serial.printf("[WIFI] Saved Wi-Fi connected: %s // http://%s.local/\r\n",
                       WiFi.localIP().toString().c_str(), STATION_HOSTNAME);
       } else {
         Serial.println("[WIFI] WARNING: Could not start mDNS");
@@ -326,23 +396,25 @@ void serviceStationConnection() {
   const uint32_t now = millis();
   if (stationOfflineSince == 0) stationOfflineSince = now;
   if (now - stationOfflineSince >= STATION_FALLBACK_MS) {
-    Serial.printf("[WIFI] No home Wi-Fi for %lus -- bringing the badge access "
+    Serial.printf("[WIFI] No saved Wi-Fi for %lus -- bringing the badge access "
                   "point back so the portal stays reachable.\r\n",
                   static_cast<unsigned long>((now - stationOfflineSince) / 1000));
     String error;
-    if (setBadgeAccessPointEnabled(true, error)) {
-      // Persisted deliberately: a reboot must not strand the badge again on a
-      // network that is not there. Home Wi-Fi stays saved, so switching back is
-      // one tap in the portal once the network is.
-      stationConnectionRequested = false;
-      stationOfflineSince = 0;
-      stationAttempts = 0;
-      stationLastFailure = String();
-    } else {
-      Serial.printf("[WIFI] Could not fall back to the access point: %s\r\n",
+    // AP fallback is unconditional once this boot attempt has failed. Persist
+    // the result for status screens and later runtime reconnects, but still
+    // bring the AP up if NVS happens to reject the write.
+    bootHomeConnectionPending = false;
+    requestedAccessPointEnabled = true;
+    if (!setPersistentAccessPointEnabled(true, error)) {
+      Serial.printf("[WIFI] Could not save AP fallback mode: %s\r\n",
                     error.c_str());
-      stationOfflineSince = now;   // try the fallback again next cycle
     }
+    stationConnectionRequested = false;
+    stationOfflineSince = 0;
+    stationAttempts = 0;
+    stationLastFailure = String();
+    accessPointTogglePending = true;
+    accessPointToggleAt = now + 50;
     return;
   }
 
@@ -352,7 +424,7 @@ void serviceStationConnection() {
       const int status = WiFi.status();
       ++stationAttempts;
       stationLastFailure = stationStatusName(status);
-      Serial.printf("[WIFI] Home Wi-Fi attempt %lu failed: %s (status %d)\r\n",
+      Serial.printf("[WIFI] Saved Wi-Fi attempt %lu failed: %s (status %d)\r\n",
                     static_cast<unsigned long>(stationAttempts),
                     stationStatusName(status), status);
       if (status == WL_NO_SSID_AVAIL) {
@@ -363,19 +435,21 @@ void serviceStationConnection() {
                       "and the band.\r\n",
                       getPersistentStationWifiSsid());
       }
+      const uint8_t savedCount = getPersistentStationWifiCount();
+      if (savedCount > 1) stationCandidate = (stationCandidate + 1) % savedCount;
     }
     startStationConnection();
   }
 }
 
 String stationWifiStatusText() {
-  if (!hasPersistentStationWifiSettings()) return F("Red de casa sin configurar.");
-  if (WiFi.status() == WL_CONNECTED) return F("Conectado a la red de casa.");
+  if (!hasPersistentStationWifiSettings()) return F("Wi-Fi guardado sin configurar.");
+  if (WiFi.status() == WL_CONNECTED) return F("Conectado al Wi-Fi guardado.");
   if (stationConnectionRequested && stationLastFailure.length() > 0) {
-    return String(F("Conectando a la red de casa… ")) + stationLastFailure;
+    return String(F("Conectando al Wi-Fi guardado… ")) + stationLastFailure;
   }
-  if (stationConnectionRequested) return F("Conectando a la red de casa…");
-  return F("La red de casa no está conectada.");
+  if (stationConnectionRequested) return F("Conectando al Wi-Fi guardado…");
+  return F("El Wi-Fi guardado no está conectado.");
 }
 
 String stationWifiJson(bool ok, const String &message) {
@@ -388,7 +462,15 @@ String stationWifiJson(bool ok, const String &message) {
   json += hasPersistentStationWifiSettings() ? F("true") : F("false");
   json += F(",\"ssid\":\"");
   json += jsonEscape(getPersistentStationWifiSsid());
-  json += F("\",\"connected\":");
+  json += F("\",\"saved\":[");
+  for (uint8_t i = 0; i < getPersistentStationWifiCount(); ++i) {
+    String savedSsid, ignoredPassword;
+    if (!getPersistentStationWifi(i, savedSsid, ignoredPassword)) continue;
+    if (i) json += ',';
+    json += '\"'; json += jsonEscape(savedSsid); json += '\"';
+  }
+  json += F("]");
+  json += F(",\"connected\":");
   json += connected ? F("true") : F("false");
   json += F(",\"ip\":\"");
   json += connected ? WiFi.localIP().toString() : String();
@@ -419,6 +501,12 @@ String wifiSettingsJson(bool ok, const String &message) {
   json += getPersistentAccessPointEnabled() ? F("true") : F("false");
   json += F(",\"apActive\":");
   json += accessPointActive ? F("true") : F("false");
+  json += F(",\"ip\":\"");
+  json += accessPointActive ? WiFi.softAPIP().toString()
+                           : (WiFi.status() == WL_CONNECTED
+                                  ? WiFi.localIP().toString()
+                                  : AP_IP.toString());
+  json += F("\"");
   json += F(",\"apTogglePending\":");
   json += accessPointTogglePending ? F("true") : F("false");
   json += F(",\"restartPending\":");
@@ -470,14 +558,15 @@ void handleWifiSettingsGet() {
 void handleWifiSettingsSet() {
   addNoCacheHeaders();
 
-  if (!server.hasArg("password") || !server.hasArg("hidden")) {
+  if (!server.hasArg("ssid") || !server.hasArg("password") || !server.hasArg("hidden")) {
     server.send(
         400,
         "application/json",
-        wifiSettingsJson(false, "Faltan la contraseña y el ajuste de red oculta."));
+        wifiSettingsJson(false, "Faltan el SSID, la contraseña o el ajuste de red oculta."));
     return;
   }
 
+  const String ssid = server.arg("ssid");
   const String password = server.arg("password");
   const String hiddenValue = server.arg("hidden");
   const bool hidden =
@@ -486,7 +575,8 @@ void handleWifiSettingsSet() {
   // Saving identical settings used to restart the access point anyway, which
   // drops every client. Landing on this page and pressing save then looked
   // like a loop: reconnect, portal reopens, same form.
-  const bool unchanged = password == getPersistentWifiPassword() &&
+  const bool unchanged = ssid == apSsid &&
+                         password == getPersistentWifiPassword() &&
                          hidden == getPersistentWifiHidden();
 
   String error;
@@ -494,6 +584,11 @@ void handleWifiSettingsSet() {
     server.send(400, "application/json", wifiSettingsJson(false, error));
     return;
   }
+  if (!setPersistentAccessPointSsid(ssid, error)) {
+    server.send(400, "application/json", wifiSettingsJson(false, error));
+    return;
+  }
+  refreshAccessPointSsid();
 
   if (unchanged) {
     server.send(200, "application/json",
@@ -521,8 +616,8 @@ void handleWifiSettingsSet() {
       wifiSettingsJson(
           true,
           hidden
-              ? "Guardado. Vuelve a entrar escribiendo a mano el SSID oculto y la nueva contraseña."
-              : "Guardado. Vuelve a entrar al badge con la nueva contraseña."));
+              ? "Guardado. Vuelve a entrar escribiendo a mano el SSID oculto y la contraseña nueva."
+              : "Guardado. Vuelve a entrar al badge con el SSID y la contraseña nuevos."));
 }
 
 void handleAccessPointSet() {
@@ -551,7 +646,7 @@ void handleAccessPointSet() {
                   true,
                   enabled
                       ? "Guardado. Encendiendo el punto de acceso del badge."
-                      : "Guardado. El punto de acceso se apagará; usa la red de casa o USB para volver a encenderlo."));
+                      : "Guardado. El punto de acceso se apagará; usa el Wi-Fi guardado o USB para volver a encenderlo."));
 }
 
 void handleStationWifiGet() {
@@ -564,7 +659,7 @@ void handleStationWifiSet() {
   if (!server.hasArg("ssid") || !server.hasArg("password")) {
     server.send(400, "application/json",
                 stationWifiJson(false,
-                                "Faltan el nombre y la contraseña de la red de casa."));
+                                "Faltan el nombre y la contraseña del Wi-Fi guardado."));
     return;
   }
 
@@ -575,7 +670,7 @@ void handleStationWifiSet() {
     return;
   }
 
-  // Saving a home network deliberately selects the alternate mode. Reply
+  // Saving Wi-Fi deliberately selects the alternate mode. Reply
   // before ending the AP connection that submitted the form.
   if (!setPersistentAccessPointEnabled(false, error)) {
     server.send(500, "application/json", stationWifiJson(false, error));
@@ -587,7 +682,7 @@ void handleStationWifiSet() {
   if (!accessPointActive) startStationConnection();
   server.send(202, "application/json",
               stationWifiJson(true,
-                              "Guardado. Cambiando a tu red de casa."));
+                              "Guardado. Cambiando a tu Wi-Fi guardado."));
 }
 
 void servicePendingAccessPointRestart() {
@@ -603,13 +698,15 @@ void servicePendingAccessPointRestart() {
     Serial.println(
         "[WIFI] ERROR: Dashboard settings were stored, but the access point "
         "could not restart");
+    if (restoreLastSuccessfulAccessPoint()) startCaptivePortalDns();
     refreshWifiNfcAfterRestart = false;
     return;
   }
 
   Serial.printf("[WIFI] SSID visibility: %s\r\n",
                 getPersistentWifiHidden() ? "hidden" : "visible");
-  Serial.println("[WIFI] Password: masked (USB Altar Network > v reveals briefly)");
+  Serial.printf("[WIFI] Security: %s\r\n",
+                getPersistentWifiPassword()[0] ? "WPA2" : "open");
 
   startCaptivePortalDns();
 
@@ -646,6 +743,7 @@ void servicePendingAccessPointToggle() {
     stopMdns();
     if (!configureVerifiedAccessPoint()) {
       Serial.println("[WIFI] ERROR: Could not turn badge access point on");
+      if (restoreLastSuccessfulAccessPoint()) startCaptivePortalDns();
       return;
     }
     startCaptivePortalDns();
@@ -941,7 +1039,7 @@ String deviceLabelFromUserAgent(const String &agent) {
 // because the badge is either the access point or just another station:
 //   - as the AP, esp_netif_get_sta_list pairs every associated MAC with its
 //     leased IP directly;
-//   - on home Wi-Fi it has no station list, but any peer it has just exchanged
+//   - on saved Wi-Fi it has no station list, but any peer it has just exchanged
 //     packets with is in the ARP cache, which etharp_get_entry walks.
 // Empty when the address cannot be resolved, which is normal for a client
 // reached through a router rather than sitting on the same link.
@@ -951,7 +1049,8 @@ String clientMacSuffix(const IPAddress &address) {
   // devices colliding is likelier than not once a couple of dozen have posted.
   char out[5] = {};
 
-  if (isBadgeAccessPointActive()) {
+  if (isBadgeAccessPointActive() && SM_HAS_NETIF_STA_LIST) {
+#if SM_HAS_NETIF_STA_LIST
     wifi_sta_list_t stations = {};
     esp_netif_sta_list_t leases = {};
     if (esp_wifi_ap_get_sta_list(&stations) == ESP_OK &&
@@ -964,6 +1063,7 @@ String clientMacSuffix(const IPAddress &address) {
         }
       }
     }
+#endif
   }
 
   ip4_addr_t *entryIp = nullptr;
@@ -1138,7 +1238,7 @@ void handleNfcCaptureSet() {
 
   if (!server.hasArg("enabled")) {
     server.send(400, "application/json",
-                F("{\"ok\":false,\"message\":\"Falta el ajuste de Ofrenda NFC.\"}"));
+                F("{\"ok\":false,\"message\":\"Falta el ajuste de Notas NFC.\"}"));
     return;
   }
 
@@ -1174,8 +1274,16 @@ void handleBoardClear() {
 void redirectToPortal() {
   String location = F("http://");
   location += AP_IP.toString();
-  location += F("/board");
+  location += F("/notes");
   server.sendHeader("Location", location, true);
+  addNoCacheHeaders();
+  server.send(302, "text/plain; charset=utf-8", "");
+}
+
+// Keep old badge QR codes and bookmarks working, but expose the renamed page
+// at its canonical address rather than leaving the browser on /board.
+void redirectLegacyBoardPage() {
+  server.sendHeader("Location", "/notes", true);
   addNoCacheHeaders();
   server.send(302, "text/plain; charset=utf-8", "");
 }
@@ -1197,18 +1305,306 @@ void handleNotFound() {
   }
 
   server.send(404, "text/plain; charset=utf-8",
-              "No se encontró la página. Abre http://10.69.4.20/ para las ofrendas, "
+              "No se encontró la página. Abre http://10.69.4.20/notes para las notas, "
               "http://10.69.4.20/led para luces, "
               "http://10.69.4.20/nfc para NFC o "
-              "http://10.69.4.20/settings para ajustes.");
+              "http://10.69.4.20/network para la red.");
+}
+
+// ---- USB HID payloads. The portal can author, store, load and delete payloads,
+// and via /api/payloads/run it fires the current script straight at the connected
+// computer. That has real-world effect and the captive portal is anonymous, so
+// anyone on the badge's AP can inject keystrokes -- treat the AP as trusted.
+// Shared status fields: whether a payload is running, the one-line status, the
+// host keyboard's lock LEDs, and whether a USB host has been seen at all.
+void appendPayloadStatus(String &json) {
+  json += "\"busy\":";
+  json += usbHidBusy() ? "true" : "false";
+  json += ",\"status\":\"";
+  json += jsonEscape(usbHidStatusLine());
+  json += "\",\"locks\":";
+  json += String(usbHidHostLeds());
+  json += ",\"seen\":";
+  json += usbHidHostSeen() ? "true" : "false";
+}
+
+void appendUsbNetworkStatus(String &json) {
+  const UsbNetworkState network = getUsbNetworkState();
+  json += F("\"network\":{\"available\":");
+  json += network.available ? F("true") : F("false");
+  json += F(",\"enabled\":");
+  json += network.enabled ? F("true") : F("false");
+  json += F(",\"stationConnected\":");
+  json += network.stationConnected ? F("true") : F("false");
+  json += F(",\"linkUp\":");
+  json += network.linkUp ? F("true") : F("false");
+  json += F(",\"sentFrames\":");
+  json += String(network.sentFrames);
+  json += F(",\"receivedFrames\":");
+  json += String(network.receivedFrames);
+  json += F(",\"droppedFrames\":");
+  json += String(network.droppedFrames);
+  json += F("}");
+}
+
+void appendUsbProfileStatus(String &json) {
+  const UsbDriveState drive = getUsbDriveState();
+  json += F("\"usbProfile\":\"");
+  json += getPersistentUsbDeviceProfile() == UsbDeviceProfile::DRIVE ? F("drive") : F("network");
+  json += F("\",\"drive\":{\"available\":");
+  json += drive.available ? F("true") : F("false");
+  json += F(",\"notes\":");
+  json += String(drive.noteCount);
+  json += F(",\"scripts\":");
+  json += String(drive.scriptCount);
+  json += F("}");
+}
+
+// Lightweight status only -- safe to poll, reads no files.
+String payloadsStatusJson() {
+  String json;
+  json.reserve(96);
+  json += "{\"ok\":true,";
+  appendPayloadStatus(json);
+  json += "}";
+  return json;
+}
+
+// USB Serial is intentionally not a profile choice. The badge remains a CDC
+// console in every current and planned USB profile, while this endpoint exposes
+// the HID controls and the physical BOOT-button bindings alongside it.
+String usbControlsJson(bool ok, const String &error) {
+  const UsbButtonState button = getUsbButtonState();
+  String json;
+  json.reserve(400);
+  json += F("{\"ok\":");
+  json += ok ? F("true") : F("false");
+  json += F(",\"error\":\"");
+  json += jsonEscape(error);
+  json += F("\",\"serial\":true,\"profile\":\"serial-hid\",\"button\":{\"short\":\"");
+  json += usbControlActionKey(button.shortPress);
+  json += F("\",\"long\":\"");
+  json += usbControlActionKey(button.longPress);
+  json += F("\"},");
+  appendPayloadStatus(json);
+  json += ',';
+  appendUsbNetworkStatus(json);
+  json += ',';
+  appendUsbProfileStatus(json);
+  json += F("}");
+  return json;
+}
+
+// Full listing: status plus every stored payload with its body, so the feed can
+// show each script and "Load" needs no extra request. Called on demand, not
+// polled -- payloads are few and small.
+String payloadsListJson(bool ok, const String &error) {
+  String json;
+  json.reserve(512);
+  json += "{\"ok\":";
+  json += ok ? "true" : "false";
+  json += ",\"max\":";
+  json += String(USB_HID_MAX_PAYLOADS);
+  json += ",\"error\":\"";
+  json += jsonEscape(error);
+  json += "\",";
+  appendPayloadStatus(json);
+  json += ",\"items\":[";
+  const uint8_t count = usbHidPayloadCount();
+  for (uint8_t i = 0; i < count; ++i) {
+    if (i) json += ',';
+    const String name = usbHidPayloadNameAt(i);
+    String script;
+    usbHidReadPayload(name, script);
+    json += "{\"name\":\"";
+    json += jsonEscape(name);
+    json += "\",\"script\":\"";
+    json += jsonEscape(script);
+    json += "\"}";
+  }
+  json += "]}";
+  return json;
+}
+
+void handlePayloadsPage() {
+  serveLittleFsFile("/usb.html", "text/html; charset=utf-8");
+}
+
+// `/usb` and `/scripting` deliberately share the small offline document. The
+// route is still distinct: the document reads the path before paint and shows
+// either the host-control workspace or the dedicated script-builder workspace.
+void handleScriptingPage() {
+  serveLittleFsFile("/usb.html", "text/html; charset=utf-8");
+}
+
+void handlePayloadsList() {
+  addNoCacheHeaders();
+  server.send(200, "application/json", payloadsListJson(true, String()));
+}
+
+void handlePayloadStatus() {
+  addNoCacheHeaders();
+  server.send(200, "application/json", payloadsStatusJson());
+}
+
+void handlePayloadGet() {
+  addNoCacheHeaders();
+  const String name = server.hasArg("name") ? server.arg("name") : String();
+  String script;
+  if (!usbHidReadPayload(name, script)) {
+    server.send(404, "application/json", "{\"ok\":false,\"error\":\"No existe.\"}");
+    return;
+  }
+  String json;
+  json.reserve(script.length() + 64);
+  json += "{\"ok\":true,\"name\":\"";
+  json += jsonEscape(name);
+  json += "\",\"script\":\"";
+  json += jsonEscape(script);
+  json += "\"}";
+  server.send(200, "application/json", json);
+}
+
+void handlePayloadSave() {
+  addNoCacheHeaders();
+  const String name = server.hasArg("name") ? server.arg("name") : String();
+  const String script = server.hasArg("script") ? server.arg("script") : String();
+  String error;
+  if (!usbHidSavePayload(name, script, error)) {
+    server.send(400, "application/json", payloadsListJson(false, error));
+    return;
+  }
+  server.send(201, "application/json", payloadsListJson(true, String()));
+}
+
+void handlePayloadDelete() {
+  addNoCacheHeaders();
+  const String name = server.hasArg("name") ? server.arg("name") : String();
+  String error;
+  if (!usbHidDeletePayload(name, error)) {
+    server.send(400, "application/json", payloadsListJson(false, error));
+    return;
+  }
+  server.send(200, "application/json", payloadsListJson(true, String()));
+}
+
+// Fires the given Ducky script live on the connected computer. Unlike the rest
+// of this API this actually types on the host, so it is the one portal action
+// with physical-world effect -- callable by anyone joined to the badge's AP.
+void handlePayloadRun() {
+  addNoCacheHeaders();
+  const String script = server.hasArg("script") ? server.arg("script") : String();
+  String error;
+  if (!usbHidRunScript(script, error)) {
+    server.send(409, "application/json", payloadsListJson(false, error));
+    return;
+  }
+  server.send(202, "application/json", payloadsListJson(true, String()));
+}
+
+void handleUsbControlsGet() {
+  addNoCacheHeaders();
+  server.send(200, "application/json", usbControlsJson(true, String()));
+}
+
+void handleUsbControlRun() {
+  addNoCacheHeaders();
+  UsbControlAction action = UsbControlAction::NONE;
+  if (!server.hasArg("action") ||
+      !usbControlActionFromKey(server.arg("action"), action) ||
+      action == UsbControlAction::NONE ||
+      action == UsbControlAction::LED_CONTROLS) {
+    server.send(400, "application/json",
+                usbControlsJson(false, "Acción USB no válida."));
+    return;
+  }
+  if (action == UsbControlAction::SYSTEM_POWER_OFF &&
+      (!server.hasArg("confirm") || server.arg("confirm") != "power-off")) {
+    server.send(400, "application/json",
+                usbControlsJson(false,
+                                "Confirma el apagado del equipo antes de enviarlo."));
+    return;
+  }
+
+  String error;
+  if (!usbHidRunControl(action, error)) {
+    server.send(409, "application/json", usbControlsJson(false, error));
+    return;
+  }
+  server.send(202, "application/json", usbControlsJson(true, String()));
+}
+
+void handleUsbButtonSet() {
+  addNoCacheHeaders();
+  UsbControlAction shortPress = UsbControlAction::NONE;
+  UsbControlAction longPress = UsbControlAction::NONE;
+  if (!server.hasArg("short") || !server.hasArg("long") ||
+      !usbControlActionFromKey(server.arg("short"), shortPress) ||
+      !usbControlActionFromKey(server.arg("long"), longPress)) {
+    server.send(400, "application/json",
+                usbControlsJson(false, "Acción de botón no válida."));
+    return;
+  }
+  if (shortPress == UsbControlAction::SYSTEM_POWER_OFF ||
+      longPress == UsbControlAction::SYSTEM_POWER_OFF) {
+    server.send(400, "application/json",
+                usbControlsJson(false,
+                                "Apagar el equipo no se puede asignar al botón."));
+    return;
+  }
+
+  String error;
+  if (!setUsbButtonState(shortPress, longPress, error)) {
+    server.send(500, "application/json", usbControlsJson(false, error));
+    return;
+  }
+  server.send(200, "application/json", usbControlsJson(true, String()));
+}
+
+void handleUsbNetworkSet() {
+  if (!server.hasArg("enabled")) {
+    server.send(400, "application/json",
+                usbControlsJson(false, "Falta el estado de USB Wi-Fi."));
+    return;
+  }
+  const String requested = server.arg("enabled");
+  if (requested != "0" && requested != "1") {
+    server.send(400, "application/json",
+                usbControlsJson(false, "Estado de USB Wi-Fi no válido."));
+    return;
+  }
+  String error;
+  if (!usbNetworkSetEnabled(requested == "1", error)) {
+    server.send(409, "application/json", usbControlsJson(false, error));
+    return;
+  }
+  server.send(200, "application/json", usbControlsJson(true, String()));
+}
+
+void handleUsbProfileSet() {
+  const String requested = server.hasArg("profile") ? server.arg("profile") : String();
+  const UsbDeviceProfile profile = requested == "drive" ? UsbDeviceProfile::DRIVE
+                                  : requested == "network" ? UsbDeviceProfile::NETWORK
+                                                           : static_cast<UsbDeviceProfile>(255);
+  String error;
+  if (!setPersistentUsbDeviceProfile(profile, error)) {
+    server.send(400, "application/json", usbControlsJson(false, error));
+    return;
+  }
+  server.send(200, "application/json", usbControlsJson(true, String()));
+  delay(150);
+  ESP.restart();
 }
 
 void setupWebServer() {
   // The portal opens on the board. "/" used to be a dashboard whose first
   // element was a row of links onward, so landing there was navigable; it is
   // now the Wi-Fi form alone, which reads exactly like a captive-portal gate
-  // demanding setup before you may continue. Settings moved to /settings.
+  // demanding setup before you may continue. Network configuration is at
+  // /network; the former settings paths stay available for old bookmarks.
   server.on("/", HTTP_GET, handleBoardPage);
+  server.on("/network", HTTP_GET, handleDashboardPage);
+  server.on("/network.html", HTTP_GET, handleDashboardPage);
   server.on("/settings", HTTP_GET, handleDashboardPage);
   server.on("/settings.html", HTTP_GET, handleDashboardPage);
   server.on("/index.html", HTTP_GET, handleDashboardPage);
@@ -1220,8 +1616,9 @@ void setupWebServer() {
   server.on("/led.html", HTTP_GET, handleLedPage);
   server.on("/nfc", HTTP_GET, handleNfcPage);
   server.on("/nfc.html", HTTP_GET, handleNfcPage);
-  server.on("/board", HTTP_GET, handleBoardPage);
-  server.on("/board.html", HTTP_GET, handleBoardPage);
+  server.on("/notes", HTTP_GET, handleBoardPage);
+  server.on("/board", HTTP_GET, redirectLegacyBoardPage);
+  server.on("/board.html", HTTP_GET, redirectLegacyBoardPage);
 
   server.on("/api/state", HTTP_GET, handleLedState);
   server.on("/api/set", HTTP_GET, handleLedSet);
@@ -1241,6 +1638,22 @@ void setupWebServer() {
   server.on("/api/board/image", HTTP_GET, handleBoardImage);
   server.on("/api/board/post", HTTP_POST, handleBoardCreate);
   server.on("/api/board/clear", HTTP_POST, handleBoardClear);
+
+  server.on("/usb", HTTP_GET, handlePayloadsPage);
+  server.on("/usb.html", HTTP_GET, handlePayloadsPage);
+  server.on("/scripting", HTTP_GET, handleScriptingPage);
+  server.on("/scripting.html", HTTP_GET, handleScriptingPage);
+  server.on("/api/payloads/list", HTTP_GET, handlePayloadsList);
+  server.on("/api/payloads/status", HTTP_GET, handlePayloadStatus);
+  server.on("/api/payloads/get", HTTP_GET, handlePayloadGet);
+  server.on("/api/payloads/save", HTTP_POST, handlePayloadSave);
+  server.on("/api/payloads/delete", HTTP_POST, handlePayloadDelete);
+  server.on("/api/payloads/run", HTTP_POST, handlePayloadRun);
+  server.on("/api/usb/controls", HTTP_GET, handleUsbControlsGet);
+  server.on("/api/usb/control", HTTP_POST, handleUsbControlRun);
+  server.on("/api/usb/button", HTTP_POST, handleUsbButtonSet);
+  server.on("/api/usb/network", HTTP_POST, handleUsbNetworkSet);
+  server.on("/api/usb/profile", HTTP_POST, handleUsbProfileSet);
 
   server.on("/api/nfc/state", HTTP_GET, handleNfcState);
   server.on("/api/nfc/read", HTTP_POST, handleNfcRead);
@@ -1338,9 +1751,11 @@ WifiTuiState getWifiTuiState() {
   return state;
 }
 
-bool setBadgeAccessPointSettings(const String &password, bool hidden,
-                                 String &error) {
+bool setBadgeAccessPointSettings(const String &ssid, const String &password,
+                                 bool hidden, String &error) {
   if (!setPersistentWifiSettings(password, hidden, error)) return false;
+  if (!setPersistentAccessPointSsid(ssid, error)) return false;
+  refreshAccessPointSsid();
   if (!getPersistentAccessPointEnabled()) return true;
   refreshWifiNfcAfterRestart = isNfcWifiOnboardingActive();
   accessPointRestartPending = true;
@@ -1375,8 +1790,6 @@ void setupWiFiAccessPoint() {
                   LittleFS.exists("/board.html") ? "ready" : "missing");
   }
 
-  createMacDerivedSsid();
-
   // Resolve and verify the persistent password before starting Wi-Fi.
   if (!initializeBadgeSettings()) {
     Serial.println(
@@ -1384,38 +1797,51 @@ void setupWiFiAccessPoint() {
         "was not started");
     return;
   }
+  refreshAccessPointSsid();
 
-  if (getPersistentAccessPointEnabled()) {
-    Serial.println("[WIFI] Starting access point");
-    if (!configureVerifiedAccessPoint()) return;
-  } else {
-    // The owner deliberately left the AP off. The web server still starts so
-    // a saved home-network station can serve the exact same portal.
+  // Boot policy is intentionally independent of the AP/home setting that was
+  // left by the last session: configured saved Wi-Fi always gets the first
+  // connection attempt. The AP starts only if there is no saved Wi-Fi
+  // or that attempt later times out in serviceStationConnection().
+  bootHomeConnectionPending = hasPersistentStationWifiSettings();
+  requestedAccessPointEnabled = false;
+  accessPointActive = false;
+  if (bootHomeConnectionPending) {
+    Serial.printf("[WIFI] Boot: trying saved Wi-Fi first: %s\r\n",
+                  getPersistentStationWifiSsid());
     WiFi.mode(WIFI_OFF);
     if (!WiFi.setHostname(STATION_HOSTNAME)) {
       Serial.println("[WIFI] WARNING: Could not set DHCP hostname");
     }
     WiFi.mode(WIFI_STA);
-    accessPointActive = false;
-    Serial.println("[WIFI] Access point is disabled by saved setting");
+  } else {
+    Serial.println("[WIFI] Boot: no saved Wi-Fi; starting access point");
+    String error;
+    if (!setPersistentAccessPointEnabled(true, error)) {
+      Serial.printf("[WIFI] WARNING: Could not save AP boot mode: %s\r\n",
+                    error.c_str());
+    }
+    requestedAccessPointEnabled = true;
+    if (!configureVerifiedAccessPoint()) return;
   }
 
   setupWebServer();
   if (accessPointActive) startCaptivePortalDns();
-  startStationConnection();
+  if (bootHomeConnectionPending) startStationConnection(true);
 
   Serial.printf("[WIFI] Badge AP: %s\r\n", accessPointActive ? "on" : "off");
   if (accessPointActive) {
     Serial.printf("[WIFI] SSID: %s\r\n", apSsid);
     Serial.printf("[WIFI] SSID visibility: %s\r\n",
                   getPersistentWifiHidden() ? "hidden" : "visible");
-    Serial.println("[WIFI] Password: masked (USB Altar Network > v reveals briefly)");
+    Serial.printf("[WIFI] Security: %s\r\n",
+                  getPersistentWifiPassword()[0] ? "WPA2" : "open");
     Serial.print("[WIFI] Dashboard: http://");
     Serial.println(WiFi.softAPIP());
   }
   Serial.print("[WIFI] Message board: http://");
   Serial.print(WiFi.softAPIP());
-  Serial.println("/board");
+  Serial.println("/notes");
   Serial.print("[WIFI] LED controller: http://");
   Serial.print(WiFi.softAPIP());
   Serial.println("/led");

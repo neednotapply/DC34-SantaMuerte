@@ -6,6 +6,7 @@
 
 #include "board.h"
 #include "badge_settings.h"
+#include "usb_console.h"
 
 namespace {
 

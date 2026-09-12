@@ -58,6 +58,15 @@ class String {
     }
   }
 
+  void toUpperCase() {
+    for (char &character : value_) {
+      character = static_cast<char>(std::toupper(
+          static_cast<unsigned char>(character)));
+    }
+  }
+
+  long toInt() const { return std::strtol(value_.c_str(), nullptr, 10); }
+
   bool startsWith(const char *prefix) const {
     return value_.rfind(prefix, 0) == 0;
   }

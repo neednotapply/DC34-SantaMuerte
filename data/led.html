@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#151615">
   <title>Santa Muerte // LED Tools</title>
-  <link rel="stylesheet" href="theme.css?v=24">
+  <link rel="stylesheet" href="theme.css?v=30">
   <link rel="icon" type="image/png" href="assets/logo-candle.png">
-  <script src="locale.js?v=12"></script>
+  <script src="locale.js?v=21"></script>
   <style>
     :root {
       color-scheme: dark;
@@ -67,7 +67,8 @@
     .card{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);background:linear-gradient(145deg,var(--panel),rgba(13,14,23,.88));box-shadow:0 18px 60px rgba(0,0,0,.28);backdrop-filter:blur(18px)}
     .card-pad{padding:22px}
     .card h2{font-size:.83rem;text-transform:uppercase;letter-spacing:.14em;color:#bdc2d2;margin:0 0 17px}
-    .preview{padding:14px 12px 10px;display:grid;place-items:center;gap:8px;background:var(--sm-bg-deep,#101110);border-bottom:1px solid var(--line)}
+    .preview{position:relative;padding:14px 12px 10px;display:grid;place-items:center;gap:8px;background:var(--sm-bg-deep,#101110);border-bottom:1px solid var(--line)}
+    .preview-status{position:absolute;top:12px;right:12px;z-index:1}
     .badge{display:block;height:min(58vh,420px);width:auto;margin:6px auto 0;overflow:visible}
     .badge-art{opacity:1}
     /* Emissive alternative. Light can only be added to a dark field, so a true
@@ -146,33 +147,35 @@
           <img class="brand-mark" src="assets/logo-candle.png" alt="">
         </summary>
         <nav class="nav-menu-list" aria-label="Navegación del badge">
-          <a href="/board">Offerings</a>
+          <a href="/notes">Field Notes</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/settings">Ajustes</a>
+          <a href="/usb">Herramientas USB</a>
+          <a href="/scripting">Scripts</a>
+          <a href="/network">Red</a>
         </nav>
       </details>
-      <a class="saint-title" href="/board" aria-label="Santa Muerte"><span>Santa</span><span>Muerte</span></a>
+      <div class="header-page-title">
+        <h1>LED Tools</h1>
+      </div>
       <details class="nav-menu nav-menu--right">
         <summary aria-label="Abrir menú">
           <img class="brand-mark" src="assets/logo-candle.png" alt="">
         </summary>
         <nav class="nav-menu-list" aria-label="Navegación del badge">
-          <a href="/board">Offerings</a>
+          <a href="/notes">Field Notes</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/settings">Ajustes</a>
+          <a href="/usb">Herramientas USB</a>
+          <a href="/scripting">Scripts</a>
+          <a href="/network">Red</a>
         </nav>
       </details>
     </header>
-    <div class="page-title">
-      <h1>LED Tools</h1>
-      <div id="connectionStatus" class="status checking" role="status" aria-live="polite">
-        <span class="dot" aria-hidden="true"></span><span id="connectionText">Revisando…</span>
-      </div>
-    </div>
-
     <main class="grid">
       <section class="card art-card">
         <div class="preview">
+          <div id="connectionStatus" class="status checking preview-status" role="status" aria-live="polite">
+            <span class="dot" aria-hidden="true"></span><span id="connectionText">Revisando…</span>
+          </div>
           <svg id="badge" class="badge" viewBox="0 0 208 287" role="img"
                aria-label="Las once luces del badge sobre la figura">
             <defs id="ledDefs"></defs>
@@ -226,7 +229,7 @@
       </section>
     </main>
     <footer class="saint-footer">
-      <span>SANTA MUERTE // ESP32 // SOLO LOCAL</span>
+      <span class="footer-identity">SANTAMUERTE.LOCAL // ESP32 // 10.69.4.20</span>
       <div class="footer-language"></div>
     </footer>
   </div>
@@ -238,6 +241,7 @@
   const $$ = s => [...document.querySelectorAll(s)];
   const state = {pattern:'aurora',r:166,g:36,b:255,brightness:160,speed:55};
   let sendTimer = 0, toastTimer = 0, wheelImage;
+  let stateSendActive = false;
   let connectionCheckActive = false;
 
   // The catalogue, grouped the way the IP Fragments badge groups its own: what
@@ -352,7 +356,10 @@
       const nextState=await res.json();
       if(!nextState||typeof nextState!=='object')throw new Error('Respuesta inválida.');
       setConnectionStatus('connected');
-      if(syncState){Object.assign(state,nextState);updateUI()}
+      // The hardware BOOT button changes the same state as these controls. Do
+      // not let a just-scheduled local save be overwritten by an older response,
+      // but otherwise keep every labelled control in sync with the badge.
+      if(syncState && !sendTimer && !stateSendActive){Object.assign(state,nextState);updateUI()}
       return true;
     }catch(e){
       setConnectionStatus('disconnected');
@@ -540,6 +547,8 @@
   function scheduleSend(){clearTimeout(sendTimer);sendTimer=setTimeout(sendState,65)}
   async function sendState(){
     const q=new URLSearchParams(state);
+    sendTimer=0;
+    stateSendActive=true;
     try{
       const res=await fetchWithTimeout('/api/set?'+q,{cache:'no-store'});
       if(!res.ok)throw new Error('El ESP32 no aceptó los ajustes.');
@@ -548,6 +557,8 @@
     }catch(e){
       setConnectionStatus('disconnected');
       toast('Se perdió la conexión.');
+    }finally{
+      stateSendActive=false;
     }
   }
   async function loadState(){
@@ -568,11 +579,14 @@
   paintBadgeOffline();
   loadState();
   startPixelPolling();
-  setInterval(()=>checkConnection(false),3000);
-  window.addEventListener('focus',()=>checkConnection(false));
+  // Pixels arrive quickly for the live simulator; this lower-rate state poll
+  // keeps the active animation, brightness slider, and colour controls in step
+  // when they are changed from the physical BOOT button.
+  setInterval(()=>checkConnection(true),700);
+  window.addEventListener('focus',()=>checkConnection(true));
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden){stopPixelPolling();return}
-    checkConnection(false);startPixelPolling();
+    checkConnection(true);startPixelPolling();
   });
 })();
 </script>

@@ -2,18 +2,29 @@
 #include <Adafruit_NeoPixel.h>
 #include <LittleFS.h>
 #include <math.h>
+#include <USB.h>
 #include "badge_wifi.h"
+#include "badge_button.h"
 #include "badge_led.h"
 #include "badge_settings.h"
 #include "board.h"
 #include "nfc.h"
 #include "usb_tui.h"
+#include "usb_hid.h"
+#include "usb_network.h"
+#include "usb_drive.h"
+#include "usb_console.h"
 
 // -----------------------------------------------------------------------------
 // PCB hardware
 // -----------------------------------------------------------------------------
 #define LED_PIN 17
 #define LED_COUNT 11
+
+// GPIO0 is the ESP32-S3's BOOT strap.  Holding it while the chip resets still
+// enters the ROM downloader, but once normal firmware is running it is a
+// regular active-low button with the board's pull-up.
+#define BOOT_BUTTON_PIN 0
 
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 
@@ -46,6 +57,30 @@ enum LedPattern : uint8_t {
 };
 
 constexpr uint8_t LED_PATTERN_COUNT = PATTERN_LIMIT;
+
+// The stored enum above is append-only so saved settings keep their meaning.
+// The physical control follows the numbered order printed on /led instead,
+// which is a deliberately different, curated order.
+constexpr LedPattern BOOT_BUTTON_PATTERN_ORDER[] = {
+    PATTERN_OFRENDA,
+    PATTERN_SOLID,
+    PATTERN_PULSE,
+    PATTERN_AUREOLA,
+    PATTERN_CORONA,
+    PATTERN_ENCUENTRO,
+    PATTERN_ESCANER,
+    PATTERN_CHASE,
+    PATTERN_MANOS,
+    PATTERN_THEATER,
+    PATTERN_TWINKLE,
+    PATTERN_RAINBOW,
+    PATTERN_AURORA,
+    PATTERN_PLASMA,
+    PATTERN_DERIVA,
+    PATTERN_OFF,
+};
+constexpr size_t BOOT_BUTTON_PATTERN_COUNT =
+    sizeof(BOOT_BUTTON_PATTERN_ORDER) / sizeof(BOOT_BUTTON_PATTERN_ORDER[0]);
 
 // -----------------------------------------------------------------------------
 // Physical layout, verified on hardware (see docs/led-map.md)
@@ -85,6 +120,37 @@ uint8_t animationSpeed = 55;  // 1-100
 constexpr uint32_t LED_SETTINGS_SAVE_DELAY_MS = 3000;
 bool ledSettingsDirty = false;
 uint32_t ledSettingsDirtyAt = 0;
+
+// Physical LED control mirrors the other badge's essential gestures without
+// making the portal state a separate source of truth:
+//   short press: next visible animation
+//   hold:        smoothly step brightness, reversing at each end
+//   next hold:   smoothly rotate the selected custom colour
+constexpr uint32_t BOOT_BUTTON_DEBOUNCE_MS = 25;
+constexpr uint32_t BOOT_BUTTON_HOLD_MS = 700;
+constexpr uint32_t BOOT_BUTTON_BRIGHTNESS_STEP_MS = 120;
+constexpr uint8_t BOOT_BUTTON_BRIGHTNESS_STEP = 12;
+constexpr uint8_t BOOT_BUTTON_MIN_BRIGHTNESS = 16;
+constexpr uint32_t BOOT_BUTTON_MENU_IDLE_MS = 3000;
+constexpr float BOOT_BUTTON_HUE_STEP_DEGREES = 12.0f;
+
+enum class BootButtonMenu : uint8_t { NONE, BRIGHTNESS, COLOUR };
+
+bool bootButtonRawPressed = false;
+bool bootButtonStablePressed = false;
+bool bootButtonLongPress = false;
+int8_t bootButtonBrightnessDirection = 1;
+BootButtonMenu bootButtonMenu = BootButtonMenu::NONE;
+uint32_t bootButtonRawChangedAt = 0;
+uint32_t bootButtonPressedAt = 0;
+uint32_t bootButtonBrightnessChangedAt = 0;
+uint32_t bootButtonMenuExpiresAt = 0;
+UsbButtonState usbButtonState = {UsbControlAction::LED_CONTROLS,
+                                 UsbControlAction::LED_CONTROLS};
+
+// Defined alongside the identify-mode state below.  The physical button takes
+// precedence over that serial-only diagnostic mode.
+void releaseLedIdentifyMode();
 
 uint16_t auroraHue[LED_COUNT];
 float auroraVelocity[LED_COUNT];
@@ -203,6 +269,232 @@ void serviceLedSettingsPersistence() {
   ledSettingsDirty = false;
   if (saveLedSettings(currentLedSettings())) {
     Serial.println("[LED] Settings saved");
+  }
+}
+
+void markLedSettingsDirty() {
+  ledSettingsDirty = true;
+  ledSettingsDirtyAt = millis();
+}
+
+// GPIO0 remains reserved by the ROM at reset.  This only runs after setup has
+// started, so it never changes the normal "hold BOOT, tap RESET" flash path.
+void setupBootButton() {
+  pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
+  const bool pressed = digitalRead(BOOT_BUTTON_PIN) == LOW;
+  bootButtonRawPressed = pressed;
+  bootButtonStablePressed = pressed;
+  bootButtonRawChangedAt = millis();
+  bootButtonPressedAt = bootButtonRawChangedAt;
+  Serial.printf("[BUTTON] BOOT control ready (%s)\r\n",
+                pressed ? "pressed" : "released");
+}
+
+void restoreUsbButtonState() {
+  StoredUsbButtonSettings stored = {};
+  if (!loadUsbButtonSettings(stored)) return;
+
+  const UsbControlAction shortPress =
+      static_cast<UsbControlAction>(stored.shortAction);
+  const UsbControlAction longPress =
+      static_cast<UsbControlAction>(stored.longAction);
+  if (!isUsbControlAction(shortPress) || !isUsbControlAction(longPress)) {
+    Serial.println("[BUTTON] Ignoring invalid saved USB button mapping");
+    return;
+  }
+  usbButtonState = {shortPress, longPress};
+  Serial.printf("[BUTTON] Restored USB actions: short=%s long=%s\r\n",
+                usbControlActionKey(shortPress), usbControlActionKey(longPress));
+}
+
+UsbButtonState getUsbButtonState() { return usbButtonState; }
+
+bool setUsbButtonState(UsbControlAction shortPress,
+                       UsbControlAction longPress,
+                       String &error) {
+  if (!isUsbControlAction(shortPress) || !isUsbControlAction(longPress)) {
+    error = "Acción de botón no válida.";
+    return false;
+  }
+  const StoredUsbButtonSettings settings = {
+      static_cast<uint8_t>(shortPress), static_cast<uint8_t>(longPress)};
+  if (!saveUsbButtonSettings(settings)) {
+    error = "No se pudieron guardar las acciones del botón.";
+    return false;
+  }
+  usbButtonState = {shortPress, longPress};
+  Serial.printf("[BUTTON] USB actions: short=%s long=%s\r\n",
+                usbControlActionKey(shortPress), usbControlActionKey(longPress));
+  usbTuiRefresh();
+  return true;
+}
+
+void runBootHostAction(UsbControlAction action) {
+  if (action == UsbControlAction::NONE ||
+      action == UsbControlAction::LED_CONTROLS) {
+    return;
+  }
+  String error;
+  if (!usbHidRunControl(action, error)) {
+    Serial.printf("[BUTTON] USB action %s failed: %s\r\n",
+                  usbControlActionKey(action), error.c_str());
+    usbTuiLog("BUTTON", error);
+    return;
+  }
+  Serial.printf("[BUTTON] USB action=%s\r\n", usbControlActionKey(action));
+  usbTuiRefresh();
+}
+
+void advanceLedPatternFromBootButton() {
+  size_t next = 0;
+  for (size_t i = 0; i < BOOT_BUTTON_PATTERN_COUNT; ++i) {
+    if (BOOT_BUTTON_PATTERN_ORDER[i] != currentPattern) continue;
+    next = (i + 1) % BOOT_BUTTON_PATTERN_COUNT;
+    break;
+  }
+
+  releaseLedIdentifyMode();
+  currentPattern = BOOT_BUTTON_PATTERN_ORDER[next];
+  markLedSettingsDirty();
+  Serial.printf("[BUTTON] pattern=%s\r\n", patternToString(currentPattern));
+  usbTuiRefresh();
+}
+
+void stepBootButtonBrightness() {
+  releaseLedIdentifyMode();
+  int next = ledBrightness +
+             bootButtonBrightnessDirection * BOOT_BUTTON_BRIGHTNESS_STEP;
+  if (next >= 255) {
+    next = 255;
+    bootButtonBrightnessDirection = -1;
+  } else if (next <= BOOT_BUTTON_MIN_BRIGHTNESS) {
+    next = BOOT_BUTTON_MIN_BRIGHTNESS;
+    bootButtonBrightnessDirection = 1;
+  }
+
+  ledBrightness = static_cast<uint8_t>(next);
+  markLedSettingsDirty();
+  Serial.printf("[BUTTON] brightness=%u\r\n", ledBrightness);
+}
+
+void stepBootButtonColour() {
+  releaseLedIdentifyMode();
+
+  // Preserve the custom colour's saturation and value, then walk its hue
+  // around the wheel.  A white or black selection has no hue to preserve, so
+  // begin that case with a visible, saturated colour instead.
+  const float red = selectedR / 255.0f;
+  const float green = selectedG / 255.0f;
+  const float blue = selectedB / 255.0f;
+  const float high = max(red, max(green, blue));
+  const float low = min(red, min(green, blue));
+  const float delta = high - low;
+
+  float hue = 0.0f;
+  if (delta > 0.0001f) {
+    if (high == red) hue = 60.0f * fmodf((green - blue) / delta, 6.0f);
+    else if (high == green) hue = 60.0f * ((blue - red) / delta + 2.0f);
+    else hue = 60.0f * ((red - green) / delta + 4.0f);
+  }
+  hue = fmodf(hue + BOOT_BUTTON_HUE_STEP_DEGREES + 360.0f, 360.0f);
+
+  const float value = high > 0.0001f ? high : 1.0f;
+  const float saturation = delta > 0.0001f ? delta / high : 0.85f;
+  const float chroma = value * saturation;
+  const float second = chroma * (1.0f - fabsf(fmodf(hue / 60.0f, 2.0f) - 1.0f));
+  const float match = value - chroma;
+  float outRed = 0.0f, outGreen = 0.0f, outBlue = 0.0f;
+  if (hue < 60.0f) {
+    outRed = chroma; outGreen = second;
+  } else if (hue < 120.0f) {
+    outRed = second; outGreen = chroma;
+  } else if (hue < 180.0f) {
+    outGreen = chroma; outBlue = second;
+  } else if (hue < 240.0f) {
+    outGreen = second; outBlue = chroma;
+  } else if (hue < 300.0f) {
+    outRed = second; outBlue = chroma;
+  } else {
+    outRed = chroma; outBlue = second;
+  }
+
+  selectedR = static_cast<uint8_t>(roundf((outRed + match) * 255.0f));
+  selectedG = static_cast<uint8_t>(roundf((outGreen + match) * 255.0f));
+  selectedB = static_cast<uint8_t>(roundf((outBlue + match) * 255.0f));
+  markLedSettingsDirty();
+  Serial.printf("[BUTTON] colour=#%02X%02X%02X\r\n", selectedR, selectedG,
+                selectedB);
+}
+
+void keepBootButtonMenuOpen(uint32_t now) {
+  bootButtonMenuExpiresAt = now + BOOT_BUTTON_MENU_IDLE_MS;
+}
+
+void serviceBootButton() {
+  const uint32_t now = millis();
+  const bool rawPressed = digitalRead(BOOT_BUTTON_PIN) == LOW;
+
+  if (bootButtonMenu != BootButtonMenu::NONE && !rawPressed &&
+      !bootButtonStablePressed &&
+      static_cast<int32_t>(now - bootButtonMenuExpiresAt) >= 0) {
+    bootButtonMenu = BootButtonMenu::NONE;
+  }
+
+  if (rawPressed != bootButtonRawPressed) {
+    bootButtonRawPressed = rawPressed;
+    bootButtonRawChangedAt = now;
+  }
+
+  if (bootButtonRawPressed != bootButtonStablePressed &&
+      now - bootButtonRawChangedAt >= BOOT_BUTTON_DEBOUNCE_MS) {
+    bootButtonStablePressed = bootButtonRawPressed;
+    if (bootButtonStablePressed) {
+      bootButtonPressedAt = now;
+      bootButtonLongPress = false;
+      return;
+    }
+
+    if (!bootButtonLongPress) {
+      if (bootButtonMenu != BootButtonMenu::NONE) {
+        bootButtonMenu = BootButtonMenu::NONE;
+        Serial.println("[BUTTON] adjustment finished");
+      } else if (usbButtonState.shortPress == UsbControlAction::LED_CONTROLS) {
+        advanceLedPatternFromBootButton();
+      } else {
+        runBootHostAction(usbButtonState.shortPress);
+      }
+    } else if (usbButtonState.longPress == UsbControlAction::LED_CONTROLS) {
+      keepBootButtonMenuOpen(now);
+      // Brightness and colour may ramp for several seconds. Refresh once when
+      // the operator lets go, never on every ramp step.
+      usbTuiRefresh();
+    }
+    return;
+  }
+
+  if (!bootButtonStablePressed) return;
+
+  if (!bootButtonLongPress && now - bootButtonPressedAt >= BOOT_BUTTON_HOLD_MS) {
+    bootButtonLongPress = true;
+    if (usbButtonState.longPress == UsbControlAction::LED_CONTROLS) {
+      bootButtonMenu = bootButtonMenu == BootButtonMenu::BRIGHTNESS
+                           ? BootButtonMenu::COLOUR
+                           : BootButtonMenu::BRIGHTNESS;
+      keepBootButtonMenuOpen(now);
+      // Adjust immediately at the hold threshold, then keep ramping while held.
+      bootButtonBrightnessChangedAt = now - BOOT_BUTTON_BRIGHTNESS_STEP_MS;
+    } else {
+      runBootHostAction(usbButtonState.longPress);
+    }
+  }
+
+  if (bootButtonLongPress &&
+      usbButtonState.longPress == UsbControlAction::LED_CONTROLS &&
+      now - bootButtonBrightnessChangedAt >= BOOT_BUTTON_BRIGHTNESS_STEP_MS) {
+    bootButtonBrightnessChangedAt = now;
+    if (bootButtonMenu == BootButtonMenu::COLOUR) stepBootButtonColour();
+    else stepBootButtonBrightness();
+    keepBootButtonMenuOpen(now);
   }
 }
 
@@ -618,6 +910,10 @@ void setIdentifyFrame(uint8_t frame) {
   printIdentifyFrame();
 }
 
+void releaseLedIdentifyMode() {
+  if (identifyFrame) setIdentifyFrame(0);
+}
+
 uint8_t currentIdentifyFrame() { return identifyFrame; }
 
 void updateLEDs() {
@@ -760,8 +1056,7 @@ void applyLedWebSettings(const String &pattern,
                 patternToString(currentPattern), selectedR, selectedG, selectedB,
                 ledBrightness, animationSpeed);
 
-  ledSettingsDirty = true;
-  ledSettingsDirtyAt = millis();
+  markLedSettingsDirty();
 }
 
 LedTuiState getLedTuiState() {
@@ -803,18 +1098,18 @@ void printBadgeCredentials() {
     Serial.println("  PORTAL:   http://10.69.4.20/");
     Serial.println("  Hidden SSID: type it by hand if your phone cannot see it.");
   } else {
-    Serial.println("  PORTAL:   AP is off; use home Wi-Fi or press a to restore it.");
+    Serial.println("  PORTAL:   AP is off; use saved Wi-Fi or press a to restore it.");
   }
   if (hasPersistentStationWifiSettings()) {
-    Serial.printf("  HOME:     %s // http://SantaMuerte.local/\r\n",
+    Serial.printf("  SAVED:    %s // http://SantaMuerte.local/\r\n",
                   getPersistentStationWifiSsid());
   }
   Serial.println("--------------------------------------------------");
   Serial.println("  Press Enter to show this again.");
   if (isBadgeAccessPointActive()) {
-    Serial.println("  Press a to switch from Santa Muerte AP to home Wi-Fi.");
+    Serial.println("  Press a to switch from Santa Muerte AP to saved Wi-Fi.");
   } else {
-    Serial.println("  Press a to switch from home Wi-Fi to Santa Muerte AP.");
+    Serial.println("  Press a to switch from saved Wi-Fi to Santa Muerte AP.");
   }
   Serial.println("  Press 1, 2 or 3 to run an LED identify frame; 0 to stop.");
   Serial.println("  Press h for free heap, c/x to preview the tag cue.");
@@ -950,6 +1245,20 @@ void restoreNfcSettings() {
 
 void setup() {
   Serial.begin(115200);
+  // The other USB function is selected before the controller begins, because
+  // the S3 cannot fit CDC + HID + NCM + MSC into its five IN endpoints.
+  const bool settingsReady = initializeBadgeSettings();
+  const UsbDeviceProfile usbProfile = settingsReady
+                                          ? getPersistentUsbDeviceProfile()
+                                          : UsbDeviceProfile::NETWORK;
+  // Wire up the HID report path and the host-LED callback. The composite
+  // CDC + HID device is completed below, after the profile-dependent interface
+  // has registered its descriptor.
+  usbHidBegin();
+  usbNetworkConfigure(usbProfile == UsbDeviceProfile::NETWORK);
+  usbDriveConfigure(usbProfile == UsbDeviceProfile::DRIVE);
+  USB.begin();
+  usbNetworkBegin();
   delay(1500);
   Serial.println("===== START =====");
   usbTuiBegin();
@@ -960,6 +1269,7 @@ void setup() {
 
   setupLEDs();
   Serial.println("[MAIN] LEDs initialized");
+  setupBootButton();
 
   // Start Wi-Fi before NFC so the controller remains available even if the
   // PN532 is missing or fails its startup check.
@@ -982,6 +1292,7 @@ void setup() {
         "[MAIN] WARNING: Message board storage is unavailable; posting is "
         "disabled");
   }
+  usbDriveRefresh();
 
   setupNFC();
   Serial.println("[MAIN] NFC initialized");
@@ -997,16 +1308,20 @@ void setup() {
     return;
   }
 
+  restoreUsbButtonState();
   restoreNfcSettings();
   armNfcPersistence();
 
 }
 
 void loop() {
+  serviceBootButton();
   updateWebServer();
   serviceNfcCapture();
   serviceNfcPersistence();
   usbTuiService();
+  usbHidService();
+  usbNetworkService();
   serviceLedSettingsPersistence();
   delay(1);
 }

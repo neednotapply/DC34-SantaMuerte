@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#151615">
+  <title>Santa Muerte // Herramientas USB</title>
+  <link rel="stylesheet" href="theme.css?v=30">
+  <link rel="icon" type="image/png" href="assets/logo-candle.png">
+  <script src="locale.js?v=21"></script>
+  <script>document.documentElement.classList.toggle('scripting-page', /^\/scripting(?:\.html)?$/.test(location.pathname));</script>
+  <style>
+    :root{
+      --bg:#151615;--panel:#1e1f1c;--panel2:#282823;--line:#504d44;
+      --text:#ece6d8;--muted:#a9a397;--blue:#a47b36;--cyan:#a47b36;
+      --green:#91a67d;--amber:#a47b36;--red:#b85a4d;--violet:#6f1d24;
+      --shadow:none
+    }
+    *{box-sizing:border-box}
+    html{color-scheme:dark}
+    body{margin:0;min-height:100vh;background:linear-gradient(90deg,#101110,var(--bg) 52%,#101110);
+      color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    button,input,textarea{font:inherit}
+    button,a{ -webkit-tap-highlight-color:transparent }
+    .wrap{width:min(1180px,100%);margin:auto;padding:24px 20px 44px}
+    header{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:22px}
+    .brand{display:flex;align-items:center;gap:13px;min-width:0}
+    .logo{width:48px;height:48px;display:grid;place-items:center;border-radius:15px;
+      background:linear-gradient(145deg,#6b8cff,#34d4e4);box-shadow:0 9px 28px rgba(70,139,255,.32);
+      color:white;font-size:.84rem;font-weight:900;letter-spacing:.06em}
+    h1{font-size:1.25rem;line-height:1.1;margin:0;letter-spacing:-.025em}
+    .subtitle{color:var(--muted);font-size:.76rem;margin-top:5px}
+    .header-actions{display:flex;align-items:center;gap:9px}
+    .nav-link,.status{height:38px;display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);
+      border-radius:999px;background:rgba(17,20,29,.86);color:#dce1ed;text-decoration:none;padding:0 13px;font-size:.74rem;font-weight:750}
+    .nav-link:hover{border-color:#4a536a;background:#171b27}
+    .status .dot{width:8px;height:8px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 4px rgba(255,189,85,.11)}
+    .status.connected .dot{background:var(--green);box-shadow:0 0 0 4px rgba(78,228,155,.11)}
+    .status.disconnected .dot{background:var(--red);box-shadow:0 0 0 4px rgba(255,95,114,.11)}
+    .status.checking .dot{animation:pulse 1.2s ease infinite}
+    @keyframes pulse{50%{opacity:.35}}
+    /* stretch, not start: two cards sharing a row read as a pair, and letting
+       the shorter one stop early left a ragged hole beside it. */
+    .grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:18px;align-items:stretch}
+    /* An odd number of cards in a two-column grid leaves one cell empty. The
+       last single-column card takes the full width instead of sitting beside a
+       void. Harmless once the grid collapses to one column. */
+    .wide-card{grid-column:1 / -1}
+    .card{border:1px solid var(--line);border-radius:23px;background:linear-gradient(155deg,rgba(20,24,35,.97),rgba(13,16,24,.98));box-shadow:var(--shadow);overflow:hidden}
+    .pad{padding:22px}
+    .card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px}
+    h2{margin:0;font-size:.91rem;letter-spacing:.01em}
+    .eyebrow{color:var(--muted);font-size:.69rem;text-transform:uppercase;letter-spacing:.13em;font-weight:800;margin-bottom:7px}
+    .reader-pill{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:.7rem;font-weight:750}
+    .reader-pill i{width:7px;height:7px;border-radius:50%;background:#596071}
+    .reader-pill.ready{color:#bdeed8}.reader-pill.ready i{background:var(--green)}
+    .reader-pill.offline{color:#ffadb8}.reader-pill.offline i{background:var(--red)}
+    .scan-zone{min-height:0;border:1px solid var(--line);border-radius:2px;padding:14px;text-align:left;background:var(--bg)}
+    .nfc-icon{width:72px;height:72px;margin:0 auto 18px;display:grid;place-items:center;border-radius:22px;background:var(--panel2);border:1px solid var(--line);box-shadow:none}
+    .nfc-icon svg{width:39px;height:39px;fill:none;stroke:#86a4ff;stroke-width:2.1;stroke-linecap:round}
+    .scan-title{font-size:1.12rem;font-weight:850;letter-spacing:-.02em}
+    .scan-message{max-width:440px;margin:5px 0 0;color:var(--muted);font-size:.78rem;line-height:1.55;min-height:0}
+    .actions{display:grid;grid-template-columns:1fr;gap:10px;margin-top:14px}
+    .btn{border:0;border-radius:13px;min-height:45px;padding:0 17px;font-size:.77rem;font-weight:850;cursor:pointer;transition:.18s ease;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+    .btn:hover:not(:disabled){transform:translateY(-1px)}.btn:active:not(:disabled){transform:translateY(0)}
+    .btn:disabled{opacity:.42;cursor:not-allowed}
+    .btn-primary{color:white;background:linear-gradient(135deg,#6e8fff,#4f70e6);box-shadow:0 9px 24px rgba(77,111,230,.25)}
+    .btn-secondary{color:#dce2ee;background:#1d2230;border:1px solid #333b4f}
+    .details{display:grid;grid-template-columns:1.08fr 1.42fr .8fr;gap:9px;margin-top:14px}
+    .detail{min-width:0;border:1px solid #272d3c;background:#0e1119;border-radius:13px;padding:12px}
+    .detail span{display:block;color:#777f92;font-size:.62rem;text-transform:uppercase;letter-spacing:.1em;font-weight:800;margin-bottom:7px}
+    .detail strong{display:block;color:#e7eaf1;font-size:.72rem;line-height:1.35;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+    .result{margin-top:14px;border:1px solid #282e3e;border-radius:15px;background:#0d1017;padding:15px}
+    .result-top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+    .result-label{font-size:.66rem;color:#858da0;text-transform:uppercase;letter-spacing:.1em;font-weight:850}
+    .record-pill{font-size:.65rem;padding:5px 8px;border-radius:999px;background:rgba(99,140,255,.10);color:#aebfff;border:1px solid rgba(99,140,255,.22)}
+    .payload{font-size:.78rem;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;color:#e4e7ee;min-height:42px}
+    details{margin-top:11px;color:var(--muted);font-size:.7rem}
+    details summary{cursor:pointer}.raw{margin-top:8px;padding:10px;border-radius:10px;background:#080a0f;color:#9ca7bd;font:600 .67rem/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+    .tabs{display:flex;gap:7px;padding:5px;border:1px solid #292f40;background:#0c0f16;border-radius:13px;margin:17px 0}
+    .tab{flex:1;min-height:36px;border:0;border-radius:9px;color:#858da0;background:transparent;font-size:.72rem;font-weight:850;cursor:pointer}
+    .tab.active{color:#eef1f8;background:#202636;box-shadow:0 4px 13px rgba(0,0,0,.24)}
+    label{display:block;color:#b5bbca;font-size:.72rem;font-weight:800;margin-bottom:8px}
+    .input{width:100%;border:1px solid #303749;border-radius:13px;background:#0d1018;color:#f2f4f8;outline:none;padding:13px 14px;font-size:.78rem;transition:.18s ease}
+    .input:focus{border-color:#617fcf;box-shadow:0 0 0 3px rgba(99,140,255,.10)}
+    textarea.input{min-height:76px;resize:vertical;line-height:1.55}
+    .field-note{display:flex;justify-content:space-between;gap:12px;color:#777f92;font-size:.65rem;margin-top:7px}
+    .write-panel{display:none}.write-panel.active{display:block}
+    .write-btn{width:100%;margin-top:17px}
+    .notice{display:flex;gap:10px;margin-top:15px;padding:12px 13px;border:1px solid rgba(255,189,85,.22);border-radius:13px;background:rgba(255,189,85,.055);color:#c8b895;font-size:.68rem;line-height:1.5}
+    .notice b{color:#f2d69e}.notice .mark{font-weight:900;color:var(--amber)}
+    .activity{margin-top:18px;border-top:1px solid var(--line);padding-top:17px}
+    .activity-row{display:flex;align-items:center;gap:11px;color:#8e96a8;font-size:.71rem;line-height:1.45}
+    .activity-icon{width:30px;height:30px;flex:0 0 auto;display:grid;place-items:center;border-radius:10px;background:#1b2030;color:#8ba7ff;font-weight:900}
+    .emulation-card{grid-column:1/-1}
+    .emulation-layout{margin-top:17px}
+    .emulation-tabs{display:flex;gap:7px;padding:5px;border:1px solid #292f40;background:#0c0f16;border-radius:13px;margin-bottom:15px}
+    .emulation-tab{flex:1;min-height:36px;border:0;border-radius:9px;color:#858da0;background:transparent;font-size:.72rem;font-weight:850;cursor:pointer}
+    .emulation-tab.active{color:#eef1f8;background:#202636;box-shadow:0 4px 13px rgba(0,0,0,.24)}
+    .emulation-panel{display:none}.emulation-panel.active{display:block}
+    .emulation-actions{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:14px}
+    .emulation-monitor{border:1px solid #2c3344;background:#0d1017;border-radius:17px;padding:17px;min-width:0;margin-top:14px}
+    .emulation-live{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px}
+    .emulation-pill{display:inline-flex;align-items:center;gap:8px;border:1px solid #343b4e;border-radius:999px;padding:7px 10px;color:#9199ab;font-size:.69rem;font-weight:800}
+    .emulation-pill i{width:8px;height:8px;border-radius:50%;background:#596071}
+    .emulation-pill.active{color:#bdeed8;border-color:rgba(78,228,155,.25);background:rgba(78,228,155,.06)}
+    .emulation-pill.active i{background:var(--green);box-shadow:0 0 0 4px rgba(78,228,155,.10);animation:pulse 1.25s ease infinite}
+    .emulation-pill.connected{color:#c8d4ff;border-color:rgba(99,140,255,.28);background:rgba(99,140,255,.08)}
+    .emulation-pill.connected i{background:var(--blue);box-shadow:0 0 0 4px rgba(99,140,255,.12)}
+    .emulation-stats{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}
+    .emulation-stat{border:1px solid #272d3c;background:#11151e;border-radius:13px;padding:12px}
+    .emulation-stat span{display:block;color:#777f92;font-size:.62rem;text-transform:uppercase;letter-spacing:.1em;font-weight:800;margin-bottom:7px}
+    .emulation-stat strong{display:block;color:#e7eaf1;font-size:.78rem;overflow-wrap:anywhere}
+    .emulation-preview{border:1px solid #272d3c;background:#080a0f;border-radius:13px;padding:13px;color:#cfd5e2;font-size:.73rem;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere;min-height:72px}
+    .emulation-help{margin-top:12px;color:#858da0;font-size:.68rem;line-height:1.55}
+    .footer{text-align:center;color:#697185;font-size:.67rem;margin-top:18px;line-height:1.5}
+    .toast{position:fixed;z-index:10;left:50%;bottom:22px;transform:translate(-50%,18px);opacity:0;pointer-events:none;padding:10px 14px;border:1px solid #333a4c;border-radius:999px;background:#181c27;box-shadow:0 15px 38px #000;color:#e3e7ef;font-size:.72rem;transition:.2s ease}
+    .toast.show{opacity:1;transform:translate(-50%,0)}
+    @media(max-width:860px){.grid{grid-template-columns:1fr}.details{grid-template-columns:repeat(3,1fr)}}
+    @media(max-width:600px){.wrap{padding:15px 12px 34px}header{align-items:flex-start}.header-actions{flex-direction:column-reverse;align-items:flex-end}.nav-link,.status{height:34px;padding:0 11px;font-size:.68rem}.pad{padding:17px}.details{grid-template-columns:1fr}.actions,.emulation-actions{grid-template-columns:1fr}.emulation-stats{grid-template-columns:1fr}}
+  </style>
+  <style>
+    /* USB Tools -- visual DuckyScript builder */
+    .stackcol{display:flex;flex-direction:column;gap:18px}
+    /* The command picker deliberately floats over the editor instead of
+       stretching the card. Keep this one card from clipping the popover. */
+    .stackcol > .card{position:relative;z-index:1;overflow:visible}
+    .builder{display:flex;flex-direction:column;gap:12px}
+    /* Match the stack's content inset so the add control sits squarely in the
+       upper-right of the canvas rather than looking offset from its edge. */
+    .palette{position:absolute;z-index:3;top:12px;right:12px}
+    .add-menu{position:relative;display:inline-block}
+    .add-menu > summary{display:grid;place-items:center;width:32px;min-height:32px;cursor:pointer;list-style:none;
+      border:1px solid var(--line);background:var(--panel2);color:var(--amber);border-radius:8px;padding:0;
+      font-size:1.2rem;font-weight:900;line-height:1;user-select:none}
+    .add-menu > summary::-webkit-details-marker{display:none}
+    .add-menu[open] > summary{border-color:var(--amber);color:var(--amber)}
+    .add-menu-panel{position:absolute;z-index:4;top:calc(100% + 8px);right:0;width:min(470px,calc(100vw - 42px));
+      max-height:min(390px,calc(100vh - 160px));overflow:auto;border:1px solid var(--line);border-radius:8px;padding:10px;
+      background:#1b1d1a;box-shadow:0 14px 30px rgba(0,0,0,.42)}
+    .add-menu-title{display:block;margin-bottom:8px;color:var(--muted);font-size:.59rem;letter-spacing:.12em;text-transform:uppercase;font-weight:800}
+    .palette-groups{display:flex;flex-direction:column;gap:7px}
+    .pal-cat{display:flex;flex-flow:row wrap;align-items:center;gap:4px 5px;min-width:0}
+    .pal-cat > b{flex:0 0 72px;font-size:.57rem;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
+    .pal-block{display:flex;align-items:center;gap:5px;cursor:grab;text-align:left;width:auto;white-space:nowrap;
+      min-height:29px;border:1px solid var(--sm-line,var(--line)) !important;background:var(--sm-panel-hi,var(--panel2)) !important;
+      color:var(--sm-muted,var(--text)) !important;border-radius:5px;padding:3px 6px;font-size:.63rem;line-height:1.1;letter-spacing:.03em}
+    .pal-block:hover{border-color:var(--amber) !important;background:rgba(111,29,36,.54) !important;color:var(--sm-paper-hi,var(--text)) !important}
+    .pal-block .shortcut{color:var(--muted);font:600 .56rem ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:nowrap}
+    .common-combos{padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--line)}
+    .common-combos > b{flex:0 0 100%}
+    .stack{position:relative;display:flex;flex-direction:column;gap:10px;min-height:130px;
+      border:1px dashed var(--line);border-radius:12px;padding:56px 12px 12px;background:rgba(0,0,0,.10)}
+    .stack.drag{border-color:var(--amber);background:rgba(164,123,54,.07)}
+    .stack .empty{color:var(--muted);margin:auto;text-align:center;font-size:.82rem;padding:18px 6px}
+    .block{border:1px solid var(--line);background:var(--panel2);border-radius:11px;padding:10px 12px}
+    .block.dragging{opacity:.45}
+    .block.dropbefore{box-shadow:0 -3px 0 var(--amber)}
+    .block-head{display:flex;align-items:center;gap:9px}
+    .block-head .grip{cursor:grab;color:var(--muted);user-select:none;font-size:1rem;line-height:1}
+    .block-head .title{font-weight:700;font-size:.85rem;flex:1}
+    .block-head .num{color:var(--muted);font-size:.72rem;font-variant-numeric:tabular-nums}
+    .block-head .ctl{display:flex;gap:4px}
+    .block-head .ctl button{padding:3px 9px;font-size:.8rem;border-radius:7px;line-height:1.1}
+    .block-body{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px}
+    .block-body label.f{display:flex;align-items:center;gap:6px;font-size:.76rem;color:var(--muted)}
+    .block-body input[type=text],.block-body input[type=number],.block-body select{
+      background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:8px;
+      padding:7px 9px;font:inherit;font-size:.8rem}
+    .block-body input[type=text]{min-width:160px;flex:1}
+    .block-body input[type=number]{width:96px}
+    .block .help{font-size:.72rem;color:var(--muted);margin-top:9px;line-height:1.5}
+    .lbl{display:block;margin:14px 0 5px;font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+    .out{white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);
+      font-size:.78rem;line-height:1.55;color:var(--text);background:rgba(0,0,0,.24);border-radius:10px;
+      padding:12px;margin:0;min-height:22px}
+    .out .type-letter{display:inline-block}
+    .out .type-letter:nth-child(7n){transform:translateY(1px) rotate(-.35deg)}
+    .out .type-letter:nth-child(11n){transform:translateY(-1px) rotate(.35deg)}
+    .rawwrap{margin-top:13px}
+    .rawwrap summary{cursor:pointer;font-size:.78rem;color:var(--muted)}
+    .rawwrap textarea{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:10px;
+      padding:10px 12px;margin-top:9px;font-family:var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);
+      font-size:.8rem;line-height:1.5;min-height:120px;white-space:pre;resize:vertical}
+    .row{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:14px}
+    #payloadName{flex:1;min-width:150px;background:var(--panel2);border:1px solid var(--line);
+      color:var(--text);border-radius:10px;padding:11px 12px}
+    .hidline{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:13px;font-size:.8rem;color:var(--muted)}
+    .usb-control-grid{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(320px,.88fr);gap:18px}
+    .control-copy{margin:0;color:var(--muted);font-size:.76rem;line-height:1.55}
+    .remote-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:15px}
+    .remote-btn{min-height:40px;padding:7px 8px;border:1px solid var(--line);border-radius:7px;background:var(--panel2);color:var(--text);font:700 .66rem/1.18 var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);letter-spacing:.025em;cursor:pointer}
+    .remote-btn:hover:not(:disabled),.remote-btn:focus-visible{border-color:var(--amber);background:rgba(164,123,54,.12);color:var(--sm-paper-hi,var(--text))}
+    .remote-btn.presentation{grid-column:span 2}
+    .system-actions{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+    .system-actions summary{cursor:pointer;color:var(--muted);font:700 .68rem var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);letter-spacing:.08em;text-transform:uppercase}
+    .system-actions[open] summary{margin-bottom:10px;color:var(--text)}
+    .system-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+    .remote-btn.danger{color:#edbbb4;border-color:rgba(184,90,77,.55)}
+    .button-status{display:flex;align-items:flex-start;gap:9px;margin:0 0 15px;padding:10px 0;border-bottom:1px solid var(--line);color:var(--muted);font-size:.69rem;line-height:1.45}
+    .button-status b{display:block;color:var(--text);font:700 .68rem var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);letter-spacing:.08em;text-transform:uppercase}
+    .button-bindings{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .binding label{margin:0 0 6px;color:var(--muted);font:700 .63rem var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);letter-spacing:.08em;text-transform:uppercase}
+    .binding select{width:100%;min-height:40px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--panel2);color:var(--text);font-size:.72rem}
+    .button-save{width:100%;margin-top:11px;min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:7px;background:transparent;color:var(--text);font:700 .67rem var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);letter-spacing:.07em;cursor:pointer;text-transform:uppercase}
+    .button-save:hover:not(:disabled),.button-save:focus-visible{border-color:var(--amber);background:rgba(164,123,54,.12)}
+    .usb-mode-actions{display:grid;grid-template-columns:1fr;gap:8px;margin-top:14px}
+    .usb-mode-actions .button-save{width:100%;margin-top:0;text-align:left;justify-content:flex-start;padding-left:13px}
+    .usb-mode-actions .button-save.active{border-color:var(--amber);background:var(--sm-maroon-dark);color:var(--sm-paper-hi)}
+    .button-note{min-height:18px;margin-top:8px;color:var(--muted);font-size:.67rem;line-height:1.45}
+    .scripting-link{display:inline-flex;align-items:center;justify-content:center;min-height:40px;margin-top:14px;padding:0 12px;border:1px solid var(--line);border-radius:7px;color:var(--text);background:transparent;text-decoration:none;font:700 .67rem var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);letter-spacing:.07em;text-transform:uppercase}
+    .scripting-link:hover,.scripting-link:focus-visible{border-color:var(--amber);background:rgba(164,123,54,.12)}
+    .scripting-page .usb-tools-only{display:none}
+    html:not(.scripting-page) .scripting-only{display:none}
+    /* Saved payloads use the same taped-note treatment as the offerings wall. */
+    .feed{display:flex;flex-direction:column;gap:20px;margin-top:12px;padding:14px 12px 12px}
+    article.payload-post{position:relative;overflow:visible;border:1px solid #918878 !important;border-radius:0 !important;
+      padding:14px 16px 16px;background:var(--sm-paper-hi,#e5ded0) !important;color:#171717 !important;
+      box-shadow:3px 5px 0 rgba(0,0,0,.32) !important;transform:translateX(var(--payload-shift,0px)) rotate(var(--payload-tilt,0deg));
+      transform-origin:center center}
+    article.payload-post::before{content:"";position:absolute;z-index:2;pointer-events:none;top:-10px;left:var(--tape-left,50%);
+      width:clamp(66px,25%,94px);height:18px;background:rgba(164,123,54,.42);border:1px solid rgba(215,194,145,.2);
+      transform:translateX(-50%) rotate(var(--tape-tilt,0deg))}
+    .payload-post .post-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:0 0 8px;
+      border-bottom:1px dotted #978e80;color:#4a463e;background:transparent;font:700 .69rem/1.2 var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,monospace);
+      letter-spacing:.08em;text-transform:uppercase}
+    .payload-post .name{font-weight:700;overflow-wrap:anywhere;min-width:0}
+    .payload-post .ops{display:flex;gap:5px;flex-shrink:0}
+    .payload-post .post-text{min-height:0;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;padding:10px 0 0;
+      font:600 .73rem/1.55 var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);color:#171717}
+    .payload-post .post-text .type-letter{display:inline-block}
+    .payload-post .post-text .type-letter:nth-child(7n){transform:translateY(1px) rotate(-.35deg)}
+    .payload-post .post-text .type-letter:nth-child(11n){transform:translateY(-1px) rotate(.35deg)}
+    .payload-post .mini{min-height:25px;padding:3px 7px;border:1px solid #978e80 !important;border-radius:2px !important;
+      background:rgba(255,255,255,.2) !important;color:#4a463e !important;font:700 .6rem/1 var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,monospace);
+      letter-spacing:.055em}
+    .payload-post .mini-icon{width:26px;height:26px;min-height:26px;padding:0;display:grid;place-items:center}
+    .payload-post .mini-icon svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:square;stroke-linejoin:miter}
+    .payload-post .mini:hover:not(:disabled),.payload-post .mini:focus-visible{border-color:#6f1d24 !important;background:rgba(111,29,36,.12) !important;color:#171717 !important}
+    .empty{color:var(--muted)}
+    @media(max-width:860px){.usb-control-grid{grid-template-columns:1fr}}
+    @media(max-width:600px){.add-menu-panel{width:min(360px,calc(100vw - 30px));max-height:min(430px,calc(100vh - 130px));padding:9px}.pal-cat > b{flex-basis:100%}.pal-block{font-size:.63rem}.remote-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.button-bindings{grid-template-columns:1fr}.system-grid{grid-template-columns:1fr}.remote-btn.presentation{grid-column:auto}}
+  </style>
+</head>
+
+<body class="nfc-page">
+  <div class="wrap">
+    <header class="saint-header">
+      <details class="nav-menu">
+        <summary aria-label="Abrir menú"><img class="brand-mark" src="assets/logo-candle.png" alt=""></summary>
+        <nav class="nav-menu-list" aria-label="Navegación del badge">
+          <a href="/notes">Field Notes</a>
+          <a href="/led">LED Tools</a>
+          <a href="/nfc">NFC Tools</a>
+          <a href="/usb">Herramientas USB</a>
+          <a href="/scripting">Scripts</a>
+          <a href="/network">Red</a>
+        </nav>
+      </details>
+      <div class="header-page-title">
+        <h1 id="pageTitle">Herramientas USB</h1>
+      </div>
+      <details class="nav-menu nav-menu--right">
+        <summary aria-label="Abrir menú"><img class="brand-mark" src="assets/logo-candle.png" alt=""></summary>
+        <nav class="nav-menu-list" aria-label="Navegación del badge">
+          <a href="/notes">Field Notes</a>
+          <a href="/led">LED Tools</a>
+          <a href="/nfc">NFC Tools</a>
+          <a href="/usb">Herramientas USB</a>
+          <a href="/scripting">Scripts</a>
+          <a href="/network">Red</a>
+        </nav>
+      </details>
+    </header>
+
+    <div class="page-status-row">
+      <div id="hidStatus" class="status checking" role="status" aria-live="polite"><span class="dot"></span><span id="hidStatusText">Revisando…</span></div>
+    </div>
+
+    <main class="stackcol">
+      <section class="usb-control-grid usb-tools-only" aria-label="Controles USB">
+        <section class="card pad">
+          <div class="card-head"><div><div class="eyebrow">Control del host</div><h2>Control remoto USB</h2></div></div>
+          <p class="control-copy">Envía controles estándar al equipo conectado. Serial USB sigue disponible mientras usas estos controles.</p>
+          <div class="remote-grid" aria-label="Controles multimedia y presentación">
+            <button class="remote-btn" type="button" data-usb-action="previous">Anterior</button>
+            <button class="remote-btn" type="button" data-usb-action="play">Reproducir / Pausar</button>
+            <button class="remote-btn" type="button" data-usb-action="next">Siguiente</button>
+            <button class="remote-btn" type="button" data-usb-action="mute">Silenciar</button>
+            <button class="remote-btn" type="button" data-usb-action="volume-down">Vol −</button>
+            <button class="remote-btn" type="button" data-usb-action="volume-up">Vol +</button>
+            <button class="remote-btn presentation" type="button" data-usb-action="present-previous">Presentación anterior</button>
+            <button class="remote-btn presentation" type="button" data-usb-action="present-next">Presentación siguiente</button>
+          </div>
+          <details class="system-actions">
+            <summary>Controles del sistema</summary>
+            <div class="system-grid">
+              <button class="remote-btn" type="button" data-usb-action="sleep">Suspender</button>
+              <button class="remote-btn" type="button" data-usb-action="wake">Despertar</button>
+              <button class="remote-btn danger" type="button" data-usb-action="power-off">Apagar equipo</button>
+            </div>
+          </details>
+        </section>
+
+        <section class="card pad">
+          <div class="card-head"><div><div class="eyebrow">Botón del badge</div><h2>Acciones físicas</h2></div></div>
+          <div class="button-status"><div><b>USB Serial + HID</b>El menú serial permanece disponible. Estas acciones solo cambian lo que hace BOOT cuando el firmware está corriendo.</div></div>
+          <div class="button-bindings">
+            <div class="binding"><label for="buttonShort">Pulsación</label><select id="buttonShort"></select></div>
+            <div class="binding"><label for="buttonLong">Mantener</label><select id="buttonLong"></select></div>
+          </div>
+          <button id="saveButtonActions" class="button-save" type="button">Guardar acciones del botón</button>
+          <div id="buttonNote" class="button-note" role="status" aria-live="polite"></div>
+          <a class="scripting-link" href="/scripting">Abrir constructor de scripts</a>
+        </section>
+
+        <section class="card pad wide-card" aria-label="Red Wi-Fi USB">
+          <div class="card-head"><div><div class="eyebrow">Red Wi-Fi USB</div><h2>Adaptador Wi-Fi</h2></div></div>
+          <p class="control-copy">Comparte el Wi-Fi guardado con el equipo conectado. USB Serial y los controles HID siguen disponibles.</p>
+          <div class="details">
+            <div class="detail"><span>NCM</span><strong id="usbNetworkNcm">Revisando…</strong></div>
+            <div class="detail"><span>Enlace</span><strong id="usbNetworkLink">—</strong></div>
+            <div class="detail"><span>Tráfico</span><strong id="usbNetworkTraffic">—</strong></div>
+          </div>
+          <div class="row" id="usbNetworkActions">
+            <button id="startUsbNetwork" class="button-save" type="button">Iniciar Wi-Fi USB</button>
+            <button id="stopUsbNetwork" class="button-save" type="button">Detener Wi-Fi USB</button>
+          </div>
+          <div class="button-status"><div><b id="usbProfile">Modo USB: revisando…</b><span id="usbDriveStatus"></span></div></div>
+          <div class="usb-mode-actions" aria-label="Modos USB">
+            <button id="selectNetworkProfile" class="button-save" type="button">Usar modo Red Wi-Fi</button>
+            <button id="selectDriveProfile" class="button-save" type="button">Usar modo Unidad Field Notes</button>
+          </div>
+          <div id="usbNetworkNote" class="button-note" role="status" aria-live="polite">Al iniciar el puente, el tráfico del Wi-Fi guardado pasa al equipo. Deténlo para usar ese enlace normalmente desde el badge.</div>
+        </section>
+      </section>
+
+      <section class="payload-shelf scripting-only" aria-label="Cargas subidas">
+        <div id="payloadList" class="feed"></div>
+      </section>
+
+      <section class="card pad scripting-only">
+        <div class="card-head"><div><div class="eyebrow">Constructor</div><h2>Arma tu DuckyScript</h2></div></div>
+        <div class="builder">
+          <div>
+            <div class="stack" id="stack"><div class="palette" id="palette"></div></div>
+            <details class="rawwrap">
+              <summary>Ver / importar como texto</summary>
+              <textarea id="rawText" spellcheck="false" placeholder="STRING hola"></textarea>
+              <div class="row"><button id="applyRaw" class="btn btn-secondary mini" type="button">Convertir a bloques</button></div>
+            </details>
+          </div>
+        </div>
+        <label class="lbl">DuckyScript generado</label>
+        <pre class="out payload" id="out"></pre>
+        <div class="row">
+          <input id="payloadName" type="text" maxlength="32" placeholder="nombre para subir" autocomplete="off" spellcheck="false">
+          <button id="sendButton" class="btn btn-primary" type="button">Enviar al equipo</button>
+          <button id="uploadButton" class="btn btn-secondary" type="button">Subir</button>
+          <button id="clearButton" class="btn btn-secondary" type="button">Vaciar</button>
+        </div>
+        <div class="hidline"><span id="lockLine">Candados: —</span></div>
+        <div id="editorNote" class="field-note"></div>
+      </section>
+
+    </main>
+
+    <footer class="saint-footer">
+      <span class="footer-identity">SANTAMUERTE.LOCAL // ESP32 // 10.69.4.20</span>
+      <div class="footer-language"></div>
+    </footer>
+  </div>
+  <div id="toast" class="toast"></div>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const T = es => (window.PortalLocale ? window.PortalLocale.convert(es, window.PortalLocale.locale) : es);
+  const isScriptingPage = document.documentElement.classList.contains('scripting-page');
+  if (isScriptingPage) {
+    document.title=T('Santa Muerte // Scripts');
+    $('#pageTitle').textContent=T('Scripts');
+  }
+  let toastTimer = 0;
+  function toast(msg){ const t=$('#toast'); t.textContent=T(msg); t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),2600); }
+
+  const KEYS = ['ENTER','TAB','ESC','SPACE','BACKSPACE','DELETE','INSERT','UP','DOWN','LEFT','RIGHT',
+    'HOME','END','PAGEUP','PAGEDOWN','CAPSLOCK','F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12'];
+
+  // Block definitions. Labels/help/placeholders are Spanish (the page default);
+  // locale.js translates them. compile() returns one DuckyScript line.
+  const DEFS = {
+    type: {cat:'Texto', label:'Teclear texto',
+      fields:[{k:'text',t:'text',ph:'texto a teclear'},{k:'enter',t:'bool',label:'pulsar Enter al final'}],
+      help:'Teclea el texto tal cual en el equipo.',
+      make:()=>({type:'type',text:'',enter:true}),
+      compile:b=>(b.enter?'STRINGLN ':'STRING ')+(b.text||'')},
+    key: {cat:'Teclas', label:'Tecla',
+      fields:[{k:'key',t:'select',opts:KEYS}],
+      help:'Pulsa y suelta una sola tecla.',
+      make:()=>({type:'key',key:'ENTER'}),
+      compile:b=>b.key||'ENTER'},
+    combo: {cat:'Teclas', label:'Combinación',
+      fields:[{k:'gui',t:'bool',label:'GUI/Win'},{k:'ctrl',t:'bool',label:'Ctrl'},{k:'alt',t:'bool',label:'Alt'},
+              {k:'shift',t:'bool',label:'Shift'},{k:'key',t:'text',ph:'tecla (ej. r)'}],
+      help:'Mantiene los modificadores marcados y pulsa la tecla. Ej: GUI+r abre Ejecutar en Windows.',
+      make:()=>({type:'combo',gui:true,ctrl:false,alt:false,shift:false,key:'r'}),
+      compile:b=>{const m=[]; if(b.gui)m.push('GUI'); if(b.ctrl)m.push('CTRL'); if(b.alt)m.push('ALT');
+        if(b.shift)m.push('SHIFT'); if(b.key)m.push(b.key); return m.join(' ')||'GUI';}},
+    delay: {cat:'Tiempo', label:'Pausa',
+      fields:[{k:'ms',t:'num',ph:'ms'}],
+      help:'Pausa los milisegundos indicados antes de seguir.',
+      make:()=>({type:'delay',ms:500}),
+      compile:b=>'DELAY '+(b.ms|0)},
+    defaultdelay: {cat:'Tiempo', label:'Pausa por defecto',
+      fields:[{k:'ms',t:'num',ph:'ms'}],
+      help:'Fija la pausa automática entre cada comando siguiente.',
+      make:()=>({type:'defaultdelay',ms:20}),
+      compile:b=>'DEFAULTDELAY '+(b.ms|0)},
+    mousemove: {cat:'Ratón', label:'Mover ratón',
+      fields:[{k:'x',t:'num',ph:'dx'},{k:'y',t:'num',ph:'dy'}],
+      help:'Mueve el puntero (píxeles relativos, -128 a 127).',
+      make:()=>({type:'mousemove',x:10,y:0}),
+      compile:b=>'MOUSEMOVE '+(b.x|0)+' '+(b.y|0)},
+    mouseclick: {cat:'Ratón', label:'Clic ratón',
+      fields:[{k:'btn',t:'select',opts:['LEFT','RIGHT','MIDDLE']}],
+      help:'Hace un clic con el botón elegido.',
+      make:()=>({type:'mouseclick',btn:'LEFT'}),
+      compile:b=>'MOUSECLICK '+(b.btn||'LEFT')},
+    mousescroll: {cat:'Ratón', label:'Rueda ratón',
+      fields:[{k:'n',t:'num',ph:'±n'}],
+      help:'Gira la rueda (positivo arriba, negativo abajo).',
+      make:()=>({type:'mousescroll',n:1}),
+      compile:b=>'MOUSESCROLL '+(b.n|0)},
+    media: {cat:'Multimedia', label:'Tecla multimedia',
+      fields:[{k:'m',t:'select',opts:['MUTE','VOLUP','VOLDOWN','PLAY','NEXT','PREV','STOP']}],
+      help:'Envía una tecla de medios (volumen, reproducción…).',
+      make:()=>({type:'media',m:'PLAY'}),
+      compile:b=>b.m||'PLAY'},
+    repeat: {cat:'Control', label:'Repetir anterior',
+      fields:[{k:'n',t:'num',ph:'veces'}],
+      help:'Repite el bloque inmediatamente anterior n veces más.',
+      make:()=>({type:'repeat',n:1}),
+      compile:b=>'REPEAT '+(b.n|0)},
+    ledwait: {cat:'Control', label:'Esperar candado',
+      fields:[{k:'lock',t:'select',opts:['CAPS','NUM','SCROLL']}],
+      help:'Pausa hasta que el host encienda o apague ese candado del teclado.',
+      make:()=>({type:'ledwait',lock:'CAPS'}),
+      compile:b=>'LEDWAIT '+(b.lock||'CAPS')},
+    rem: {cat:'Nota', label:'Comentario',
+      fields:[{k:'text',t:'text',ph:'nota'}],
+      help:'Un comentario para ti; no se teclea nada.',
+      make:()=>({type:'rem',text:''}),
+      compile:b=>'REM '+(b.text||'')},
+    raw: {cat:null, label:'Línea literal',
+      fields:[{k:'text',t:'text',ph:'DuckyScript'}],
+      help:'Una línea DuckyScript escrita a mano (para comandos no listados).',
+      make:()=>({type:'raw',text:''}),
+      compile:b=>b.text||''},
+  };
+  const PALETTE = ['type','key','combo','delay','defaultdelay','mousemove','mouseclick','mousescroll','media','repeat','ledwait','rem'];
+  const CATS = ['Texto','Teclas','Tiempo','Ratón','Multimedia','Control','Nota'];
+  const COMMON_COMBOS = [
+    {label:'Seleccionar todo', shortcut:'CTRL + A', values:{gui:false,ctrl:true,alt:false,shift:false,key:'a'}},
+    {label:'Copiar', shortcut:'CTRL + C', values:{gui:false,ctrl:true,alt:false,shift:false,key:'c'}},
+    {label:'Pegar', shortcut:'CTRL + V', values:{gui:false,ctrl:true,alt:false,shift:false,key:'v'}},
+    {label:'Deshacer', shortcut:'CTRL + Z', values:{gui:false,ctrl:true,alt:false,shift:false,key:'z'}},
+    {label:'Guardar', shortcut:'CTRL + S', values:{gui:false,ctrl:true,alt:false,shift:false,key:'s'}},
+    {label:'Abrir Ejecutar (Windows)', shortcut:'GUI + R', values:{gui:true,ctrl:false,alt:false,shift:false,key:'r'}},
+  ];
+
+  let script = [];
+
+  // ---------- palette ----------
+  function paletteItem(label, action, shortcut){
+    const el=document.createElement('button'); el.type='button'; el.className='pal-block'; el.draggable=true;
+    const lab=document.createElement('span'); lab.textContent=T(label);
+    el.appendChild(lab);
+    if(shortcut){ const keys=document.createElement('span'); keys.className='shortcut'; keys.textContent=shortcut; el.appendChild(keys); }
+    el.addEventListener('click',()=>{ addPaletteAction(action); $('#addMenu').open=false; });
+    el.addEventListener('dragstart',e=>{ e.dataTransfer.setData('text/plain',action); e.dataTransfer.effectAllowed='copy'; });
+    return el;
+  }
+
+  function renderPalette(){
+    const pal = $('#palette'); pal.innerHTML='';
+    const menu=document.createElement('details'); menu.className='add-menu'; menu.id='addMenu';
+    const summary=document.createElement('summary'); summary.textContent='+'; summary.setAttribute('aria-label',T('Agregar paso')); menu.appendChild(summary);
+    const panel=document.createElement('div'); panel.className='add-menu-panel';
+    const title=document.createElement('span'); title.className='add-menu-title'; title.textContent=T('Elige o arrastra un bloque'); panel.appendChild(title);
+
+    const common=document.createElement('div'); common.className='pal-cat common-combos';
+    const commonTitle=document.createElement('b'); commonTitle.textContent=T('Combinaciones comunes'); common.appendChild(commonTitle);
+    COMMON_COMBOS.forEach((combo,i)=>common.appendChild(paletteItem(combo.label,'common:'+i,combo.shortcut)));
+    panel.appendChild(common);
+
+    const groups=document.createElement('div'); groups.className='palette-groups';
+    CATS.forEach(cat=>{
+      const types = PALETTE.filter(t=>DEFS[t].cat===cat);
+      if(!types.length) return;
+      const box=document.createElement('div'); box.className='pal-cat';
+      const b=document.createElement('b'); b.textContent=cat; box.appendChild(b);
+      types.forEach(t=>{
+        box.appendChild(paletteItem(DEFS[t].label,'add:'+t));
+      });
+      groups.appendChild(box);
+    });
+    panel.appendChild(groups); menu.appendChild(panel); pal.appendChild(menu);
+  }
+
+  // ---------- one field control ----------
+  function fieldEl(block, field){
+    const wrap=document.createElement(field.t==='bool'?'label':'span');
+    if(field.t==='bool'){
+      wrap.className='f';
+      const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!block[field.k];
+      cb.addEventListener('change',()=>{ block[field.k]=cb.checked; updateOut(); });
+      const tx=document.createElement('span'); tx.textContent=field.label;
+      wrap.appendChild(cb); wrap.appendChild(tx); return wrap;
+    }
+    if(field.t==='select'){
+      const sel=document.createElement('select'); sel.setAttribute('data-locale-control','');
+      field.opts.forEach(o=>{ const op=document.createElement('option'); op.value=o; op.textContent=o; if(block[field.k]===o)op.selected=true; sel.appendChild(op); });
+      sel.addEventListener('change',()=>{ block[field.k]=sel.value; updateOut(); });
+      return sel;
+    }
+    const inp=document.createElement('input');
+    inp.type = field.t==='num'?'number':'text';
+    if(field.ph) inp.placeholder=field.ph;
+    inp.value = block[field.k]!=null ? block[field.k] : '';
+    inp.addEventListener('input',()=>{ block[field.k] = field.t==='num' ? (parseInt(inp.value)||0) : inp.value; updateOut(); });
+    return inp;
+  }
+
+  // ---------- stack ----------
+  function renderStack(){
+    const stack=$('#stack'); const palette=$('#palette'); stack.replaceChildren(palette);
+    if(!script.length){
+      const e=document.createElement('div'); e.className='empty';
+      e.textContent='Arrastra o toca un bloque de la izquierda para empezar.';
+      stack.appendChild(e); return;
+    }
+    script.forEach((block,i)=>{
+      const def=DEFS[block.type]||DEFS.raw;
+      const card=document.createElement('div'); card.className='block'; card.draggable=true; card.dataset.i=i;
+      const head=document.createElement('div'); head.className='block-head';
+      const grip=document.createElement('span'); grip.className='grip'; grip.textContent='⠿';
+      const title=document.createElement('span'); title.className='title'; title.textContent=def.label;
+      const num=document.createElement('span'); num.className='num'; num.textContent='#'+(i+1);
+      const ctl=document.createElement('span'); ctl.className='ctl';
+      const up=document.createElement('button'); up.type='button'; up.className='btn btn-secondary'; up.textContent='↑'; up.title='Mover arriba';
+      up.addEventListener('click',()=>{ if(i>0){ [script[i-1],script[i]]=[script[i],script[i-1]]; renderStack(); updateOut(); } });
+      const dn=document.createElement('button'); dn.type='button'; dn.className='btn btn-secondary'; dn.textContent='↓'; dn.title='Mover abajo';
+      dn.addEventListener('click',()=>{ if(i<script.length-1){ [script[i+1],script[i]]=[script[i],script[i+1]]; renderStack(); updateOut(); } });
+      const rm=document.createElement('button'); rm.type='button'; rm.className='btn btn-secondary'; rm.textContent='✕'; rm.title='Quitar';
+      rm.addEventListener('click',()=>{ script.splice(i,1); renderStack(); updateOut(); });
+      ctl.appendChild(up); ctl.appendChild(dn); ctl.appendChild(rm);
+      head.appendChild(grip); head.appendChild(title); head.appendChild(num); head.appendChild(ctl);
+      const body=document.createElement('div'); body.className='block-body';
+      def.fields.forEach(f=>body.appendChild(fieldEl(block,f)));
+      const help=document.createElement('div'); help.className='help'; help.textContent=def.help;
+      card.appendChild(head); card.appendChild(body); card.appendChild(help);
+      // drag to reorder
+      card.addEventListener('dragstart',e=>{ e.dataTransfer.setData('text/plain','move:'+i); e.dataTransfer.effectAllowed='move'; card.classList.add('dragging'); });
+      card.addEventListener('dragend',()=>{ card.classList.remove('dragging'); });
+      card.addEventListener('dragover',e=>{ e.preventDefault(); card.classList.add('dropbefore'); });
+      card.addEventListener('dragleave',()=>card.classList.remove('dropbefore'));
+      card.addEventListener('drop',e=>{ e.preventDefault(); e.stopPropagation(); card.classList.remove('dropbefore'); handleDrop(e.dataTransfer.getData('text/plain'), i); });
+      stack.appendChild(card);
+    });
+  }
+
+  function addBlock(type, at, values){
+    const b=Object.assign((DEFS[type]||DEFS.raw).make(),values||{});
+    if(at==null || at>=script.length) script.push(b); else script.splice(at,0,b);
+    renderStack(); updateOut();
+  }
+  function addPaletteAction(action, at){
+    if(action.startsWith('common:')){
+      const combo=COMMON_COMBOS[parseInt(action.slice(7),10)];
+      if(combo) addBlock('combo',at,combo.values);
+      return;
+    }
+    if(action.startsWith('add:')) addBlock(action.slice(4),at);
+  }
+  function moveBlock(from, before){
+    if(from===before) return;
+    const [b]=script.splice(from,1);
+    let to=before; if(from<before) to--;
+    script.splice(to,0,b); renderStack(); updateOut();
+  }
+  function handleDrop(data, at){
+    if(!data) return;
+    if(data.startsWith('add:')||data.startsWith('common:')) addPaletteAction(data,at);
+    else if(data.startsWith('move:')) moveBlock(parseInt(data.slice(5)), at==null?script.length:at);
+  }
+
+  // ---------- compile / output ----------
+  function compile(){ return script.map(b=>(DEFS[b.type]||DEFS.raw).compile(b)).join('\n'); }
+  function updateOut(){
+    const code=compile();
+    typewriter($('#out'),code || '—');
+    const raw=$('#rawText'); if(raw && document.activeElement!==raw) raw.value=code;
+  }
+
+  // ---------- parse text -> blocks ----------
+  const MODS={CTRL:'ctrl',CONTROL:'ctrl',SHIFT:'shift',ALT:'alt',OPTION:'alt',GUI:'gui',WINDOWS:'gui',WIN:'gui',COMMAND:'gui',CMD:'gui',META:'gui',SUPER:'gui'};
+  const MEDIA={MUTE:'MUTE',VOLUP:'VOLUP',VOLUMEUP:'VOLUP',VOLDOWN:'VOLDOWN',VOLUMEDOWN:'VOLDOWN',PLAY:'PLAY',PLAYPAUSE:'PLAY',PAUSE:'PLAY',NEXT:'NEXT',NEXTTRACK:'NEXT',PREV:'PREV',PREVTRACK:'PREV',PREVIOUS:'PREV',STOP:'STOP'};
+  function parseLine(line){
+    const t=line.replace(/\s+$/,''); const s=t.trim();
+    if(s==='') return null;
+    const sp=s.indexOf(' '); const cmd=(sp<0?s:s.slice(0,sp)).toUpperCase(); const rest=sp<0?'':s.slice(sp+1);
+    if(cmd==='REM') return {type:'rem',text:rest};
+    if(cmd==='STRING') return {type:'type',text:rest,enter:false};
+    if(cmd==='STRINGLN') return {type:'type',text:rest,enter:true};
+    if(cmd==='DELAY') return {type:'delay',ms:parseInt(rest)||0};
+    if(cmd==='DEFAULTDELAY'||cmd==='DEFAULT_DELAY') return {type:'defaultdelay',ms:parseInt(rest)||0};
+    if(cmd==='REPEAT') return {type:'repeat',n:parseInt(rest)||1};
+    if(cmd==='LEDWAIT'){ const u=rest.toUpperCase(); return {type:'ledwait',lock:u.startsWith('NUM')?'NUM':u.startsWith('SCROLL')?'SCROLL':'CAPS'}; }
+    if(cmd==='MOUSEMOVE'){ const p=rest.split(/\s+/); return {type:'mousemove',x:parseInt(p[0])||0,y:parseInt(p[1])||0}; }
+    if(cmd==='MOUSECLICK'){ const u=rest.toUpperCase(); return {type:'mouseclick',btn:u.startsWith('RIGHT')?'RIGHT':u.startsWith('MIDDLE')?'MIDDLE':'LEFT'}; }
+    if(cmd==='MOUSESCROLL') return {type:'mousescroll',n:parseInt(rest)||0};
+    if(!rest && MEDIA[cmd]) return {type:'media',m:MEDIA[cmd]};
+    const toks=s.split(/\s+/); const b={type:'combo',gui:false,ctrl:false,alt:false,shift:false,key:''}; let sawMod=false,key='';
+    toks.forEach(tk=>{ const u=tk.toUpperCase(); if(MODS[u]){ b[MODS[u]]=true; sawMod=true; } else key=tk; });
+    if(sawMod){ b.key=key; return b; }
+    if(toks.length===1 && KEYS.indexOf(toks[0].toUpperCase())>=0) return {type:'key',key:toks[0].toUpperCase()};
+    return {type:'raw',text:t};
+  }
+  function parse(text){ return text.split('\n').map(parseLine).filter(Boolean); }
+
+  // ---------- status / feed ----------
+  function form(o){ return Object.entries(o).map(([k,v])=>k+'='+encodeURIComponent(v)).join('&'); }
+  function post(url,o){ return fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:form(o),cache:'no-store'}).then(r=>r.json().then(j=>({ok:r.ok,j})).catch(()=>({ok:r.ok,j:{}}))); }
+  function setConn(s){ $('#hidStatus').className='status '+s; }
+  function locks(n){ const p=[]; if(n&2)p.push('CAPS'); if(n&1)p.push('NUM'); if(n&4)p.push('SCROLL'); return p.length?p.join(' '):T('ninguno'); }
+  function applyStatus(j){ setConn('connected'); $('#hidStatusText').textContent=(j.busy?'● ':'')+(j.status||'idle');
+    $('#lockLine').textContent=T('Candados')+': '+(j.seen?locks(j.locks):T('sin host')); }
+  function pollStatus(){ fetch('/api/payloads/status',{cache:'no-store'}).then(r=>r.json()).then(applyStatus)
+    .catch(()=>{ setConn('disconnected'); $('#hidStatusText').textContent=T('sin conexión'); }); }
+
+  // USB stays a composite CDC serial + HID device. These keys are the compact
+  // API contract rather than visible copy; label() keeps the visible strings
+  // in the portal locale dictionary.
+  const BUTTON_ACTIONS=[
+    ['led','Controles LED actuales'],['none','Sin acción'],
+    ['play','Reproducir / Pausar'],['mute','Silenciar'],
+    ['volume-up','Subir volumen'],['volume-down','Bajar volumen'],
+    ['next','Pista siguiente'],['previous','Pista anterior'],
+    ['present-next','Presentación siguiente'],['present-previous','Presentación anterior'],
+    ['sleep','Suspender equipo'],['wake','Despertar equipo']
+  ];
+  let buttonState={short:'led',long:'led'};
+  function renderButtonOptions(){
+    [['#buttonShort','short'],['#buttonLong','long']].forEach(([selector,slot])=>{
+      const select=$(selector); const value=buttonState[slot]||'led'; select.replaceChildren();
+      BUTTON_ACTIONS.forEach(([key,label])=>{ const option=document.createElement('option'); option.value=key; option.textContent=T(label); option.selected=key===value; select.appendChild(option); });
+    });
+  }
+  function applyControls(state){
+    applyStatus(state);
+    if(state.button){
+      buttonState={short:state.button.short||'led',long:state.button.long||'led'};
+      renderButtonOptions();
+    }
+    if(state.network) applyUsbNetwork(state.network);
+    if(state.usbProfile) applyUsbProfile(state);
+  }
+  function applyUsbProfile(state){
+    const drive=state.drive||{}; const isDrive=state.usbProfile==='drive';
+    $('#usbProfile').textContent=T(isDrive?'Modo USB: Unidad Field Notes':'Modo USB: Red Wi-Fi');
+    $('#usbDriveStatus').textContent=isDrive?T('Solo lectura: ')+(drive.notes||0)+' '+T('notas')+' // '+(drive.scripts||0)+' '+T('scripts'):T('Elige Unidad Field Notes para montar la unidad de solo lectura.');
+    $('#selectNetworkProfile').disabled=!isDrive;
+    $('#selectDriveProfile').disabled=isDrive;
+    $('#selectNetworkProfile').classList.toggle('active',!isDrive);
+    $('#selectDriveProfile').classList.toggle('active',isDrive);
+    document.getElementById('usbNetworkActions').hidden=isDrive;
+  }
+  function applyUsbNetwork(network){
+    $('#usbNetworkNcm').textContent=network.available?T('Disponible'):T('No disponible');
+    $('#usbNetworkLink').textContent=network.linkUp?T('Puente activo'):network.stationConnected?T('Listo para iniciar'):T('Wi-Fi guardado desconectado');
+    $('#usbNetworkTraffic').textContent=(network.sentFrames||0)+' ↑  '+(network.receivedFrames||0)+' ↓';
+    $('#startUsbNetwork').disabled=!network.available||!network.stationConnected||!!network.enabled;
+    $('#stopUsbNetwork').disabled=!network.enabled;
+  }
+  function loadControls(){
+    fetch('/api/usb/controls',{cache:'no-store'}).then(r=>r.json()).then(state=>{
+      if(!state.ok) throw new Error(state.error||'No cargaron los controles USB.');
+      applyControls(state); $('#buttonNote').textContent='';
+    }).catch(error=>{ $('#buttonNote').textContent=T(error.message||'No cargaron los controles USB.'); });
+  }
+  function runControl(action){
+    if(action==='power-off'&&!window.confirm(T('¿Seguro que quieres apagar el equipo conectado?'))) return;
+    const body={action}; if(action==='power-off') body.confirm='power-off';
+    document.querySelectorAll('[data-usb-action]').forEach(button=>button.disabled=true);
+    post('/api/usb/control',body).then(({ok,j})=>{
+      if(!ok||!j.ok){ toast((j&&j.error)||'No se pudo enviar el control USB.'); return; }
+      applyControls(j); toast('Control enviado');
+    }).catch(()=>toast('No se pudo enviar el control USB.')).finally(()=>{
+      document.querySelectorAll('[data-usb-action]').forEach(button=>button.disabled=false);
+    });
+  }
+  function setUsbNetwork(enabled){
+    const start=$('#startUsbNetwork'), stop=$('#stopUsbNetwork');
+    start.disabled=true; stop.disabled=true;
+    post('/api/usb/network',{enabled:enabled?'1':'0'}).then(({ok,j})=>{
+      if(!ok||!j.ok){ $('#usbNetworkNote').textContent=T((j&&j.error)||'No se pudo cambiar Wi-Fi USB.'); return; }
+      applyControls(j);
+      $('#usbNetworkNote').textContent=T(enabled?'Puente Wi-Fi USB iniciado.':'Puente Wi-Fi USB detenido.');
+      toast(enabled?'Puente Wi-Fi USB iniciado.':'Puente Wi-Fi USB detenido.');
+    }).catch(()=>{ $('#usbNetworkNote').textContent=T('No se pudo cambiar Wi-Fi USB.'); });
+  }
+  function selectUsbProfile(profile){
+    if(!window.confirm(T('Cambiar el modo USB reiniciará el badge. ¿Continuar?'))) return;
+    $('#usbNetworkNote').textContent=T('Guardando modo USB y reiniciando…');
+    post('/api/usb/profile',{profile}).then(({ok,j})=>{
+      if(!ok||!j.ok) $('#usbNetworkNote').textContent=T((j&&j.error)||'No se pudo cambiar el modo USB.');
+    }).catch(()=>$('#usbNetworkNote').textContent=T('No se pudo cambiar el modo USB.'));
+  }
+
+  function payloadNoteStyle(note, name){
+    const seed=Array.from(String(name||'payload')).reduce((total,char)=>(total*31+char.charCodeAt(0))>>>0,0);
+    const variation=salt=>((seed^salt)>>>0)%100;
+    note.style.setProperty('--payload-tilt',((variation(29)%25-12)/10).toFixed(1)+'deg');
+    note.style.setProperty('--payload-shift',(variation(71)%11-5)*2+'px');
+    note.style.setProperty('--tape-left',30+variation(179)%41+'%');
+    note.style.setProperty('--tape-tilt',((variation(231)%13-6)/2).toFixed(1)+'deg');
+  }
+
+  function typewriter(node, text){
+    node.replaceChildren();
+    for(const character of text){
+      if(character==='\n'){ node.appendChild(document.createElement('br')); continue; }
+      const letter=document.createElement('span'); letter.className='type-letter'; letter.textContent=character;
+      node.appendChild(letter);
+    }
+  }
+
+  function playSavedScript(code){
+    if(!code.trim()){ toast('Escribe un script primero.'); return; }
+    post('/api/payloads/run',{script:code}).then(({ok,j})=>{
+      if(!ok||!(j&&j.ok)){ $('#editorNote').textContent=(j&&j.error)||T('No se pudo enviar.'); if(j)applyStatus(j); return; }
+      $('#editorNote').textContent=''; toast('Enviado al equipo'); applyStatus(j);
+    });
+  }
+
+  function renderList(j){
+    applyStatus(j);
+    const items=j.items||[]; const list=$('#payloadList'); list.innerHTML='';
+    if(!items.length) return;
+    items.forEach(it=>{
+      const art=document.createElement('article'); art.className='payload-post'; payloadNoteStyle(art,it.name);
+      const head=document.createElement('div'); head.className='post-head';
+      const nm=document.createElement('span'); nm.className='name'; nm.textContent=it.name;
+      const ops=document.createElement('div'); ops.className='ops';
+      const play=document.createElement('button'); play.type='button'; play.className='btn btn-secondary mini mini-icon';
+      play.setAttribute('aria-label',T('Reproducir script guardado')); play.title=T('Reproducir script guardado');
+      play.innerHTML='<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 2.1 9.4 6 3 9.9Z" fill="currentColor" stroke="none"></path></svg>';
+      play.addEventListener('click',()=>playSavedScript(it.script||''));
+      const del=document.createElement('button'); del.type='button'; del.className='btn btn-secondary mini mini-icon';
+      del.setAttribute('aria-label',T('Borrar script guardado')); del.title=T('Borrar script guardado');
+      del.innerHTML='<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5 9.5 9.5M9.5 2.5 2.5 9.5"></path></svg>';
+      del.addEventListener('click',()=>{
+        if(!window.confirm(T('¿Seguro que quieres borrar este script?'))) return;
+        post('/api/payloads/delete',{name:it.name}).then(({ok,j})=>{ if(!ok||!j.ok){ toast('No se pudo borrar'); return; } toast('Borrada'); renderList(j); });
+      });
+      ops.appendChild(play); ops.appendChild(del); head.appendChild(nm); head.appendChild(ops);
+      const pre=document.createElement('pre'); pre.className='post-text payload'; typewriter(pre,it.script||'');
+      art.appendChild(head); art.appendChild(pre); list.appendChild(art);
+    });
+  }
+  function refreshList(){ fetch('/api/payloads/list',{cache:'no-store'}).then(r=>r.json()).then(renderList).catch(()=>setConn('disconnected')); }
+
+  // ---------- actions ----------
+  $('#sendButton').addEventListener('click',()=>{
+    const code=compile();
+    if(!code.trim()){ $('#editorNote').textContent=T('Agrega al menos un bloque.'); return; }
+    playSavedScript(code);
+  });
+  $('#uploadButton').addEventListener('click',()=>{
+    const name=$('#payloadName').value.trim();
+    if(!name){ $('#editorNote').textContent=T('Ponle un nombre para subir.'); return; }
+    post('/api/payloads/save',{name,script:compile()}).then(({ok,j})=>{
+      if(!ok||!j.ok){ $('#editorNote').textContent=(j&&j.error)||T('No se pudo subir.'); return; }
+      $('#editorNote').textContent=''; toast('Subida'); renderList(j);
+    });
+  });
+  $('#clearButton').addEventListener('click',()=>{ script=[]; renderStack(); updateOut(); $('#editorNote').textContent=''; });
+  $('#applyRaw').addEventListener('click',()=>{ script=parse($('#rawText').value||''); renderStack(); updateOut(); $('#editorNote').textContent=T('Bloques reconstruidos desde el texto.'); });
+  document.querySelectorAll('[data-usb-action]').forEach(button=>button.addEventListener('click',()=>runControl(button.dataset.usbAction)));
+  $('#saveButtonActions').addEventListener('click',()=>{
+    const short=$('#buttonShort').value, long=$('#buttonLong').value;
+    $('#saveButtonActions').disabled=true; $('#buttonNote').textContent=T('Guardando acciones del botón…');
+    post('/api/usb/button',{short,long}).then(({ok,j})=>{
+      if(!ok||!j.ok){ $('#buttonNote').textContent=T((j&&j.error)||'No se guardaron las acciones del botón.'); return; }
+      applyControls(j); $('#buttonNote').textContent=T('Acciones del botón guardadas.'); toast('Acciones del botón guardadas.');
+    }).catch(()=>{ $('#buttonNote').textContent=T('No se guardaron las acciones del botón.'); }).finally(()=>$('#saveButtonActions').disabled=false);
+  });
+  $('#startUsbNetwork').addEventListener('click',()=>setUsbNetwork(true));
+  $('#stopUsbNetwork').addEventListener('click',()=>setUsbNetwork(false));
+  $('#selectNetworkProfile').addEventListener('click',()=>selectUsbProfile('network'));
+  $('#selectDriveProfile').addEventListener('click',()=>selectUsbProfile('drive'));
+
+  // stack container is a drop target too (append / drop on empty)
+  const stack=$('#stack');
+  stack.addEventListener('dragover',e=>{ e.preventDefault(); stack.classList.add('drag'); });
+  stack.addEventListener('dragleave',e=>{ if(e.target===stack) stack.classList.remove('drag'); });
+  stack.addEventListener('drop',e=>{ e.preventDefault(); stack.classList.remove('drag'); handleDrop(e.dataTransfer.getData('text/plain'), null); });
+
+  window.addEventListener('focus',refreshList);
+  document.addEventListener('visibilitychange',()=>{ if(!document.hidden) refreshList(); });
+  document.addEventListener('portal-locale-change',()=>{ renderPalette(); renderStack(); renderButtonOptions(); updateOut(); pollStatus(); });
+
+  renderPalette(); renderStack(); renderButtonOptions(); updateOut(); loadControls();
+  setConn('checking'); refreshList(); setInterval(pollStatus,3000);
+})();
+</script>
+</body>
+</html>

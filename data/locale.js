@@ -2,19 +2,139 @@
 (function () {
   const esEn = {
     'Santa Muerte // Inicio': 'Santa Muerte // Home',
-    'Santa Muerte // Ofrendas': 'Santa Muerte // Offerings',
-    'Santa Muerte // Las Ofrendas': 'Santa Muerte // Offerings',
+    'Santa Muerte // Ofrendas': 'Santa Muerte // Field Notes',
+    'Santa Muerte // Las Ofrendas': 'Santa Muerte // Field Notes',
     'Santa Muerte // Herramientas LED': 'Santa Muerte // LED Tools',
     'Santa Muerte // Herramientas NFC': 'Santa Muerte // NFC Tools',
-    'Santa Muerte // Ajustes': 'Santa Muerte // Settings',
-    'Ajustes': 'Settings',
+    // Keep the legacy strings so a browser with an older cached document
+    // still receives the current name after it loads this locale file.
+    'Santa Muerte // Ajustes': 'Santa Muerte // Network',
+    'Ajustes': 'Network',
+    'Santa Muerte // Red': 'Santa Muerte // Network',
+    'Red': 'Network',
+    'Santa Muerte // Herramientas USB': 'Santa Muerte // USB Tools',
+    'Herramientas USB': 'USB Tools',
+    'Santa Muerte // Scripts': 'Santa Muerte // Scripting',
+    'Scripts': 'Scripting',
+    'SANTA MUERTE // ESP32 // SOLO LOCAL': 'SANTA MUERTE // ESP32 // LOCAL ONLY',
+    'Controles': 'Controls', 'Consola de cargas': 'Payload console',
+    'Teclea en la computadora conectada por USB. Úsalo solo en la tuya.': 'Types into the computer attached over USB. Only use it on your own.',
+    'Script estilo Ducky': 'Ducky-style script',
+    'Enviar al equipo': 'Send to device', 'Subir': 'Upload',
+    'Guardadas': 'Saved', 'Cargas subidas': 'Uploaded payloads',
+    'Control del host': 'Host controls', 'Control remoto USB': 'USB remote',
+    'Envía controles estándar al equipo conectado. Serial USB sigue disponible mientras usas estos controles.': 'Sends standard controls to the connected computer. USB Serial stays available while you use these controls.',
+    'Anterior': 'Previous', 'Reproducir / Pausar': 'Play / Pause', 'Siguiente': 'Next',
+    'Silenciar': 'Mute', 'Vol −': 'Vol −', 'Vol +': 'Vol +',
+    'Presentación anterior': 'Previous slide', 'Presentación siguiente': 'Next slide',
+    'Controles del sistema': 'System controls', 'Suspender': 'Sleep',
+    'Despertar': 'Wake', 'Apagar equipo': 'Power off computer',
+    'Botón del badge': 'Badge button', 'Acciones físicas': 'Physical actions',
+    'El menú serial permanece disponible. Estas acciones solo cambian lo que hace BOOT cuando el firmware está corriendo.': 'The serial menu remains available. These actions only change what BOOT does while firmware is running.',
+    'Pulsación': 'Press', 'Mantener': 'Hold', 'Guardar acciones del botón': 'Save button actions',
+    'Controles LED actuales': 'Current LED controls', 'Sin acción': 'No action',
+    'Subir volumen': 'Volume up', 'Bajar volumen': 'Volume down',
+    'Pista siguiente': 'Next track', 'Pista anterior': 'Previous track',
+    'Suspender equipo': 'Sleep computer', 'Despertar equipo': 'Wake computer',
+    'Guardando acciones del botón…': 'Saving button actions…',
+    'Acciones del botón guardadas.': 'Button actions saved.',
+    'No se guardaron las acciones del botón.': 'Button actions were not saved.',
+    'No cargaron los controles USB.': 'USB controls did not load.',
+    '¿Seguro que quieres apagar el equipo conectado?': 'Are you sure you want to power off the connected computer?',
+    'No se pudo enviar el control USB.': 'Could not send the USB control.',
+    'Control enviado': 'Control sent',
+    'Los controles del host necesitan modo OTG (ARDUINO_USB_MODE=0).': 'Host controls need OTG mode (ARDUINO_USB_MODE=0).',
+    'Hay una carga en curso.': 'A payload is already running.',
+    'Esta acción solo se puede usar al configurar el botón.': 'This action is only available as a badge-button setting.',
+    'El host USB no aceptó ese control.': 'The USB host did not accept that control.',
+    'Acción de botón no válida.': 'Invalid button action.',
+    'Acción USB no válida.': 'Invalid USB action.',
+    'Confirma el apagado del equipo antes de enviarlo.': 'Confirm powering off the computer before sending it.',
+    'Apagar el equipo no se puede asignar al botón.': 'Powering off the computer cannot be assigned to the button.',
+    'No se pudieron guardar las acciones del botón.': 'Could not save the button actions.',
+    'Abrir constructor de scripts': 'Open script builder',
+    'Red Wi-Fi USB': 'USB Wi-Fi network', 'Adaptador Wi-Fi': 'Wi-Fi adapter',
+    'Comparte el Wi-Fi guardado con el equipo conectado. USB Serial y los controles HID siguen disponibles.': 'Shares saved Wi-Fi with the connected computer. USB Serial and HID controls stay available.',
+    'Enlace': 'Link', 'Tráfico': 'Traffic', 'Disponible': 'Available', 'No disponible': 'Unavailable',
+    'Puente activo': 'Bridge active', 'Listo para iniciar': 'Ready to start',
+    'Wi-Fi guardado desconectado': 'Saved Wi-Fi disconnected',
+    'Iniciar Wi-Fi USB': 'Start USB Wi-Fi', 'Detener Wi-Fi USB': 'Stop USB Wi-Fi',
+    'Al iniciar el puente, el tráfico del Wi-Fi guardado pasa al equipo. Deténlo para usar ese enlace normalmente desde el badge.': 'When the bridge starts, saved Wi-Fi traffic goes to the computer. Stop it before using that link normally from the badge.',
+    'Puente Wi-Fi USB iniciado.': 'USB Wi-Fi bridge started.',
+    'Puente Wi-Fi USB detenido.': 'USB Wi-Fi bridge stopped.',
+    'No se pudo cambiar Wi-Fi USB.': 'Could not change USB Wi-Fi.',
+    'Modo USB: revisando…': 'USB mode: checking…',
+    'Modo USB: Red Wi-Fi': 'USB mode: Wi-Fi Network',
+    'Modo USB: Unidad Field Notes': 'USB mode: Field Notes Drive',
+    'Solo lectura: ': 'Read-only: ', 'notas': 'notes', 'scripts': 'scripts',
+    'Elige Unidad Field Notes para montar la unidad de solo lectura.': 'Choose Field Notes Drive to mount the read-only drive.',
+    'Usar modo Red Wi-Fi': 'Use Wi-Fi Network mode',
+    'Usar modo Unidad Field Notes': 'Use Field Notes Drive mode',
+    'Cambiar el modo USB reiniciará el badge. ¿Continuar?': 'Changing USB mode will reboot the badge. Continue?',
+    'Guardando modo USB y reiniciando…': 'Saving USB mode and rebooting…',
+    'No se pudo cambiar el modo USB.': 'Could not change USB mode.',
+    'Subidas al badge, como el tablero de ofrendas. Cargar las trae al editor; borrar las quita.': 'Uploaded to the badge, like the offerings board. Load brings one back to the editor; delete removes it.',
+    'Cargar': 'Load', 'Candados': 'Locks', 'sin host': 'no host', 'ninguno': 'none',
+    'nombre para subir': 'name to upload',
+    'sin conexión': 'no connection',
+    'Referencia': 'Reference', 'Comandos': 'Commands', 'Cargando…': 'Loading…',
+    'Nada subido todavía.': 'Nothing uploaded yet.',
+    'Cargado en el editor.': 'Loaded into the editor.',
+    'Reproducir script guardado': 'Play saved script', 'Borrar script guardado': 'Erase saved script',
+    'Escribe un script primero.': 'Write a script first.',
+    'No se pudo enviar.': 'Could not send.', 'Enviado al equipo': 'Sent to device',
+    'Ponle un nombre para subir.': 'Name it before uploading.',
+    'No se pudo subir.': 'Could not upload.', 'Subida': 'Uploaded',
+    'No se pudo borrar': 'Could not delete', 'Borrada': 'Deleted',
+    '¿Seguro que quieres borrar este script?': 'Are you sure you want to erase this script?',
+    'una nota; no se teclea': 'a note; nothing is typed',
+    'escribe texto (LN agrega Enter)': 'type text (LN adds Enter)',
+    'pausa: una vez / entre comandos': 'pause: once / between commands',
+    'teclas con nombre': 'named keys', 'más teclas con nombre': 'more named keys',
+    'combo (GUI/CTRL/ALT/SHIFT + tecla)': 'chord (GUI/CTRL/ALT/SHIFT + key)',
+    'repite el comando anterior': 'repeat the previous command',
+    'control del ratón': 'mouse control', 'teclas multimedia': 'media keys',
+    'espera un cambio de candado del host': 'wait for a host lock-LED toggle',
+    'Constructor': 'Builder', 'Arma tu DuckyScript': 'Build your DuckyScript',
+    'DuckyScript generado': 'Generated DuckyScript', 'Ver / importar como texto': 'View / import as text',
+    'Convertir a bloques': 'Convert to blocks', 'Vaciar': 'Clear',
+    'Agregar paso': 'Add step', 'Elige o arrastra un bloque': 'Choose or drag a block',
+    'Combinaciones comunes': 'Common shortcuts',
+    'Seleccionar todo': 'Select all', 'Copiar': 'Copy', 'Pegar': 'Paste', 'Deshacer': 'Undo',
+    'Guardar': 'Save', 'Abrir Ejecutar (Windows)': 'Open Run (Windows)',
+    'Arrastra o toca un bloque de la izquierda para empezar.': 'Drag or tap a block on the left to start.',
+    'Subidas al badge, como el tablero de ofrendas. Cargar las trae al constructor; borrar las quita.': 'Uploaded to the badge, like the offerings board. Load brings one into the builder; delete removes it.',
+    'Cargado en el constructor.': 'Loaded into the builder.', 'Agrega al menos un bloque.': 'Add at least one block.',
+    'Bloques reconstruidos desde el texto.': 'Blocks rebuilt from the text.',
+    'Mover arriba': 'Move up', 'Mover abajo': 'Move down', 'Quitar': 'Remove',
+    'Texto': 'Text', 'Teclas': 'Keys', 'Tiempo': 'Timing', 'Ratón': 'Mouse', 'Multimedia': 'Media', 'Nota': 'Note',
+    'Teclear texto': 'Type text', 'Tecla': 'Key', 'Combinación': 'Key combo', 'Pausa': 'Pause',
+    'Pausa por defecto': 'Default pause', 'Mover ratón': 'Move mouse', 'Clic ratón': 'Mouse click',
+    'Rueda ratón': 'Mouse wheel', 'Tecla multimedia': 'Media key', 'Repetir anterior': 'Repeat previous',
+    'Esperar candado': 'Wait for lock', 'Comentario': 'Comment', 'Línea literal': 'Literal line',
+    'pulsar Enter al final': 'press Enter at the end',
+    'texto a teclear': 'text to type', 'tecla (ej. r)': 'key (e.g. r)', 'nota': 'note', 'veces': 'times',
+    'Teclea el texto tal cual en el equipo.': 'Types the text as-is on the computer.',
+    'Pulsa y suelta una sola tecla.': 'Presses and releases a single key.',
+    'Mantiene los modificadores marcados y pulsa la tecla. Ej: GUI+r abre Ejecutar en Windows.': 'Holds the checked modifiers and presses the key. e.g. GUI+r opens Run on Windows.',
+    'Pausa los milisegundos indicados antes de seguir.': 'Pauses the given milliseconds before continuing.',
+    'Fija la pausa automática entre cada comando siguiente.': 'Sets the automatic pause between each following command.',
+    'Mueve el puntero (píxeles relativos, -128 a 127).': 'Moves the pointer (relative pixels, -128 to 127).',
+    'Hace un clic con el botón elegido.': 'Clicks with the chosen button.',
+    'Gira la rueda (positivo arriba, negativo abajo).': 'Scrolls the wheel (positive up, negative down).',
+    'Envía una tecla de medios (volumen, reproducción…).': 'Sends a media key (volume, playback…).',
+    'Repite el bloque inmediatamente anterior n veces más.': 'Repeats the immediately previous block n more times.',
+    'Pausa hasta que el host encienda o apague ese candado del teclado.': 'Pauses until the host toggles that keyboard lock.',
+    'Un comentario para ti; no se teclea nada.': 'A note for you; nothing is typed.',
+    'Una línea DuckyScript escrita a mano (para comandos no listados).': 'A hand-written DuckyScript line (for commands not listed).',
     'Santa Muerte // Luces': 'Santa Muerte // Lights',
     'Santa Muerte // NFC': 'Santa Muerte // NFC',
     'Control local // ofrendas anónimas // sin internet': 'Local control // anonymous offerings // no internet',
     'ofrendas anónimas // solo local': 'anonymous offerings // local only',
-    'Inicio': 'Home', 'Luces': 'Lights', 'Ofrendas': 'Offerings',
+    'Inicio': 'Home', 'Luces': 'Lights', 'Ofrendas': 'Field Notes',
     'Herramientas LED': 'LED Tools', 'Herramientas NFC': 'NFC Tools',
-    'Ofrendas // Tablero': 'Offerings // Board',
+    'Leer': 'Read', 'Escribir': 'Write', 'Emular': 'Emulate',
+    'Ofrendas // Tablero': 'Field Notes',
     'Menú': 'Menu', 'Abrir menú': 'Open menu', 'Navegación del badge': 'Badge navigation',
     'Deja una ofrenda': 'Leave an offering',
     'Dibuja, escribe o pega una foto. Como salga.': 'Draw, write, or attach a photo. Keep it real.',
@@ -26,11 +146,11 @@
     'Escribe aquí…': 'Write here…', 'Escribe y dibuja aquí.': 'Write and draw here.',
     'Sin nombres. Sin firma.': 'No names. No signature.', 'Deshacer': 'Undo', 'Limpiar': 'Clear',
     'Quitarla': 'Remove it', 'Quitar foto': 'Remove photo', 'La foto va aparte, como nota pegada.': 'The photo stays separate, like a taped note.',
-    'Dejar ofrenda': 'Leave offering', 'Las Ofrendas': 'Offerings',
+    'Dejar ofrenda': 'Leave offering', 'Las Ofrendas': 'Field Notes',
     'Las palabras duran más que los dibujos.': 'Words last longer than drawings.',
     'VER TODAS': 'SEE ALL', 'Ver todas': 'See all', 'vacía': 'empty',
     'Viendo el pasillo…': 'Checking the hallway…', 'El badge no contesta.': 'The badge is not answering.',
-    'Pasillo vacío. Deja la primera ofrenda.': 'Empty hall. Leave the first offering.',
+    'El muro está vacío...': 'The wall is empty...',
     'Dibuja, escribe o haz las dos.': 'Draw, write, or do both.', 'Enviando…': 'Sending…',
     'No pasó la ofrenda.': 'The offering did not go through.', 'Ofrenda enviada.': 'Offering sent.',
     'No cargó el tablero.': 'The board did not load.', 'No se pudo llegar al badge.': 'Could not reach the badge.',
@@ -51,63 +171,70 @@
     'Color hexadecimal': 'Hex color', 'Ajustes guardados': 'Settings saved',
     'El ESP32 no respondió.': 'The ESP32 did not respond.', 'Se perdió la conexión.': 'Connection lost.',
     'Los controles van directo al ESP32 por su Wi-Fi local.': 'Controls go straight to the ESP32 over its local Wi-Fi.',
+    'Red del badge': 'Badge network',
+    'Redes recordadas:': 'Remembered networks:',
     'Acceso al badge // Wi-Fi': 'Badge access // Wi-Fi', 'Cargando red…': 'Loading network…',
+    'Nombre del punto de acceso (SSID)': 'Access-point name (SSID)',
+    'De 1 a 32 bytes. Guardarlo reinicia el punto de acceso con este nombre.': '1 to 32 bytes. Saving restarts the access point with this name.',
     'Contraseña Wi-Fi': 'Wi-Fi password', 'Ocultar': 'Hide', 'Ver': 'Show',
+    'Déjala vacía para una red abierta sin contraseña. Si escribes una, debe tener 8–63 caracteres ASCII.': 'Leave it empty for an open network without a password. If you enter one, it must contain 8–63 ASCII characters.',
     'Se muestra completa para leerla y pasarla. El badge crea tres palabras con tema; acepta 8–63 caracteres ASCII.': 'Shown in full so you can read and share it. The badge makes three themed words; it accepts 8–63 ASCII characters.',
     'Ocultar SSID': 'Hide SSID', 'Las redes ocultas se escriben a mano.': 'Hidden networks must be entered by hand.',
     'Guardar Wi-Fi': 'Save Wi-Fi', 'Contraseña válida.': 'Valid password.',
     'Usa ASCII visible. Letras con acento y emoji no caben en la clave WPA2.': 'Use visible ASCII. Accents and emoji do not fit in a WPA2 password.',
     'La contraseña debe tener 8 a 63 caracteres.': 'The password must be 8 to 63 characters.',
-    'Los ajustes de Wi-Fi solo salen al abrir esto desde el badge.': 'Wi-Fi settings only work when this page is opened from the badge.',
-    'No cargaron los ajustes.': 'Settings did not load.', 'No cargaron los ajustes de Wi-Fi.': 'Wi-Fi settings did not load.',
-    'Guardando…': 'Saving…', 'No se guardaron los ajustes.': 'Settings were not saved.',
+    'La configuración de red solo funciona al abrir esto desde el badge.': 'Network configuration only works when this page is opened from the badge.',
+    'Abre esta página desde el badge en 10.69.4.20 para ver o cambiar la red.': 'Open this page from the badge at 10.69.4.20 to view or change the network.',
+    'No cargó la configuración de red.': 'Network configuration did not load.',
+    'No cargó la configuración Wi-Fi.': 'Wi-Fi configuration did not load.',
+    'Guardando…': 'Saving…', 'No se guardó la configuración de red.': 'Network configuration was not saved.',
     'Reconectar al badge': 'Reconnect to badge',
-    'Conectar al Wi-Fi de casa': 'Connect to home Wi-Fi',
-    'Red de casa sin configurar.': 'Home network not configured.',
+    'Conectar al Wi-Fi guardado': 'Connect to saved Wi-Fi',
+    'Wi-Fi guardado sin configurar.': 'Saved Wi-Fi not configured.',
     'Nombre de red (SSID)': 'Network name (SSID)',
     'Contraseña de red': 'Network password',
     'La contraseña se guarda en el badge y no vuelve a mostrarse. Escríbela cada vez que cambies esta conexión.': 'The password is saved on the badge and is not shown again. Enter it whenever you change this connection.',
     'Guardar y conectar': 'Save and connect',
     'Abre el badge en': 'Open the badge at', 'o': 'or',
     'Nombre enviado al router:': 'Name sent to the router:',
-    'Conectado a la red de casa.': 'Connected to the home network.',
-    'Conectando a la red de casa…': 'Connecting to the home network…',
-    'La red de casa no está conectada.': 'The home network is not connected.',
-    'Guardado. El badge está conectando a tu red de casa.': 'Saved. The badge is connecting to your home network.',
+    'Conectado al Wi-Fi guardado.': 'Connected to saved Wi-Fi.',
+    'Conectando al Wi-Fi guardado…': 'Connecting to saved Wi-Fi…',
+    'El Wi-Fi guardado no está conectado.': 'Saved Wi-Fi is not connected.',
+    'Guardado. El badge está conectando a tu Wi-Fi guardado.': 'Saved. The badge is connecting to your saved Wi-Fi.',
     'Guardando y conectando…': 'Saving and connecting…',
     'El nombre de red debe tener 1 a 32 bytes.': 'The network name must be 1 to 32 bytes.',
-    'El SSID de casa debe tener 1 a 32 bytes sin controles.': 'The home SSID must be 1 to 32 bytes with no control characters.',
-    'Faltan el nombre y la contraseña de la red de casa.': 'The home network name and password are required.',
-    'No cargó la red de casa.': 'The home network did not load.',
-    'No se guardó la red de casa.': 'The home network was not saved.',
-    'La red de casa no se pudo guardar.': 'The home network could not be saved.',
-    'No se pudo abrir NVS para guardar el Wi-Fi de casa.': 'Could not open NVS to save the home Wi-Fi.',
-    'Abre esta página desde el badge para conectar una red de casa.': 'Open this page from the badge to connect a home network.',
+    'El SSID guardado debe tener 1 a 32 bytes sin controles.': 'The saved Wi-Fi SSID must be 1 to 32 bytes with no control characters.',
+    'Faltan el nombre y la contraseña del Wi-Fi guardado.': 'The saved Wi-Fi name and password are required.',
+    'No cargó el Wi-Fi guardado.': 'Saved Wi-Fi did not load.',
+    'No se guardó el Wi-Fi guardado.': 'Saved Wi-Fi was not saved.',
+    'El Wi-Fi guardado no se pudo guardar.': 'Saved Wi-Fi could not be saved.',
+    'No se pudo abrir NVS para guardar el Wi-Fi guardado.': 'Could not open NVS to save saved Wi-Fi.',
+    'Abre esta página desde el badge para conectar un Wi-Fi guardado.': 'Open this page from the badge to connect saved Wi-Fi.',
     'Punto de acceso del badge': 'Badge access point',
     'Deja encendida la red Santa Muerte para visitas y recuperación.': 'Keep the Santa Muerte network on for visitors and recovery.',
-    'Modo Santa Muerte. Apágalo para cambiar a la red de casa guardada.': 'Santa Muerte mode. Turn it off to switch to the saved home network.',
+    'Modo Santa Muerte. Apágalo para cambiar al Wi-Fi guardado.': 'Santa Muerte mode. Turn it off to switch to saved Wi-Fi.',
     'Ojo: apagarlo desconecta esta página.': 'Heads up: turning it off disconnects this page.',
-    'Vuelve por tu red de casa en SantaMuerte.local, o conecta USB y presiona': 'Return through your home network at SantaMuerte.local, or connect USB and press',
+    'Vuelve por tu Wi-Fi guardado en SantaMuerte.local, o conecta USB y presiona': 'Return through saved Wi-Fi at SantaMuerte.local, or connect USB and press',
     'para encenderlo otra vez.': 'to turn it back on.',
-    'El badge cambiará a la red de casa guardada. Si no llega, conecta USB y presiona': 'The badge will switch to the saved home network. If it cannot connect, use USB and press',
+    'El badge cambiará al Wi-Fi guardado. Si no llega, conecta USB y presiona': 'The badge will switch to saved Wi-Fi. If it cannot connect, use USB and press',
     'para volver al modo Santa Muerte.': 'to return to Santa Muerte mode.',
     'Encendiendo el punto de acceso…': 'Turning on the access point…',
     'Apagando el punto de acceso…': 'Turning off the access point…',
     'Falta el ajuste del punto de acceso.': 'The access-point setting is missing.',
     'No cambió el punto de acceso.': 'The access point did not change.',
     'Guardado. Encendiendo el punto de acceso del badge.': 'Saved. Turning on the badge access point.',
-    'Guardado. El punto de acceso se apagará; usa la red de casa o USB para volver a encenderlo.': 'Saved. The access point will turn off; use the home network or USB to turn it back on.',
-    'Guardado. Cambiando a tu red de casa.': 'Saved. Switching to your home network.',
+    'Guardado. El punto de acceso se apagará; usa el Wi-Fi guardado o USB para volver a encenderlo.': 'Saved. The access point will turn off; use saved Wi-Fi or USB to turn it back on.',
+    'Guardado. Cambiando a tu Wi-Fi guardado.': 'Saved. Switching to your saved Wi-Fi.',
     'Guardando y cambiando de red…': 'Saving and switching networks…',
     'Guardado. Cambiando de red…': 'Saved. Switching networks…',
     'Guardado. El punto de acceso sigue apagado hasta que lo enciendas.': 'Saved. The access point stays off until you turn it on.',
     'No se pudo abrir NVS para guardar el ajuste del punto de acceso.': 'Could not open NVS to save the access-point setting.',
     'No se pudo guardar el ajuste del punto de acceso.': 'Could not save the access-point setting.',
-    'Cambiar al Wi-Fi de casa': 'Switch to home Wi-Fi',
+    'Cambiar al Wi-Fi guardado': 'Switch to saved Wi-Fi',
     'Guardar y cambiar de red': 'Save and switch networks',
     'Comunión del badge // tags y emulación': 'Badge communion // tags and emulation',
     'Lector': 'Reader', 'Lee un tag': 'Read a tag', 'Lector sin datos': 'Reader idle',
-    'PN532 fuera': 'PN532 offline', 'PN532 listo': 'PN532 ready', 'Listo para leer': 'Ready to read',
+    'PN532 fuera': 'PN532 offline', 'PN532 listo': 'PN532 ready', 'PN532 ocupado': 'PN532 Busy', 'Listo para leer': 'Ready to read',
     'Listo': 'Ready', 'Lector fuera': 'Reader offline',
     'Lector NFC': 'NFC reader', 'Lector NFC conectado': 'NFC reader connected',
     'Elige una acción y acerca un tag compatible al lector del PCB.': 'Pick an action and bring a compatible tag to the PCB reader.',
@@ -235,17 +362,33 @@
     'Todavía se está poniendo otra acción NFC en cola.': 'Another NFC action is still being queued.',
     'Parando la emulación…': 'Stopping emulation…',
     'El tablero no está disponible.': 'The board is unavailable.',
-    'Ofrenda NFC': 'NFC Offering',
-    'Manda cada tag a las ofrendas': 'Send every tag to the offerings',
-    'Ofrenda NFC apagada': 'NFC Offering off',
-    'Ofrenda NFC encendida': 'NFC Offering on',
-    'Tags ofrendados': 'Tags offered',
-    'La Ofrenda NFC está apagada.': 'NFC Offering is off.',
-    'Ofrenda NFC encendida. Cada tag que se lea se va a las ofrendas.': 'NFC Offering on. Every tag read joins the offerings.',
-    'Tag ofrendado. Va a las ofrendas.': 'Tag offered. On its way to the offerings.',
-    'Tag ofrendado y publicado.': 'Tag offered and posted.',
+    'Usa un modo de radio a la vez': 'Use one radio mode at a time',
+    'Modos NFC': 'NFC Modes',
+    'Emular tag guardado': 'Emulate saved tag',
+    'Compartir Wi-Fi por NFC': 'Share Wi-Fi over NFC',
+    'Parar modo activo': 'Stop active mode',
+    'Wi-Fi por NFC': 'Wi-Fi over NFC', 'Emular tag': 'Emulate tag', 'Parar': 'Stop',
+    'Modo NFC parado': 'NFC mode stopped', 'Wi-Fi por NFC activo': 'Wi-Fi over NFC active',
+    'Emulación de tag activa': 'Tag emulation active', 'PN532 fuera': 'PN532 offline',
+    'Tag recordado': 'Saved tag',
+    'Edita el registro que emula el badge': 'Edit the record the badge emulates',
+    'Guarda este registro al tocar Emular tag guardado arriba. Con emulación activa, el PN532 no lee ni escribe tags externos.': 'Save this record by selecting Emulate saved tag above. While emulation is active, the PN532 cannot read or write external tags.',
+    'Guarda este registro al tocar Emular tag arriba. Con emulación activa, el PN532 no lee ni escribe tags externos.': 'Save this record by selecting Emulate tag above. While emulation is active, the PN532 cannot read or write external tags.',
+    'Notas NFC': 'NFC Notes',
+    'Notas NFC apagadas': 'NFC Notes off',
+    'Notas NFC encendidas': 'NFC Notes on',
+    'Notas NFC apagadas.': 'NFC Notes are off.',
+    'Notas NFC encendidas. Cada tag que se lea va a Field Notes.': 'NFC Notes on. Every tag read goes to Field Notes.',
+    'Tags en notas': 'Tags in Notes',
+    'Las notas NFC se apagaron para emular.': 'NFC Notes switched off for emulation.',
+    'Tag guardado en Field Notes.': 'Tag saved in Field Notes.',
+    'Tag sin datos. Su UID se guardó en Field Notes.': 'Tag had no data. Its UID was saved in Field Notes.',
+    'Falta el ajuste de Notas NFC.': 'The NFC Notes setting is missing.',
+    'PN532 emulando': 'PN532 emulating',
+    'Esperando lector NFC': 'Waiting for NFC reader',
+    'Controlador fuera.': 'Controller offline.',
+    'La página no llega al NFC del ESP32.': 'This page cannot reach the ESP32 NFC controller.',
     'Se leyó un tag sin texto ni URL. No se subió nada.': 'Read a tag with no text or URL. Nothing was uploaded.',
-    'Falta el ajuste de Ofrenda NFC.': 'The NFC Offering setting is missing.',
     'Las once luces del badge sobre la figura': 'The badge\'s eleven lights on the figure',
     'halo // hombro izquierdo': 'halo // left shoulder',
     'halo // izquierda baja': 'halo // lower left',
@@ -286,7 +429,6 @@
     'Escaneo constante': 'Constant scanning',
     'El lector se queda buscando. Cada tag que aparece se publica solo: su texto o URL, o su UID si no trae nada. Apaga la emulación.': 'The reader keeps looking. Every tag that turns up posts itself: its text or URL, or its UID when it carries nothing. Turns emulation off.',
     'Tag sin datos. Se ofrendó su UID.': 'Tag had no data. Its UID was offered.',
-    'La Ofrenda NFC se apagó para emular.': 'NFC Offering switched off to emulate.',
     'Cian': 'Cyan', 'Azul': 'Blue', 'Morado': 'Purple', 'Rosa': 'Pink', 'Blanco': 'White'
   };
   const enEs = Object.fromEntries(Object.entries(esEn).map(([es, en]) => [en, es]));
@@ -313,6 +455,16 @@
         converted = target === 'en-US' ? `${match[1]} min ago` : `hace ${match[1]} min`;
       } else if ((match = key.match(/^hace (\d+) h$/))) {
         converted = target === 'en-US' ? `${match[1]}h ago` : `hace ${match[1]} h`;
+      }
+      if (/^Conectando al Wi-Fi guardado… /.test(key)) {
+        converted = target === 'en-US'
+          ? key.replace('Conectando al Wi-Fi guardado… ', 'Connecting to saved Wi-Fi… ')
+          : key;
+      }
+      if (/^Connecting to saved Wi-Fi… /.test(key)) {
+        converted = target === 'en-US'
+          ? key
+          : key.replace('Connecting to saved Wi-Fi… ', 'Conectando al Wi-Fi guardado… ');
       }
       if (/^Los dibujos ocupan más\./.test(key)) converted = target === 'en-US' ? key.replace('Los dibujos ocupan más. El texto se queda; solo caben los ', 'Drawings take more room. Text stays; only the newest ') .replace(' dibujos más nuevos.', ' drawings fit.') : key;
       if (/^Drawings take more room\./.test(key)) converted = target === 'en-US' ? key : key.replace('Drawings take more room. Text stays; only the newest ', 'Los dibujos ocupan más. El texto se queda; solo caben los ').replace(' drawings fit.', ' dibujos más nuevos.');
@@ -352,10 +504,18 @@
     });
   }
   function updateControls() {
-    document.querySelectorAll('.language-toggle button').forEach(button => {
-      button.textContent = locale === 'es-MX' ? '🇲🇽' : '🇺🇸';
-      button.setAttribute('aria-label', locale === 'es-MX' ? 'Switch to English' : 'Cambiar a español');
-      button.title = locale === 'es-MX' ? 'Switch to English' : 'Cambiar a español';
+    document.querySelectorAll('.language-toggle').forEach(control => {
+      const spanish = locale === 'es-MX';
+      const switchTo = spanish ? 'en-US' : 'es-MX';
+      const label = spanish ? 'Switch to English' : 'Cambiar a español';
+      // Keep the country order fixed; only the other language is clickable.
+      control.innerHTML = spanish
+        ? '<button class="flag" type="button" aria-label="Switch to English" title="Switch to English">🇺🇸</button><span class="divider" aria-hidden="true">//</span><span class="flag active" aria-current="true">🇲🇽</span>'
+        : '<span class="flag active" aria-current="true">🇺🇸</span><span class="divider" aria-hidden="true">//</span><button class="flag" type="button" aria-label="Cambiar a español" title="Cambiar a español">🇲🇽</button>';
+      const button = control.querySelector('button');
+      button.setAttribute('aria-label', label);
+      button.title = label;
+      button.addEventListener('click', () => setLocale(switchTo));
     });
   }
   function mountControl() {
@@ -366,9 +526,8 @@
     control.className = 'language-toggle';
     control.dataset.localeControl = 'true';
     control.setAttribute('aria-label', 'Idioma / Language');
-    control.innerHTML = '<button type="button">🇲🇽</button>';
-    control.querySelector('button').addEventListener('click', () => setLocale(locale === 'es-MX' ? 'en-US' : 'es-MX'));
     host.appendChild(control);
+    updateControls();
   }
   function saveLocale() {
     fetch('/api/ui/language', {
@@ -380,6 +539,18 @@
     fetch('/api/ui/language', {cache: 'no-store'})
       .then(response => response.ok ? response.json() : null)
       .then(state => { if (state && state.locale) setLocale(state.locale, false); })
+      .catch(() => {});
+  }
+  function loadFooterAddress() {
+    const label = document.querySelector('.footer-identity');
+    if (!label) return;
+    fetch('/api/wifi/settings', {cache: 'no-store'})
+      .then(response => response.ok ? response.json() : null)
+      .then(state => {
+        if (state && state.ip) {
+          label.textContent = `SANTAMUERTE.LOCAL // ESP32 // ${state.ip}`;
+        }
+      })
       .catch(() => {});
   }
   function setLocale(next, persist = true) {
@@ -394,7 +565,7 @@
   }
   window.PortalLocale = { get locale() { return locale; }, setLocale, convert };
   document.addEventListener('DOMContentLoaded', () => {
-    mountControl(); setLocale(locale, false); loadBadgeLocale();
+    mountControl(); setLocale(locale, false); loadBadgeLocale(); loadFooterAddress();
     new MutationObserver(records => records.forEach(record => {
       if (record.type === 'characterData' && !skipped(record.target.parentElement)) {
         let converted = convert(undecorate(record.target.nodeValue), locale);

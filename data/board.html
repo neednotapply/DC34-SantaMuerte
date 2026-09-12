@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#151615">
-  <title>Santa Muerte // Offerings</title>
-  <link rel="stylesheet" href="theme.css?v=24">
+  <title>Santa Muerte // Field Notes</title>
+  <link rel="stylesheet" href="theme.css?v=30">
   <link rel="icon" type="image/png" href="assets/logo-candle.png">
-  <script src="locale.js?v=12"></script>
+  <script src="locale.js?v=21"></script>
   <style>
     :root{
       color-scheme:dark;
@@ -191,10 +191,12 @@
         <nav class="nav-menu-list" aria-label="Navegación del badge">
           <a href="/led">LED Tools</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/settings">Ajustes</a>
+          <a href="/usb">Herramientas USB</a>
+          <a href="/scripting">Scripts</a>
+          <a href="/network">Red</a>
         </nav>
       </details>
-      <a class="saint-title" href="/board" aria-label="Santa Muerte"><span>Santa</span><span>Muerte</span></a>
+      <div class="header-page-title"><h1>Field Notes</h1></div>
       <details class="nav-menu nav-menu--right">
         <summary aria-label="Abrir menú">
           <img class="brand-mark" src="assets/logo-candle.png" alt="">
@@ -202,11 +204,12 @@
         <nav class="nav-menu-list" aria-label="Navegación del badge">
           <a href="/led">LED Tools</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/settings">Ajustes</a>
+          <a href="/usb">Herramientas USB</a>
+          <a href="/scripting">Scripts</a>
+          <a href="/network">Red</a>
         </nav>
       </details>
     </header>
-    <div class="page-title"><h1>Offerings</h1></div>
     <section class="hall">
       <div id="postList" style="display:grid;gap:12px">
         <div class="empty" id="feedEmpty">Leyendo el pasillo&hellip;</div>
@@ -256,7 +259,7 @@
       <div id="imageNote"></div>
     </section>
     <footer class="saint-footer">
-      <span>SANTA MUERTE // ESP32 // SOLO LOCAL</span>
+      <span class="footer-identity">SANTAMUERTE.LOCAL // ESP32 // 10.69.4.20</span>
       <div class="footer-language"></div>
     </footer>
   </main>
@@ -1097,7 +1100,7 @@
         updateMeter(page);
 
         if (!feed.children.length) {
-          showEmpty('Pasillo vacío. Deja la primera ofrenda.');
+          showEmpty('El muro está vacío...');
         }
       } catch (error) {
         const placeholder = $('feedEmpty');
