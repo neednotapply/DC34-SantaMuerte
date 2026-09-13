@@ -87,6 +87,38 @@ uint32_t stationOfflineSince = 0;
 bool mdnsRunning = false;
 uint32_t stationConnectionStartedAt = 0;
 uint8_t stationCandidate = 0;
+uint8_t stationCandidates[MAX_SAVED_STATION_NETWORKS] = {};
+uint8_t stationCandidateCount = 0;
+
+void refreshStationCandidates() {
+  stationCandidateCount = 0;
+  const uint8_t savedCount = getPersistentStationWifiCount();
+  if (!savedCount) return;
+
+  // A scan lets boot skip remembered networks that are not presently on air,
+  // rather than spending the whole recovery window waiting on each one. Hidden
+  // SSIDs are retained as fallbacks because a scan cannot reliably reveal them.
+  const int networks = WiFi.scanNetworks(false, true);
+  for (uint8_t saved = 0; saved < savedCount; ++saved) {
+    String ssid, password;
+    if (!getPersistentStationWifi(saved, ssid, password)) continue;
+    bool visible = false;
+    for (int found = 0; found < networks; ++found) {
+      if (WiFi.SSID(found) == ssid) { visible = true; break; }
+    }
+    if (visible) stationCandidates[stationCandidateCount++] = saved;
+  }
+  WiFi.scanDelete();
+  if (!stationCandidateCount) {
+    for (uint8_t saved = 0; saved < savedCount; ++saved) {
+      stationCandidates[stationCandidateCount++] = saved;
+    }
+    Serial.println("[WIFI] No remembered SSIDs found in scan; trying hidden/off-air entries");
+  } else {
+    Serial.printf("[WIFI] Scan found %u remembered network(s)\r\n", stationCandidateCount);
+  }
+  stationCandidate = 0;
+}
 char lastSuccessfulApSsid[33] = {};
 char lastSuccessfulApPassword[64] = {};
 bool lastSuccessfulApHidden = false;
@@ -335,11 +367,11 @@ void startStationConnection(bool forceBootAttempt = false) {
   stopMdns();
   // setHostname applies to the station interface; it must be set before
   // begin() for DHCP and the local network to see SantaMuerte consistently.
-  const uint8_t savedCount = getPersistentStationWifiCount();
-  if (!savedCount) return;
-  stationCandidate %= savedCount;
+  if (!stationCandidateCount) refreshStationCandidates();
+  if (!stationCandidateCount) return;
+  stationCandidate %= stationCandidateCount;
   String ssid, password;
-  if (!getPersistentStationWifi(stationCandidate, ssid, password)) return;
+  if (!getPersistentStationWifi(stationCandidates[stationCandidate], ssid, password)) return;
   WiFi.mode(accessPointActive ? WIFI_AP_STA : WIFI_STA);
   WiFi.disconnect(false, false);
   WiFi.begin(ssid.c_str(), password.c_str());
@@ -435,8 +467,9 @@ void serviceStationConnection() {
                       "and the band.\r\n",
                       getPersistentStationWifiSsid());
       }
-      const uint8_t savedCount = getPersistentStationWifiCount();
-      if (savedCount > 1) stationCandidate = (stationCandidate + 1) % savedCount;
+      if (stationCandidateCount > 1) {
+        stationCandidate = (stationCandidate + 1) % stationCandidateCount;
+      }
     }
     startStationConnection();
   }
@@ -1766,6 +1799,7 @@ bool setBadgeAccessPointSettings(const String &ssid, const String &password,
 bool setBadgeHomeWifiSettings(const String &ssid, const String &password,
                               String &error) {
   if (!setPersistentStationWifiSettings(ssid, password, error)) return false;
+  stationCandidateCount = 0;  // include the newly remembered network in a scan
   if (!setPersistentAccessPointEnabled(false, error)) return false;
   requestedAccessPointEnabled = false;
   accessPointTogglePending = accessPointActive;
@@ -1814,6 +1848,7 @@ void setupWiFiAccessPoint() {
       Serial.println("[WIFI] WARNING: Could not set DHCP hostname");
     }
     WiFi.mode(WIFI_STA);
+    refreshStationCandidates();
   } else {
     Serial.println("[WIFI] Boot: no saved Wi-Fi; starting access point");
     String error;

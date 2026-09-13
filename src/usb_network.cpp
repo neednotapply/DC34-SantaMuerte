@@ -16,6 +16,7 @@ extern "C" {
 #include <tusb.h>
 #include <device/usbd.h>
 #include <class/net/net_device.h>
+#include <device/usbd_pvt.h>
 }
 
 namespace {
@@ -42,6 +43,7 @@ uint32_t receivedFrames = 0;
 uint32_t droppedFrames = 0;
 char ncmMacString[13] = {};
 bool descriptorRegistered = false;
+bool transmitDeferred = false;
 
 void setReportedLinkState() {
   const bool linkUp = bridgeEnabled && stationConnected;
@@ -55,6 +57,34 @@ void clearQueue() {
   queueHead = 0;
   queueTail = 0;
   queueCount = 0;
+  portEXIT_CRITICAL(&queueMux);
+}
+
+// TinyUSB's NCM buffers belong to its device task. Calling tud_network_xmit()
+// from the Arduino loop can produce an NTB while the USB task is assembling
+// another one; Linux then accepts the interface but discards every frame. Keep
+// our Wi-Fi callback short and hand the actual transfer to TinyUSB, matching
+// Espressif's tinyusb_net implementation.
+void sendQueuedFrame(void *) {
+  QueuedFrame *frame = nullptr;
+  portENTER_CRITICAL(&queueMux);
+  if (queueCount) frame = &wifiToUsb[queueTail];
+  portEXIT_CRITICAL(&queueMux);
+
+  if (frame && tud_network_can_xmit(frame->length)) {
+    tud_network_xmit(frame, frame->length);
+    portENTER_CRITICAL(&queueMux);
+    if (queueCount && &wifiToUsb[queueTail] == frame) {
+      queueTail = (queueTail + 1) % WIFI_TO_USB_QUEUE_SIZE;
+      --queueCount;
+    }
+    transmitDeferred = false;
+    portEXIT_CRITICAL(&queueMux);
+    return;
+  }
+
+  portENTER_CRITICAL(&queueMux);
+  transmitDeferred = false;
   portEXIT_CRITICAL(&queueMux);
 }
 
@@ -91,8 +121,9 @@ uint16_t loadNcmDescriptor(uint8_t *destination, uint8_t *interfaceNumber) {
   const uint8_t descriptor[TUD_CDC_NCM_DESC_LEN] = {
       TUD_CDC_NCM_DESCRIPTOR(*interfaceNumber, descriptionString, macString,
                              static_cast<uint8_t>(0x80 | notificationEndpoint), 8, bulkEndpoint,
-                             static_cast<uint8_t>(0x80 | bulkEndpoint), 64, MAX_ETHERNET_FRAME, 16,
-                             NCM_NETWORK_CAPS_NONE)};
+                             static_cast<uint8_t>(0x80 | bulkEndpoint), 64, MAX_ETHERNET_FRAME, 50,
+                             static_cast<uint8_t>(NCM_NETWORK_CAPS_ETH_FILTER |
+                                                  NCM_NETWORK_CAPS_NTB_INPUT_SIZE))};
   memcpy(destination, descriptor, sizeof(descriptor));
   *interfaceNumber += 2;
   return sizeof(descriptor);
@@ -113,9 +144,13 @@ extern "C" bool tud_network_recv_cb(const uint8_t *source, uint16_t size) {
   if (esp_wifi_internal_tx(WIFI_IF_STA, const_cast<uint8_t *>(source), size) !=
       ESP_OK) {
     ++droppedFrames;
-    return true;
   }
-  ++sentFrames;
+  else {
+    ++sentFrames;
+  }
+  // Required by TinyUSB after consuming the packet; without this, only the
+  // first DHCP/ARP request can reach the Wi-Fi side of the bridge.
+  tud_network_recv_renew();
   return true;
 }
 
@@ -123,7 +158,12 @@ extern "C" uint16_t tud_network_xmit_cb(uint8_t *destination, void *reference,
                                           uint16_t length) {
   if (!destination || !reference || length == 0 || length > MAX_ETHERNET_FRAME)
     return 0;
-  memcpy(destination, reference, length);
+  // `reference` is our queued record, not the first Ethernet byte. Copying
+  // from the record itself prefixes every frame with its uint16_t length,
+  // which makes a host correctly enumerate NCM yet discard every packet.
+  const auto *frame = static_cast<const QueuedFrame *>(reference);
+  if (frame->length != length) return 0;
+  memcpy(destination, frame->bytes, length);
   return length;
 }
 
@@ -147,23 +187,11 @@ void usbNetworkBegin() {
 void usbNetworkService() {
   if (!bridgeEnabled || !stationConnected || !reportedLinkUp) return;
 
-  // Drain only a couple of frames per loop so the portal, serial console, NFC,
-  // and LED animation stay responsive under a busy host network.
-  for (uint8_t sent = 0; sent < 2; ++sent) {
-    QueuedFrame *frame = nullptr;
-    portENTER_CRITICAL(&queueMux);
-    if (queueCount) frame = &wifiToUsb[queueTail];
-    portEXIT_CRITICAL(&queueMux);
-    if (!frame) return;
-    if (!tud_network_can_xmit(frame->length)) return;
-    tud_network_xmit(frame, frame->length);
-    portENTER_CRITICAL(&queueMux);
-    if (queueCount && &wifiToUsb[queueTail] == frame) {
-      queueTail = (queueTail + 1) % WIFI_TO_USB_QUEUE_SIZE;
-      --queueCount;
-    }
-    portEXIT_CRITICAL(&queueMux);
-  }
+  portENTER_CRITICAL(&queueMux);
+  const bool shouldDefer = queueCount && !transmitDeferred;
+  if (shouldDefer) transmitDeferred = true;
+  portEXIT_CRITICAL(&queueMux);
+  if (shouldDefer) usbd_defer_func(sendQueuedFrame, nullptr, false);
 }
 
 void usbNetworkSetStationConnected(bool connected) {

@@ -195,6 +195,7 @@ bool usbHidDeletePayload(const String &name, String &error) {
 // ===========================================================================
 #if ARDUINO_USB_MODE  // 1 == Hardware CDC + JTAG: no HID peripheral available.
 
+void usbHidConfigure(bool) {}
 void usbHidBegin() {
   usbHidBeginStorage();
   usbTuiLog("HID", "USB HID needs OTG mode; not available in this build");
@@ -228,10 +229,14 @@ bool usbHidRunControl(UsbControlAction, String &error) {
 
 namespace {
 
-USBHIDKeyboard Keyboard;
-USBHIDMouse Mouse;
-USBHIDConsumerControl Consumer;
-USBHIDSystemControl SystemControl;
+// These used to be static objects, which made HID occupy an interface before
+// NVS had told us which USB profile to expose. Construct them only for Drive
+// boots, and crucially before USB.begin() builds the composite descriptor.
+USBHIDKeyboard *keyboard = nullptr;
+USBHIDMouse *mouse = nullptr;
+USBHIDConsumerControl *consumer = nullptr;
+USBHIDSystemControl *systemControl = nullptr;
+bool hidConfigured = false;
 
 volatile uint8_t hostLeds = 0;
 volatile bool sawHostReport = false;
@@ -341,38 +346,38 @@ void pressChord(const String &line) {
     u.toUpperCase();
     const uint8_t mod = ducky::modifierFor(u);
     if (mod) {
-      Keyboard.press(mod);
+      keyboard->press(mod);
       pressedAny = true;
       continue;
     }
     uint8_t code = 0;
     if (ducky::keyFor(tokens[i], code)) {
-      Keyboard.press(code);
+      keyboard->press(code);
       pressedAny = true;
     }
   }
   if (pressedAny) {
     delay(6);  // let the host register the chord before it lifts
-    Keyboard.releaseAll();
+    keyboard->releaseAll();
   }
 }
 
 void tapConsumer(uint16_t code) {
-  Consumer.press(code);
+  consumer->press(code);
   delay(6);
-  Consumer.release();
+  consumer->release();
 }
 
 bool tapSystem(uint8_t code) {
-  if (SystemControl.press(code) == 0) return false;
+  if (systemControl->press(code) == 0) return false;
   delay(6);
-  return SystemControl.release() != 0;
+  return systemControl->release() != 0;
 }
 
 void finish(const char *why) {
-  Keyboard.releaseAll();
-  Mouse.release(MOUSE_ALL);
-  Consumer.release();
+  keyboard->releaseAll();
+  mouse->release(MOUSE_ALL);
+  consumer->release();
   runState = RunState::IDLE;
   typing = false;
   repeatLeft = 0;
@@ -470,13 +475,13 @@ void executeNextLine() {
     const uint8_t n = tokenize(rest, t, 3);
     const int8_t dx = ducky::clampInt8(n > 0 ? t[0].toInt() : 0);
     const int8_t dy = ducky::clampInt8(n > 1 ? t[1].toInt() : 0);
-    Mouse.move(dx, dy, 0, 0);
+    mouse->move(dx, dy, 0, 0);
     prevLine = line;
     schedule(defaultDelayMs);
     return;
   }
   if (cmd == "MOUSESCROLL") {
-    Mouse.move(0, 0, ducky::clampInt8(rest.toInt()), 0);
+    mouse->move(0, 0, ducky::clampInt8(rest.toInt()), 0);
     prevLine = line;
     schedule(defaultDelayMs);
     return;
@@ -487,7 +492,7 @@ void executeNextLine() {
     const uint8_t button = b.startsWith("RIGHT")    ? MOUSE_RIGHT
                            : b.startsWith("MIDDLE") ? MOUSE_MIDDLE
                                                     : MOUSE_LEFT;
-    Mouse.click(button);
+    mouse->click(button);
     prevLine = line;
     schedule(defaultDelayMs);
     return;
@@ -528,7 +533,7 @@ bool startRun(const String &newScript, const String &name, String &error) {
   for (size_t i = 0; i < script.length(); ++i) {
     if (script[i] == '\n') ++linesTotal;
   }
-  Keyboard.releaseAll();
+  keyboard->releaseAll();
   runState = RunState::RUNNING;
   schedule(0);
   usbTuiLog("HID", String("running ") + name);
@@ -537,25 +542,37 @@ bool startRun(const String &newScript, const String &name, String &error) {
 
 }  // namespace
 
+void usbHidConfigure(bool enabled) {
+  hidConfigured = enabled;
+  if (!enabled) return;
+
+  // USB has not started yet. These constructors reserve their report types so
+  // the subsequent USB.begin() emits the Drive profile's HID interface.
+  keyboard = new USBHIDKeyboard();
+  mouse = new USBHIDMouse();
+  consumer = new USBHIDConsumerControl();
+  systemControl = new USBHIDSystemControl();
+}
+
 void usbHidBegin() {
   usbHidBeginStorage();
 
-  // These report types are collected into one HID interface during static init --
-  // before the core's boot-time USB.begin() -- so the device already enumerates
-  // as CDC serial plus keyboard/mouse/consumer/system HID. begin() here only
-  // wires up report semaphores and callbacks; it is not what puts HID on the bus.
-  // The device name comes from USB_PRODUCT / USB_MANUFACTURER (platformio.ini),
-  // set early enough to actually apply.
-  Keyboard.begin();
-  Mouse.begin();
-  Consumer.begin();
-  SystemControl.begin();
-  Keyboard.onEvent(ARDUINO_USB_HID_KEYBOARD_LED_EVENT, onKeyboardLed);
+  if (!hidConfigured) {
+    usbTuiLog("HID", "off in USB Wi-Fi profile");
+    return;
+  }
+
+  keyboard->begin();
+  mouse->begin();
+  consumer->begin();
+  systemControl->begin();
+  keyboard->onEvent(ARDUINO_USB_HID_KEYBOARD_LED_EVENT, onKeyboardLed);
 
   usbTuiLog("HID", "CDC + keyboard/mouse/consumer prepared");
 }
 
 void usbHidService() {
+  if (!hidConfigured) return;
   if (runState == RunState::IDLE) return;
   if (static_cast<int32_t>(millis() - nextAt) < 0) return;
 
@@ -571,13 +588,13 @@ void usbHidService() {
 
   if (typing) {
     if (typeIdx < typeText.length()) {
-      Keyboard.write(static_cast<uint8_t>(typeText[typeIdx++]));
+      keyboard->write(static_cast<uint8_t>(typeText[typeIdx++]));
       schedule(TYPE_CHAR_MS);
       return;
     }
     typing = false;
     if (typeTrailingEnter) {
-      Keyboard.write(KEY_RETURN);
+      keyboard->write(KEY_RETURN);
       typeTrailingEnter = false;
     }
     typeText = String();
@@ -588,13 +605,21 @@ void usbHidService() {
   executeNextLine();
 }
 
-bool usbHidBusy() { return runState != RunState::IDLE; }
+bool usbHidBusy() { return hidConfigured && runState != RunState::IDLE; }
 
 bool usbHidRunScript(const String &scriptText, String &error) {
+  if (!hidConfigured) {
+    error = "HID controls are unavailable in USB Wi-Fi mode.";
+    return false;
+  }
   return startRun(scriptText, "inline", error);
 }
 
 bool usbHidRunPayload(const String &name, String &error) {
+  if (!hidConfigured) {
+    error = "HID controls are unavailable in USB Wi-Fi mode.";
+    return false;
+  }
   String body;
   if (!usbHidReadPayload(name, body)) {
     error = "No such payload.";
@@ -604,7 +629,7 @@ bool usbHidRunPayload(const String &name, String &error) {
 }
 
 void usbHidStop() {
-  if (runState != RunState::IDLE) finish("stopped");
+  if (hidConfigured && runState != RunState::IDLE) finish("stopped");
 }
 
 uint8_t usbHidHostLeds() { return hostLeds; }
@@ -612,6 +637,7 @@ uint8_t usbHidHostLeds() { return hostLeds; }
 bool usbHidHostSeen() { return sawHostReport || static_cast<bool>(Serial); }
 
 String usbHidStatusLine() {
+  if (!hidConfigured) return "off (USB Wi-Fi profile)";
   if (runState == RunState::WAIT_LED) return "waiting on host LED (" + runName + ")";
   if (runState == RunState::RUNNING) {
     return "running " + runName + " " + String(linesDone) + "/" + String(linesTotal);
@@ -620,6 +646,10 @@ String usbHidStatusLine() {
 }
 
 bool usbHidRunControl(UsbControlAction action, String &error) {
+  if (!hidConfigured) {
+    error = "HID controls are unavailable in USB Wi-Fi mode.";
+    return false;
+  }
   if (runState != RunState::IDLE) {
     error = "A payload is already running.";
     return false;
@@ -640,9 +670,9 @@ bool usbHidRunControl(UsbControlAction action, String &error) {
     case UsbControlAction::PREVIOUS_TRACK:
       tapConsumer(CONSUMER_CONTROL_SCAN_PREVIOUS); sent = true; break;
     case UsbControlAction::PRESENT_NEXT:
-      sent = Keyboard.write(KEY_RIGHT_ARROW) == 1; break;
+      sent = keyboard->write(KEY_RIGHT_ARROW) == 1; break;
     case UsbControlAction::PRESENT_PREVIOUS:
-      sent = Keyboard.write(KEY_LEFT_ARROW) == 1; break;
+      sent = keyboard->write(KEY_LEFT_ARROW) == 1; break;
     case UsbControlAction::SYSTEM_SLEEP:
       sent = tapSystem(SYSTEM_CONTROL_STANDBY); break;
     case UsbControlAction::SYSTEM_WAKE:

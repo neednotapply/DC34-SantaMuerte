@@ -14,10 +14,13 @@
 // author and store payloads but can never fire one -- keystroke injection stays
 // a local, physical-admin act, the same trust boundary the console already has.
 
-// Registers the keyboard/mouse/consumer devices and starts the USB stack. Must
-// be called from setup() BEFORE the enumeration delay. This is the only place
-// USB.begin() runs (the core's pre-setup auto-begin is suppressed in
-// platformio.ini so the HID interfaces make it into the descriptor).
+// Chooses whether this boot reserves a HID interface. It must run before
+// USB.begin(): the Wi-Fi adapter profile intentionally leaves HID out so the
+// S3 has endpoints available for CDC serial + NCM.
+void usbHidConfigure(bool enabled);
+
+// Registers the keyboard/mouse/consumer devices and wires up their report
+// path. Must be called from setup() before USB.begin().
 void usbHidBegin();
 
 // Advances a running payload one atomic step. Never blocks; call every loop().

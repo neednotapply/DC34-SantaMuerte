@@ -57,10 +57,10 @@ Network mode is deliberately exclusive: choose **Santa Muerte AP** or saved
 **saved Wi-Fi**, never both. Changes, credential saves, clearing offerings, NFC
 writes/emulation, and reboot all require a `y` or `n` answer followed by Enter.
 
-On every boot, saved Wi-Fi gets the first connection attempt even if
-the badge was last running its own AP. If it cannot connect within two minutes,
-the badge restores its last configured AP automatically. The successful mode is
-then saved for the current session and status screens.
+On every boot, the badge tries its remembered Wi-Fi networks (most recently
+used first) for up to 30 seconds, even if it was last running its own AP. It
+then restores its last configured AP automatically, so recovery never requires
+waiting minutes or connecting a cable.
 
 The USB menu includes live LED controls and identify frames; NFC reading,
 writing, offering capture, and emulation; and recent text offerings, creating

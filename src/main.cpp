@@ -53,6 +53,23 @@ enum LedPattern : uint8_t {
   PATTERN_ESCANER,
   PATTERN_PLASMA,
   PATTERN_DERIVA,
+  // New entries are append-only so existing saved LED selections stay valid.
+  PATTERN_CANDLE,
+  PATTERN_BREATH,
+  PATTERN_EMBERS,
+  PATTERN_TIDE,
+  PATTERN_VIGIL,
+  PATTERN_COMET,
+  PATTERN_ROSARY,
+  PATTERN_VEIL,
+  PATTERN_PRISM,
+  PATTERN_SUNSET,
+  PATTERN_OCEAN,
+  PATTERN_NEBULA,
+  PATTERN_ORBIT,
+  PATTERN_BLOOM,
+  PATTERN_MIRAGE,
+  PATTERN_COSMOS,
   PATTERN_LIMIT
 };
 
@@ -77,6 +94,22 @@ constexpr LedPattern BOOT_BUTTON_PATTERN_ORDER[] = {
     PATTERN_AURORA,
     PATTERN_PLASMA,
     PATTERN_DERIVA,
+    PATTERN_CANDLE,
+    PATTERN_BREATH,
+    PATTERN_EMBERS,
+    PATTERN_TIDE,
+    PATTERN_VIGIL,
+    PATTERN_COMET,
+    PATTERN_ROSARY,
+    PATTERN_VEIL,
+    PATTERN_PRISM,
+    PATTERN_SUNSET,
+    PATTERN_OCEAN,
+    PATTERN_NEBULA,
+    PATTERN_ORBIT,
+    PATTERN_BLOOM,
+    PATTERN_MIRAGE,
+    PATTERN_COSMOS,
     PATTERN_OFF,
 };
 constexpr size_t BOOT_BUTTON_PATTERN_COUNT =
@@ -139,6 +172,9 @@ enum class BootButtonMenu : uint8_t { NONE, BRIGHTNESS, COLOUR };
 bool bootButtonRawPressed = false;
 bool bootButtonStablePressed = false;
 bool bootButtonLongPress = false;
+// A press that returns an active USB Wi-Fi bridge to normal badge networking
+// must not become a second action when the operator releases the button.
+bool bootButtonUsbWifiEscapeConsumed = false;
 int8_t bootButtonBrightnessDirection = 1;
 BootButtonMenu bootButtonMenu = BootButtonMenu::NONE;
 uint32_t bootButtonRawChangedAt = 0;
@@ -180,6 +216,22 @@ const char *patternToString(LedPattern pattern) {
     case PATTERN_ESCANER: return "escaner";
     case PATTERN_PLASMA: return "plasma";
     case PATTERN_DERIVA: return "deriva";
+    case PATTERN_CANDLE: return "candle";
+    case PATTERN_BREATH: return "breath";
+    case PATTERN_EMBERS: return "embers";
+    case PATTERN_TIDE: return "tide";
+    case PATTERN_VIGIL: return "vigil";
+    case PATTERN_COMET: return "comet";
+    case PATTERN_ROSARY: return "rosary";
+    case PATTERN_VEIL: return "veil";
+    case PATTERN_PRISM: return "prism";
+    case PATTERN_SUNSET: return "sunset";
+    case PATTERN_OCEAN: return "ocean";
+    case PATTERN_NEBULA: return "nebula";
+    case PATTERN_ORBIT: return "orbit";
+    case PATTERN_BLOOM: return "bloom";
+    case PATTERN_MIRAGE: return "mirage";
+    case PATTERN_COSMOS: return "cosmos";
     default: return "aurora";
   }
 }
@@ -200,6 +252,22 @@ LedPattern stringToPattern(const String &name) {
   if (name == "escaner") return PATTERN_ESCANER;
   if (name == "plasma") return PATTERN_PLASMA;
   if (name == "deriva") return PATTERN_DERIVA;
+  if (name == "candle") return PATTERN_CANDLE;
+  if (name == "breath") return PATTERN_BREATH;
+  if (name == "embers") return PATTERN_EMBERS;
+  if (name == "tide") return PATTERN_TIDE;
+  if (name == "vigil") return PATTERN_VIGIL;
+  if (name == "comet") return PATTERN_COMET;
+  if (name == "rosary") return PATTERN_ROSARY;
+  if (name == "veil") return PATTERN_VEIL;
+  if (name == "prism") return PATTERN_PRISM;
+  if (name == "sunset") return PATTERN_SUNSET;
+  if (name == "ocean") return PATTERN_OCEAN;
+  if (name == "nebula") return PATTERN_NEBULA;
+  if (name == "orbit") return PATTERN_ORBIT;
+  if (name == "bloom") return PATTERN_BLOOM;
+  if (name == "mirage") return PATTERN_MIRAGE;
+  if (name == "cosmos") return PATTERN_COSMOS;
   return PATTERN_AURORA;
 }
 
@@ -209,6 +277,11 @@ uint32_t selectedColor(float scale = 1.0f) {
   uint8_t g = (uint8_t)roundf(selectedG * scale);
   uint8_t b = (uint8_t)roundf(selectedB * scale);
   return strip.gamma32(strip.Color(r, g, b));
+}
+
+uint32_t hsvColor(uint16_t hue, uint8_t saturation, float value) {
+  const uint8_t v = static_cast<uint8_t>(roundf(constrain(value, 0.0f, 1.0f) * 255.0f));
+  return strip.gamma32(strip.ColorHSV(hue, saturation, v));
 }
 
 void fillPixels(uint32_t color) {
@@ -345,6 +418,29 @@ void runBootHostAction(UsbControlAction action) {
   usbTuiRefresh();
 }
 
+// USB Wi-Fi bridge mode deliberately owns the button only while it is actively
+// passing traffic. That gives a screenless way back to the portal without
+// changing the saved USB profile; a reboot therefore still remembers that NCM
+// was selected. Everywhere else, the owner's programmable button mapping wins.
+bool exitUsbWifiBridgeFromBootButton() {
+  const UsbNetworkState network = getUsbNetworkState();
+  if (!network.enabled) return false;
+
+  String error;
+  if (!usbNetworkSetEnabled(false, error)) {
+    Serial.printf("[BUTTON] USB Wi-Fi exit failed: %s\r\n", error.c_str());
+    usbTuiLog("BUTTON", error);
+    return false;
+  }
+
+  bootButtonMenu = BootButtonMenu::NONE;
+  signalUsbWifiExitCue();
+  Serial.println("[BUTTON] USB Wi-Fi bridge stopped; portal restored");
+  usbTuiLog("BUTTON", "USB Wi-Fi bridge stopped; portal restored");
+  usbTuiRefresh();
+  return true;
+}
+
 void advanceLedPatternFromBootButton() {
   size_t next = 0;
   for (size_t i = 0; i < BOOT_BUTTON_PATTERN_COUNT; ++i) {
@@ -451,6 +547,12 @@ void serviceBootButton() {
     if (bootButtonStablePressed) {
       bootButtonPressedAt = now;
       bootButtonLongPress = false;
+      bootButtonUsbWifiEscapeConsumed = exitUsbWifiBridgeFromBootButton();
+      return;
+    }
+
+    if (bootButtonUsbWifiEscapeConsumed) {
+      bootButtonUsbWifiEscapeConsumed = false;
       return;
     }
 
@@ -774,6 +876,198 @@ void renderDeriva(uint32_t now) {
 }
 
 // -----------------------------------------------------------------------------
+// Slow colour studies. These avoid hard on/off cuts and keep their fastest
+// motion well below strobe-like rates; each is a continuous field of light.
+// -----------------------------------------------------------------------------
+void renderCandle(uint32_t now) {
+  const float t = now * (0.00055f + animationSpeed * 0.000006f);
+  for (uint8_t i = 0; i < LED_COUNT; ++i) {
+    const float level = 0.30f + 0.30f * (sinf(t + i * 0.73f) + 1.0f) * 0.5f;
+    strip.setPixelColor(i, selectedColor(level));
+  }
+}
+
+void renderBreath(uint32_t now) {
+  const uint32_t period = animationInterval(9000, 3000);
+  const float phase = static_cast<float>(now % period) / period * TWO_PI;
+  fillPixels(selectedColor(0.18f + 0.55f * (sinf(phase - HALF_PI) + 1.0f) * 0.5f));
+}
+
+void renderEmbers(uint32_t now) {
+  const float t = now * (0.00042f + animationSpeed * 0.000006f);
+  for (uint8_t i = 0; i < LED_COUNT; ++i) {
+    const float slow = (sinf(t + i * 1.31f) + 1.0f) * 0.5f;
+    const float drift = (sinf(t * 0.57f + i * 2.47f) + 1.0f) * 0.5f;
+    strip.setPixelColor(i, selectedColor(0.08f + 0.48f * slow * drift));
+  }
+}
+
+void renderTide(uint32_t now) {
+  const uint32_t period = animationInterval(10000, 3600);
+  const float wave = static_cast<float>(now % period) / period * TWO_PI;
+  for (uint8_t i = 0; i < RING_COUNT; ++i) {
+    const float level = 0.14f + 0.56f * (sinf(wave - RING_RANK[i] * 0.95f) + 1.0f) * 0.5f;
+    strip.setPixelColor(RING[i], selectedColor(level));
+  }
+  for (uint8_t i = 0; i < HAND_COUNT; ++i) strip.setPixelColor(HANDS[i], selectedColor(0.19f));
+}
+
+void renderVigil(uint32_t now) {
+  const uint32_t period = animationInterval(11000, 4000);
+  const float phase = static_cast<float>(now % period) / period * TWO_PI;
+  for (uint8_t i = 0; i < RING_COUNT; ++i) {
+    const float rise = (sinf(phase - (RING_RANK_MAX - RING_RANK[i]) * 0.62f) + 1.0f) * 0.5f;
+    strip.setPixelColor(RING[i], selectedColor(0.10f + 0.38f * rise));
+  }
+  for (uint8_t i = 0; i < HAND_COUNT; ++i) strip.setPixelColor(HANDS[i], selectedColor(0.36f));
+}
+
+void renderComet(uint32_t now) {
+  const uint32_t period = animationInterval(12000, 4200);
+  const float head = static_cast<float>(now % period) / period * RING_COUNT;
+  for (uint8_t i = 0; i < RING_COUNT; ++i) {
+    float distance = fabsf(i - head);
+    distance = min(distance, static_cast<float>(RING_COUNT) - distance);
+    strip.setPixelColor(RING[i], selectedColor(0.06f + 0.78f * constrain(1.0f - distance / 2.8f, 0.0f, 1.0f)));
+  }
+  for (uint8_t i = 0; i < HAND_COUNT; ++i) strip.setPixelColor(HANDS[i], selectedColor(0.12f));
+}
+
+void renderRosary(uint32_t now) {
+  const uint32_t period = animationInterval(9000, 3200);
+  const float position = static_cast<float>(now % period) / period * RING_COUNT;
+  for (uint8_t i = 0; i < RING_COUNT; ++i) {
+    float distance = fabsf(i - position);
+    distance = min(distance, static_cast<float>(RING_COUNT) - distance);
+    strip.setPixelColor(RING[i], selectedColor(0.08f + 0.60f * constrain(1.0f - distance / 1.25f, 0.0f, 1.0f)));
+  }
+  strip.setPixelColor(HAND_TOP, selectedColor(0.30f));
+  strip.setPixelColor(HAND_LOWER_LEFT, selectedColor(0.16f));
+  strip.setPixelColor(HAND_LOWER_RIGHT, selectedColor(0.16f));
+}
+
+void renderVeil(uint32_t now) {
+  const uint32_t period = animationInterval(11000, 4000);
+  const float phase = static_cast<float>(now % period) / period * TWO_PI;
+  for (uint8_t i = 0; i < LED_COUNT; ++i) {
+    const float level = 0.16f + 0.42f * (sinf(phase + i * 0.55f) + 1.0f) * 0.5f;
+    strip.setPixelColor(i, selectedColor(level));
+  }
+}
+
+void renderPrism(uint32_t now) {
+  const uint32_t period = animationInterval(18000, 6500);
+  const uint16_t base = static_cast<uint16_t>((now % period) * 65536UL / period);
+  for (uint8_t i = 0; i < LED_COUNT; ++i) {
+    strip.setPixelColor(i, hsvColor(base + static_cast<uint32_t>(i) * 65536UL / LED_COUNT, 190, 0.54f));
+  }
+}
+
+void renderSunset(uint32_t now) {
+  const uint32_t period = animationInterval(16000, 6000);
+  const float phase = static_cast<float>(now % period) / period * TWO_PI;
+  for (uint8_t i = 0; i < LED_COUNT; ++i) {
+    const float mix = (sinf(phase + i * 0.45f) + 1.0f) * 0.5f;
+    const uint16_t hue = static_cast<uint16_t>(1500 + mix * 10500);  // red-orange to violet
+    strip.setPixelColor(i, hsvColor(hue, 205, 0.48f + 0.12f * mix));
+  }
+}
+
+void renderOcean(uint32_t now) {
+  const uint32_t period = animationInterval(15000, 5200);
+  const float phase = static_cast<float>(now % period) / period * TWO_PI;
+  for (uint8_t i = 0; i < LED_COUNT; ++i) {
+    const float mix = (sinf(phase - i * 0.60f) + 1.0f) * 0.5f;
+    const uint16_t hue = static_cast<uint16_t>(28500 + mix * 13000);
+    strip.setPixelColor(i, hsvColor(hue, 215, 0.40f + 0.18f * mix));
+  }
+}
+
+void renderNebula(uint32_t now) {
+  const float t = now * (0.00022f + animationSpeed * 0.000003f);
+  for (uint8_t i = 0; i < LED_COUNT; ++i) {
+    const float field = (sinf(t + i * 0.91f) + sinf(t * 0.61f - i * 1.43f) + 2.0f) * 0.25f;
+    const uint16_t hue = static_cast<uint16_t>(44000 + field * 15000);
+    strip.setPixelColor(i, hsvColor(hue, 180, 0.28f + 0.30f * field));
+  }
+}
+
+void renderOrbit(uint32_t now) {
+  const uint32_t period = animationInterval(18000, 6500);
+  const uint16_t base = static_cast<uint16_t>((now % period) * 65536UL / period);
+  for (uint8_t i = 0; i < RING_COUNT; ++i) {
+    strip.setPixelColor(RING[i], hsvColor(base + static_cast<uint32_t>(i) * 65536UL / RING_COUNT, 200, 0.52f));
+  }
+  for (uint8_t i = 0; i < HAND_COUNT; ++i) {
+    strip.setPixelColor(HANDS[i], hsvColor(base + 32768 + i * 2500, 190, 0.34f));
+  }
+}
+
+void renderBloom(uint32_t now) {
+  const uint32_t period = animationInterval(14000, 5000);
+  const uint16_t base = static_cast<uint16_t>((now % period) * 65536UL / period);
+  for (uint8_t i = 0; i < RING_COUNT; ++i) {
+    const uint16_t hue = base + static_cast<uint16_t>((RING_RANK_MAX - RING_RANK[i]) * 7500);
+    strip.setPixelColor(RING[i], hsvColor(hue, 205, 0.48f));
+  }
+  for (uint8_t i = 0; i < HAND_COUNT; ++i) strip.setPixelColor(HANDS[i], hsvColor(base, 195, 0.43f));
+}
+
+void renderMirage(uint32_t now) {
+  const float t = now * (0.00020f + animationSpeed * 0.000003f);
+  for (uint8_t i = 0; i < LED_COUNT; ++i) {
+    const float field = (sinf(t + i * 0.63f) + 1.0f) * 0.5f;
+    const uint16_t hue = static_cast<uint16_t>(7600 + field * 39000);
+    strip.setPixelColor(i, hsvColor(hue, 170, 0.34f + 0.20f * field));
+  }
+}
+
+void renderCosmos(uint32_t now) {
+  const float t = now * (0.00018f + animationSpeed * 0.0000025f);
+  for (uint8_t i = 0; i < LED_COUNT; ++i) {
+    const float field = (sinf(t * 1.3f + i * 1.77f) + 1.0f) * 0.5f;
+    const uint16_t hue = static_cast<uint16_t>(38500 + field * 21000);
+    strip.setPixelColor(i, hsvColor(hue, 150, 0.12f + 0.34f * field));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// USB Wi-Fi bridge indication
+//
+// This is deliberately not a LedPattern: it is a live hardware status, not an
+// animation the owner can select, save, or find in LED Tools. The hands are the
+// modem core and paired waves travel from the shoulders into the halo. It uses
+// the owner's colour, brightness and speed settings, but moves slowly and
+// continuously: no flashes, strobes, or abrupt full-strip transitions.
+// -----------------------------------------------------------------------------
+void renderUsbWifiRadio(uint32_t now) {
+  strip.clear();
+
+  const uint32_t period = animationInterval(8000, 3200);
+  const float wave = static_cast<float>(now % period) / period *
+                     (RING_RANK_MAX + 1.15f);
+  const float echo = wave - 1.20f;
+  for (uint8_t i = 0; i < RING_COUNT; ++i) {
+    const float distance = static_cast<float>(RING_RANK[i]);
+    const float primary = constrain(1.0f - fabsf(distance - wave) * 1.30f,
+                                    0.0f, 1.0f);
+    const float trailing = constrain(1.0f - fabsf(distance - echo) * 1.5f,
+                                     0.0f, 1.0f) * 0.32f;
+    // The halo never snaps black: a low carrier glow makes this a readable
+    // connection state without the on/off contrast of a strobe.
+    const float level = 0.08f + 0.64f * max(primary, trailing);
+    strip.setPixelColor(RING[i], selectedColor(level));
+  }
+
+  const float core = 0.32f + 0.18f *
+                      (sinf(static_cast<float>(now) * TWO_PI / period) + 1.0f) *
+                          0.5f;
+  for (uint8_t i = 0; i < HAND_COUNT; ++i) {
+    strip.setPixelColor(HANDS[i], selectedColor(core));
+  }
+}
+
+// -----------------------------------------------------------------------------
 // Tag acknowledgement
 //
 // Offering mode exists to be used by someone who is not looking at the portal
@@ -792,6 +1086,12 @@ constexpr uint8_t CUE_MIN_BRIGHTNESS = 140;
 
 TagCue activeCue = TagCue::NONE;
 uint32_t cueStartedAt = 0;
+
+// One warm, smoothly fading acknowledgement confirms the physical USB Wi-Fi
+// escape without introducing a repeated flash pattern.
+constexpr uint32_t USB_WIFI_EXIT_CUE_MS = 1300;
+bool usbWifiExitCueActive = false;
+uint32_t usbWifiExitCueStartedAt = 0;
 
 uint32_t cueDurationMs() {
   return activeCue == TagCue::REJECTED ? CUE_REJECTED_MS : CUE_ACCEPTED_MS;
@@ -849,6 +1149,25 @@ bool renderTagCue(uint32_t now) {
   const float t = static_cast<float>(elapsed) / duration;
   if (activeCue == TagCue::REJECTED) renderCueRejected(t);
   else renderCueAccepted(t);
+  return true;
+}
+
+bool renderUsbWifiExitCue(uint32_t now) {
+  if (!usbWifiExitCueActive) return false;
+
+  const uint32_t elapsed = now - usbWifiExitCueStartedAt;
+  if (elapsed >= USB_WIFI_EXIT_CUE_MS) {
+    usbWifiExitCueActive = false;
+    return false;
+  }
+
+  // One gentle amber breath, then return to the saved animation.
+  const float phase = static_cast<float>(elapsed) / USB_WIFI_EXIT_CUE_MS;
+  const float level = 0.12f + 0.78f * sinf(phase * PI);
+  strip.clear();
+  const uint32_t amber = strip.gamma32(strip.Color(
+      static_cast<uint8_t>(255 * level), static_cast<uint8_t>(125 * level), 0));
+  for (uint8_t i = 0; i < LED_COUNT; ++i) strip.setPixelColor(i, amber);
   return true;
 }
 
@@ -932,7 +1251,8 @@ void updateLEDs() {
       constrain(static_cast<float>(elapsedMs) / 20.0f, 0.25f, 5.0f);
 
   uint8_t wantBrightness = identifyFrame ? IDENTIFY_BRIGHTNESS : ledBrightness;
-  if (activeCue != TagCue::NONE && wantBrightness < CUE_MIN_BRIGHTNESS) {
+  if ((activeCue != TagCue::NONE || usbWifiExitCueActive) &&
+      wantBrightness < CUE_MIN_BRIGHTNESS) {
     wantBrightness = CUE_MIN_BRIGHTNESS;
   }
   if (appliedBrightness != wantBrightness) {
@@ -948,8 +1268,23 @@ void updateLEDs() {
     return;
   }
 
+  // A screenless exit from USB Wi-Fi needs a conspicuous acknowledgement too.
+  if (renderUsbWifiExitCue(now)) {
+    strip.show();
+    return;
+  }
+
   // A tag was just read. This outranks the running pattern for under a second.
   if (renderTagCue(now)) {
+    strip.show();
+    return;
+  }
+
+  // This is intentionally evaluated after acknowledgement cues and before the
+  // saved pattern: active NCM traffic owns the visual state, but never changes
+  // what LED Tools will show or restore once the bridge is stopped.
+  if (getUsbNetworkState().enabled) {
+    renderUsbWifiRadio(now);
     strip.show();
     return;
   }
@@ -970,6 +1305,22 @@ void updateLEDs() {
     case PATTERN_ESCANER: renderEscaner(now); break;
     case PATTERN_PLASMA: renderPlasma(now); break;
     case PATTERN_DERIVA: renderDeriva(now); break;
+    case PATTERN_CANDLE: renderCandle(now); break;
+    case PATTERN_BREATH: renderBreath(now); break;
+    case PATTERN_EMBERS: renderEmbers(now); break;
+    case PATTERN_TIDE: renderTide(now); break;
+    case PATTERN_VIGIL: renderVigil(now); break;
+    case PATTERN_COMET: renderComet(now); break;
+    case PATTERN_ROSARY: renderRosary(now); break;
+    case PATTERN_VEIL: renderVeil(now); break;
+    case PATTERN_PRISM: renderPrism(now); break;
+    case PATTERN_SUNSET: renderSunset(now); break;
+    case PATTERN_OCEAN: renderOcean(now); break;
+    case PATTERN_NEBULA: renderNebula(now); break;
+    case PATTERN_ORBIT: renderOrbit(now); break;
+    case PATTERN_BLOOM: renderBloom(now); break;
+    case PATTERN_MIRAGE: renderMirage(now); break;
+    case PATTERN_COSMOS: renderCosmos(now); break;
     case PATTERN_OFF: strip.clear(); break;
     case PATTERN_LIMIT: break;
   }
@@ -1005,6 +1356,11 @@ void ledRenderTask(void *parameter) {
 void signalTagCue(bool accepted) {
   activeCue = accepted ? TagCue::ACCEPTED : TagCue::REJECTED;
   cueStartedAt = millis();
+}
+
+void signalUsbWifiExitCue() {
+  usbWifiExitCueActive = true;
+  usbWifiExitCueStartedAt = millis();
 }
 
 String getLedPixelsJson() {
@@ -1251,12 +1607,14 @@ void setup() {
   const UsbDeviceProfile usbProfile = settingsReady
                                           ? getPersistentUsbDeviceProfile()
                                           : UsbDeviceProfile::NETWORK;
-  // Wire up the HID report path and the host-LED callback. The composite
-  // CDC + HID device is completed below, after the profile-dependent interface
-  // has registered its descriptor.
-  usbHidBegin();
+  // Select every USB function before beginning the controller. The Network
+  // profile is deliberately CDC + NCM only; Drive keeps CDC + HID + storage.
+  // That keeps the S3's limited endpoint budget from making NCM enumerate as
+  // an incomplete configuration on hosts.
+  usbHidConfigure(usbProfile == UsbDeviceProfile::DRIVE);
   usbNetworkConfigure(usbProfile == UsbDeviceProfile::NETWORK);
   usbDriveConfigure(usbProfile == UsbDeviceProfile::DRIVE);
+  usbHidBegin();
   USB.begin();
   usbNetworkBegin();
   delay(1500);

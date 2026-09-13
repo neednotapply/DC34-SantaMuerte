@@ -381,6 +381,22 @@ const char *ledPatternLabel(const char *pattern) {
   if (!strcmp(pattern, "aurora")) return tr("Ola morada", "Purple Wave");
   if (!strcmp(pattern, "plasma")) return "Plasma";
   if (!strcmp(pattern, "deriva")) return tr("Deriva", "Drift");
+  if (!strcmp(pattern, "candle")) return tr("Vela", "Candle");
+  if (!strcmp(pattern, "breath")) return tr("Respira", "Breathe");
+  if (!strcmp(pattern, "embers")) return tr("Brasas", "Embers");
+  if (!strcmp(pattern, "tide")) return tr("Marea", "Tide");
+  if (!strcmp(pattern, "vigil")) return tr("Vigilia", "Vigil");
+  if (!strcmp(pattern, "comet")) return tr("Cometa", "Comet");
+  if (!strcmp(pattern, "rosary")) return tr("Rosario", "Rosary");
+  if (!strcmp(pattern, "veil")) return tr("Velo", "Veil");
+  if (!strcmp(pattern, "prism")) return tr("Prisma", "Prism");
+  if (!strcmp(pattern, "sunset")) return tr("Ocaso", "Sunset");
+  if (!strcmp(pattern, "ocean")) return tr("Océano", "Ocean");
+  if (!strcmp(pattern, "nebula")) return tr("Nebulosa", "Nebula");
+  if (!strcmp(pattern, "orbit")) return tr("Órbita", "Orbit");
+  if (!strcmp(pattern, "bloom")) return tr("Florecer", "Bloom");
+  if (!strcmp(pattern, "mirage")) return tr("Espejismo", "Mirage");
+  if (!strcmp(pattern, "cosmos")) return "Cosmos";
   if (!strcmp(pattern, "off")) return tr("Apagado", "Off");
   return pattern;
 }
@@ -516,7 +532,23 @@ void renderLedAnimations() {
   tuiLine("13 Aurora");
   tuiLine("14 Plasma");
   tuiLine(tr("15 Deriva", "15 Drift"));
-  tuiLine(tr("16 Apagado", "16 Off"));
+  tuiLine(tr("16 Vela", "16 Candle"));
+  tuiLine(tr("17 Respira", "17 Breathe"));
+  tuiLine(tr("18 Brasas", "18 Embers"));
+  tuiLine(tr("19 Marea", "19 Tide"));
+  tuiLine(tr("20 Vigilia", "20 Vigil"));
+  tuiLine(tr("21 Cometa", "21 Comet"));
+  tuiLine(tr("22 Rosario", "22 Rosary"));
+  tuiLine(tr("23 Velo", "23 Veil"));
+  tuiLine(tr("24 Prisma", "24 Prism"));
+  tuiLine(tr("25 Ocaso", "25 Sunset"));
+  tuiLine(tr("26 Océano", "26 Ocean"));
+  tuiLine(tr("27 Nebulosa", "27 Nebula"));
+  tuiLine(tr("28 Órbita", "28 Orbit"));
+  tuiLine(tr("29 Florecer", "29 Bloom"));
+  tuiLine(tr("30 Espejismo", "30 Mirage"));
+  tuiLine("31 Cosmos");
+  tuiLine(tr("32 Apagado", "32 Off"));
 }
 
 void renderLedBrightness() {
@@ -1012,11 +1044,15 @@ void handleScreenKey(char key) {
     else if (key == '5') beginConfirm(Confirm::SWITCH_HOME, tr("Usar el Wi-Fi guardado (apaga el AP)", "Use saved Wi-Fi (turns the AP off)"));
     else if (key == 'v' || key == 'V') { revealSecrets = true; revealUntil = millis() + REVEAL_MS; setNotice(tr("Claves visibles durante 10 segundos.", "Passwords visible for 10 seconds.")); }
   } else if (screen == Screen::LED) {
-    const char *patterns[] = {"solid","rainbow","chase","pulse","twinkle","theater","aurora","off","ofrenda","corona","aureola","encuentro","manos","escaner","plasma","deriva"};
+    const char *patterns[] = {
+        "solid","rainbow","chase","pulse","twinkle","theater","aurora","off",
+        "ofrenda","corona","aureola","encuentro","manos","escaner","plasma","deriva",
+        "candle","breath","embers","tide","vigil","comet","rosary","veil",
+        "prism","sunset","ocean","nebula","orbit","bloom","mirage","cosmos"};
     int index = -1;
     if (key >= '1' && key <= '9') index = key - '1';
     else if (key >= 'a' && key <= 'g') index = 9 + key - 'a';
-    if (index >= 0 && index < 16) {
+    if (index >= 0 && index < static_cast<int>(sizeof(patterns) / sizeof(patterns[0]))) {
       const bool applied = setLedTuiState(patterns[index], -1, -1, -1, -1, -1);
       setNotice(applied ? tr("Patrón actualizado.", "Pattern updated.") : tr("Patrón inválido.", "Invalid pattern."), !applied);
     }
@@ -1108,8 +1144,11 @@ void handleScreenSelection(int selection) {
     const char *patterns[] = {
         "ofrenda", "solid", "pulse", "aureola", "corona", "encuentro",
         "escaner", "chase", "manos", "theater", "twinkle", "rainbow",
-        "aurora", "plasma", "deriva", "off"};
-    if (selection >= 1 && selection <= 16) {
+        "aurora", "plasma", "deriva", "candle", "breath", "embers",
+        "tide", "vigil", "comet", "rosary", "veil", "prism", "sunset",
+        "ocean", "nebula", "orbit", "bloom", "mirage", "cosmos", "off"};
+    if (selection >= 1 &&
+        selection <= static_cast<int>(sizeof(patterns) / sizeof(patterns[0]))) {
       const bool applied = setLedTuiState(patterns[selection - 1], -1, -1, -1,
                                           -1, -1);
       setNotice(applied ? tr("Patrón actualizado.", "Pattern updated.")

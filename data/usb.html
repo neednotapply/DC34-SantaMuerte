@@ -315,7 +315,14 @@
         </section>
 
         <section class="card pad wide-card" aria-label="Red Wi-Fi USB">
-          <div class="card-head"><div><div class="eyebrow">Red Wi-Fi USB</div><h2>Adaptador Wi-Fi</h2></div></div>
+          <div class="card-head"><div><div class="eyebrow">Modos USB</div><h2>Usa un modo USB a la vez</h2></div></div>
+          <div class="button-status"><div><b id="usbProfile">Modo USB: revisando…</b><span id="usbDriveStatus"></span></div></div>
+          <div class="usb-mode-actions" aria-label="Modos USB">
+            <button id="selectNetworkProfile" class="button-save" type="button">Modo Red Wi-Fi</button>
+            <button id="selectDriveProfile" class="button-save" type="button">Unidad Field Notes</button>
+          </div>
+          <div id="usbNetworkPanel">
+          <div class="card-head" style="margin-top:18px"><div><div class="eyebrow">Red Wi-Fi USB</div><h2>Adaptador Wi-Fi</h2></div></div>
           <p class="control-copy">Comparte el Wi-Fi guardado con el equipo conectado. USB Serial y los controles HID siguen disponibles.</p>
           <div class="details">
             <div class="detail"><span>NCM</span><strong id="usbNetworkNcm">Revisando…</strong></div>
@@ -326,12 +333,8 @@
             <button id="startUsbNetwork" class="button-save" type="button">Iniciar Wi-Fi USB</button>
             <button id="stopUsbNetwork" class="button-save" type="button">Detener Wi-Fi USB</button>
           </div>
-          <div class="button-status"><div><b id="usbProfile">Modo USB: revisando…</b><span id="usbDriveStatus"></span></div></div>
-          <div class="usb-mode-actions" aria-label="Modos USB">
-            <button id="selectNetworkProfile" class="button-save" type="button">Usar modo Red Wi-Fi</button>
-            <button id="selectDriveProfile" class="button-save" type="button">Usar modo Unidad Field Notes</button>
-          </div>
           <div id="usbNetworkNote" class="button-note" role="status" aria-live="polite">Al iniciar el puente, el tráfico del Wi-Fi guardado pasa al equipo. Deténlo para usar ese enlace normalmente desde el badge.</div>
+          </div>
         </section>
       </section>
 
@@ -676,7 +679,7 @@
     $('#selectDriveProfile').disabled=isDrive;
     $('#selectNetworkProfile').classList.toggle('active',!isDrive);
     $('#selectDriveProfile').classList.toggle('active',isDrive);
-    document.getElementById('usbNetworkActions').hidden=isDrive;
+    document.getElementById('usbNetworkPanel').hidden=isDrive;
   }
   function applyUsbNetwork(network){
     $('#usbNetworkNcm').textContent=network.available?T('Disponible'):T('No disponible');
