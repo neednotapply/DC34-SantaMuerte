@@ -314,26 +314,22 @@
           <a class="scripting-link" href="/scripting">Abrir constructor de scripts</a>
         </section>
 
-        <section class="card pad wide-card" aria-label="Red Wi-Fi USB">
+        <section class="card pad wide-card" aria-label="WiFi Tethering">
           <div class="card-head"><div><div class="eyebrow">Modos USB</div><h2>Usa un modo USB a la vez</h2></div></div>
           <div class="button-status"><div><b id="usbProfile">Modo USB: revisando…</b><span id="usbDriveStatus"></span></div></div>
           <div class="usb-mode-actions" aria-label="Modos USB">
-            <button id="selectNetworkProfile" class="button-save" type="button">Modo Red Wi-Fi</button>
+            <button id="selectNetworkProfile" class="button-save" type="button">Modo WiFi Tethering</button>
             <button id="selectDriveProfile" class="button-save" type="button">Unidad Field Notes</button>
           </div>
           <div id="usbNetworkPanel">
-          <div class="card-head" style="margin-top:18px"><div><div class="eyebrow">Red Wi-Fi USB</div><h2>Adaptador Wi-Fi</h2></div></div>
-          <p class="control-copy">Comparte el Wi-Fi guardado con el equipo conectado. USB Serial y los controles HID siguen disponibles.</p>
+          <div class="card-head" style="margin-top:18px"><div><div class="eyebrow">WiFi Tethering</div><h2>WiFi Tethering</h2></div></div>
+          <p class="control-copy">Comparte el Wi-Fi guardado con el equipo conectado mediante NCM. USB Serial sigue disponible.</p>
           <div class="details">
             <div class="detail"><span>NCM</span><strong id="usbNetworkNcm">Revisando…</strong></div>
             <div class="detail"><span>Enlace</span><strong id="usbNetworkLink">—</strong></div>
             <div class="detail"><span>Tráfico</span><strong id="usbNetworkTraffic">—</strong></div>
           </div>
-          <div class="row" id="usbNetworkActions">
-            <button id="startUsbNetwork" class="button-save" type="button">Iniciar Wi-Fi USB</button>
-            <button id="stopUsbNetwork" class="button-save" type="button">Detener Wi-Fi USB</button>
-          </div>
-          <div id="usbNetworkNote" class="button-note" role="status" aria-live="polite">Al iniciar el puente, el tráfico del Wi-Fi guardado pasa al equipo. Deténlo para usar ese enlace normalmente desde el badge.</div>
+          <div id="usbNetworkNote" class="button-note" role="status" aria-live="polite">El puente sigue al Wi-Fi guardado: empieza solo al conectarse y no hay nada que iniciar. Sin Wi-Fi guardado el badge sale de este modo y vuelve a la Unidad Field Notes.</div>
           </div>
         </section>
       </section>
@@ -673,7 +669,7 @@
   }
   function applyUsbProfile(state){
     const drive=state.drive||{}; const isDrive=state.usbProfile==='drive';
-    $('#usbProfile').textContent=T(isDrive?'Modo USB: Unidad Field Notes':'Modo USB: Red Wi-Fi');
+    $('#usbProfile').textContent=T(isDrive?'Modo USB: Unidad Field Notes':'Modo USB: WiFi Tethering');
     $('#usbDriveStatus').textContent=isDrive?T('Solo lectura: ')+(drive.notes||0)+' '+T('notas')+' // '+(drive.scripts||0)+' '+T('scripts'):T('Elige Unidad Field Notes para montar la unidad de solo lectura.');
     $('#selectNetworkProfile').disabled=!isDrive;
     $('#selectDriveProfile').disabled=isDrive;
@@ -683,10 +679,8 @@
   }
   function applyUsbNetwork(network){
     $('#usbNetworkNcm').textContent=network.available?T('Disponible'):T('No disponible');
-    $('#usbNetworkLink').textContent=network.linkUp?T('Puente activo'):network.stationConnected?T('Listo para iniciar'):T('Wi-Fi guardado desconectado');
+    $('#usbNetworkLink').textContent=network.linkUp?T('Puente activo'):network.stationConnected?T('Wi-Fi conectado, sin puente'):T('Wi-Fi guardado desconectado');
     $('#usbNetworkTraffic').textContent=(network.sentFrames||0)+' ↑  '+(network.receivedFrames||0)+' ↓';
-    $('#startUsbNetwork').disabled=!network.available||!network.stationConnected||!!network.enabled;
-    $('#stopUsbNetwork').disabled=!network.enabled;
   }
   function loadControls(){
     fetch('/api/usb/controls',{cache:'no-store'}).then(r=>r.json()).then(state=>{
@@ -704,16 +698,6 @@
     }).catch(()=>toast('No se pudo enviar el control USB.')).finally(()=>{
       document.querySelectorAll('[data-usb-action]').forEach(button=>button.disabled=false);
     });
-  }
-  function setUsbNetwork(enabled){
-    const start=$('#startUsbNetwork'), stop=$('#stopUsbNetwork');
-    start.disabled=true; stop.disabled=true;
-    post('/api/usb/network',{enabled:enabled?'1':'0'}).then(({ok,j})=>{
-      if(!ok||!j.ok){ $('#usbNetworkNote').textContent=T((j&&j.error)||'No se pudo cambiar Wi-Fi USB.'); return; }
-      applyControls(j);
-      $('#usbNetworkNote').textContent=T(enabled?'Puente Wi-Fi USB iniciado.':'Puente Wi-Fi USB detenido.');
-      toast(enabled?'Puente Wi-Fi USB iniciado.':'Puente Wi-Fi USB detenido.');
-    }).catch(()=>{ $('#usbNetworkNote').textContent=T('No se pudo cambiar Wi-Fi USB.'); });
   }
   function selectUsbProfile(profile){
     if(!window.confirm(T('Cambiar el modo USB reiniciará el badge. ¿Continuar?'))) return;
@@ -801,8 +785,6 @@
       applyControls(j); $('#buttonNote').textContent=T('Acciones del botón guardadas.'); toast('Acciones del botón guardadas.');
     }).catch(()=>{ $('#buttonNote').textContent=T('No se guardaron las acciones del botón.'); }).finally(()=>$('#saveButtonActions').disabled=false);
   });
-  $('#startUsbNetwork').addEventListener('click',()=>setUsbNetwork(true));
-  $('#stopUsbNetwork').addEventListener('click',()=>setUsbNetwork(false));
   $('#selectNetworkProfile').addEventListener('click',()=>selectUsbProfile('network'));
   $('#selectDriveProfile').addEventListener('click',()=>selectUsbProfile('drive'));
 

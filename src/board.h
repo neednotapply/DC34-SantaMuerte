@@ -57,6 +57,7 @@ struct BoardPost {
   bool textInImage;
   String text;
   bool hasImage;
+  uint32_t imageLength;
 };
 
 // Opens or creates both ring files and recovers their write cursors. Safe to

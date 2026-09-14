@@ -18,6 +18,11 @@ struct UsbNetworkState {
 void usbNetworkConfigure(bool enabled);
 void usbNetworkBegin();
 void usbNetworkService();
+
+// The bridge follows the saved Wi-Fi link; there is nothing to start by hand.
+// Selecting the WiFi Tethering profile is itself the instruction to tether, and
+// a profile that only tethered after a second, invisible switch looked exactly
+// the same whether it was working or sitting idle: no badge access point, and
+// a host that sees a network adapter carrying nothing.
 void usbNetworkSetStationConnected(bool connected);
-bool usbNetworkSetEnabled(bool enabled, String &error);
 UsbNetworkState getUsbNetworkState();

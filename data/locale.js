@@ -53,20 +53,22 @@
     'Apagar el equipo no se puede asignar al botón.': 'Powering off the computer cannot be assigned to the button.',
     'No se pudieron guardar las acciones del botón.': 'Could not save the button actions.',
     'Abrir constructor de scripts': 'Open script builder',
-    'Red Wi-Fi USB': 'USB Wi-Fi network', 'Adaptador Wi-Fi': 'Wi-Fi adapter',
+    'WiFi Tethering': 'WiFi Tethering',
     'Modos USB': 'USB Modes', 'Usa un modo USB a la vez': 'Use one USB mode at a time',
-    'Modo Red Wi-Fi': 'Wi-Fi Network mode', 'Unidad Field Notes': 'Field Notes Drive',
-    'Comparte el Wi-Fi guardado con el equipo conectado. USB Serial y los controles HID siguen disponibles.': 'Shares saved Wi-Fi with the connected computer. USB Serial and HID controls stay available.',
+    'Modo WiFi Tethering': 'WiFi Tethering mode', 'Unidad Field Notes': 'Field Notes Drive',
+    'Comparte el Wi-Fi guardado con el equipo conectado mediante NCM. USB Serial sigue disponible.': 'Shares saved Wi-Fi with the connected computer through NCM. USB Serial remains available.',
     'Enlace': 'Link', 'Tráfico': 'Traffic', 'Disponible': 'Available', 'No disponible': 'Unavailable',
     'Puente activo': 'Bridge active', 'Listo para iniciar': 'Ready to start',
+    'Wi-Fi conectado, sin puente': 'Wi-Fi connected, not bridging',
+    'El puente sigue al Wi-Fi guardado: empieza solo al conectarse y no hay nada que iniciar. Sin Wi-Fi guardado el badge sale de este modo y vuelve a la Unidad Field Notes.': 'The bridge follows saved Wi-Fi: it starts on its own once connected, and there is nothing to start by hand. With no saved Wi-Fi the badge leaves this mode and returns to the Field Notes Drive.',
     'Wi-Fi guardado desconectado': 'Saved Wi-Fi disconnected',
-    'Iniciar Wi-Fi USB': 'Start USB Wi-Fi', 'Detener Wi-Fi USB': 'Stop USB Wi-Fi',
+    'Iniciar WiFi Tethering': 'Start WiFi Tethering', 'Detener WiFi Tethering': 'Stop WiFi Tethering',
     'Al iniciar el puente, el tráfico del Wi-Fi guardado pasa al equipo. Deténlo para usar ese enlace normalmente desde el badge.': 'When the bridge starts, saved Wi-Fi traffic goes to the computer. Stop it before using that link normally from the badge.',
-    'Puente Wi-Fi USB iniciado.': 'USB Wi-Fi bridge started.',
-    'Puente Wi-Fi USB detenido.': 'USB Wi-Fi bridge stopped.',
-    'No se pudo cambiar Wi-Fi USB.': 'Could not change USB Wi-Fi.',
+    'WiFi Tethering iniciado.': 'WiFi Tethering started.',
+    'WiFi Tethering detenido.': 'WiFi Tethering stopped.',
+    'No se pudo cambiar WiFi Tethering.': 'Could not change WiFi Tethering.',
     'Modo USB: revisando…': 'USB mode: checking…',
-    'Modo USB: Red Wi-Fi': 'USB mode: Wi-Fi Network',
+    'Modo USB: WiFi Tethering': 'USB mode: WiFi Tethering',
     'Modo USB: Unidad Field Notes': 'USB mode: Field Notes Drive',
     'Solo lectura: ': 'Read-only: ', 'notas': 'notes', 'scripts': 'scripts',
     'Elige Unidad Field Notes para montar la unidad de solo lectura.': 'Choose Field Notes Drive to mount the read-only drive.',
@@ -199,8 +201,8 @@
     'Conectar al Wi-Fi guardado': 'Connect to saved Wi-Fi',
     'Wi-Fi guardado sin configurar.': 'Saved Wi-Fi not configured.',
     'Nombre de red (SSID)': 'Network name (SSID)',
-    'Contraseña de red': 'Network password',
-    'La contraseña se guarda en el badge y no vuelve a mostrarse. Escríbela cada vez que cambies esta conexión.': 'The password is saved on the badge and is not shown again. Enter it whenever you change this connection.',
+    'Contraseña de red (opcional)': 'Network password (optional)',
+    'Déjala vacía para una red abierta. Si usas una contraseña, se guarda en el badge y debe tener 8 a 63 caracteres ASCII visibles.': 'Leave it blank for an open network. If you use a password, it is saved on the badge and must be 8 to 63 visible ASCII characters.',
     'Guardar y conectar': 'Save and connect',
     'Abre el badge en': 'Open the badge at', 'o': 'or',
     'Nombre enviado al router:': 'Name sent to the router:',
@@ -209,9 +211,13 @@
     'El Wi-Fi guardado no está conectado.': 'Saved Wi-Fi is not connected.',
     'Guardado. El badge está conectando a tu Wi-Fi guardado.': 'Saved. The badge is connecting to your saved Wi-Fi.',
     'Guardando y conectando…': 'Saving and connecting…',
+    'Probando la red…': 'Testing the network…',
+    'Probando la red… se guarda solo si conecta.': 'Testing the network… it is only saved if it connects.',
+    'No se pudo conectar. Esa red no se guardó.': 'Could not connect. That network was not saved.',
+    'Probando:': 'Testing:', 'No se guardó:': 'Not saved:',
     'El nombre de red debe tener 1 a 32 bytes.': 'The network name must be 1 to 32 bytes.',
     'El SSID guardado debe tener 1 a 32 bytes sin controles.': 'The saved Wi-Fi SSID must be 1 to 32 bytes with no control characters.',
-    'Faltan el nombre y la contraseña del Wi-Fi guardado.': 'The saved Wi-Fi name and password are required.',
+    'Falta el nombre del Wi-Fi guardado.': 'The saved Wi-Fi name is required.',
     'No cargó el Wi-Fi guardado.': 'Saved Wi-Fi did not load.',
     'No se guardó el Wi-Fi guardado.': 'Saved Wi-Fi was not saved.',
     'El Wi-Fi guardado no se pudo guardar.': 'Saved Wi-Fi could not be saved.',
@@ -438,7 +444,18 @@
     'Tag sin datos. Se ofrendó su UID.': 'Tag had no data. Its UID was offered.',
     'Cian': 'Cyan', 'Azul': 'Blue', 'Morado': 'Purple', 'Rosa': 'Pink', 'Blanco': 'White'
   };
-  const enEs = Object.fromEntries(Object.entries(esEn).map(([es, en]) => [en, es]));
+  // The reverse table cannot be a blind inversion. "Red" is Spanish for
+  // Network and also the English colour, so inverting 'Rojo': 'Red' taught the
+  // en->es direction to rewrite the Network page's own title as "Rojo" -- on
+  // the Spanish page, which never asked to be translated at all. An English
+  // value that is itself a Spanish key meaning something else is ambiguous in
+  // reverse, so it gets no entry; a word spelled the same in both languages,
+  // like "Cosmos", is not ambiguous and keeps its own.
+  const owns = (table, key) => Object.prototype.hasOwnProperty.call(table, key);
+  const enEs = Object.fromEntries(
+    Object.entries(esEn)
+      .filter(([, en]) => !owns(esEn, en) || esEn[en] === en)
+      .map(([es, en]) => [en, es]));
   let locale = 'es-MX';
   try { locale = localStorage.getItem('santa-muerte-locale') === 'en-US' ? 'en-US' : 'es-MX'; } catch (_) {}
 

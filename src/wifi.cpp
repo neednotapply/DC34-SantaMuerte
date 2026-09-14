@@ -25,6 +25,7 @@
 #include "usb_network.h"
 #include "usb_drive.h"
 #include "usb_console.h"
+#include "usb_tui.h"
 
 // Implemented in main.cpp. wifi.cpp only transports and parses LED requests;
 // main.cpp remains responsible for LED state, validation, and animation logic.
@@ -59,6 +60,11 @@ constexpr uint32_t STATION_RETRY_MS = 6000;
 // badge AP, which keeps the portal reachable without a cable. Roughly six
 // retry cycles is long enough to ride out a router restart.
 constexpr uint32_t STATION_FALLBACK_MS = 30000;
+// How long a network gets to prove the credentials it was given before they
+// are thrown away. Shorter than the fallback window above, so the verdict is
+// in -- and the credentials are either remembered or discarded -- before the
+// badge gives up and restores its own access point.
+constexpr uint32_t STATION_TRIAL_MS = 20000;
 
 WebServer server(HTTP_PORT);
 DNSServer dnsServer;
@@ -89,6 +95,40 @@ uint32_t stationConnectionStartedAt = 0;
 uint8_t stationCandidate = 0;
 uint8_t stationCandidates[MAX_SAVED_STATION_NETWORKS] = {};
 uint8_t stationCandidateCount = 0;
+
+// A network earns its place in the remembered list by being joined, not by
+// being typed. New credentials live here, in RAM, until the badge actually
+// associates with them; a typo, a wrong passphrase, or a network that is not
+// on air is discarded instead of joining the list the badge retries on every
+// boot. trialFailedSsid outlives the attempt only so the portal and the USB
+// console can say which network was rejected and that it was not kept.
+String trialSsid;
+String trialPassword;
+bool trialActive = false;
+uint32_t trialStartedAt = 0;
+String trialFailedSsid;
+
+void clearStationTrial() {
+  trialActive = false;
+  trialSsid = String();
+  trialPassword = String();
+}
+
+// Throws away credentials that never produced an association. Nothing was
+// written, so there is nothing to undo: an SSID that is not on air, a wrong
+// passphrase and a plain typo all end here, and none of them reach the list
+// the badge retries on every boot.
+void abandonStationTrial() {
+  Serial.printf("[WIFI] %s never associated -- not remembering it\r\n",
+                trialSsid.c_str());
+  trialFailedSsid = trialSsid;
+  clearStationTrial();
+  stationConnectionRequested = false;
+  stationAttempts = 0;
+  stationLastFailure = String();
+  stationCandidateCount = 0;
+  usbTuiRefresh();
+}
 
 void refreshStationCandidates() {
   stationCandidateCount = 0;
@@ -360,31 +400,76 @@ const char *stationStatusName(int status) {
 void startStationConnection(bool forceBootAttempt = false) {
   // A normal operator-selected AP suppresses station reconnects. At boot,
   // though, saved Wi-Fi is deliberately tried once regardless of the
-  // toggle left by the preceding session.
-  if ((!forceBootAttempt && getPersistentAccessPointEnabled()) ||
-      !hasPersistentStationWifiSettings()) return;
+  // toggle left by the preceding session. A trial overrides both: it is a
+  // direct instruction that arrived while somebody was watching it.
+  if (!trialActive &&
+      ((!forceBootAttempt && getPersistentAccessPointEnabled()) ||
+       !hasPersistentStationWifiSettings())) {
+    return;
+  }
 
   stopMdns();
   // setHostname applies to the station interface; it must be set before
   // begin() for DHCP and the local network to see SantaMuerte consistently.
-  if (!stationCandidateCount) refreshStationCandidates();
-  if (!stationCandidateCount) return;
-  stationCandidate %= stationCandidateCount;
   String ssid, password;
-  if (!getPersistentStationWifi(stationCandidates[stationCandidate], ssid, password)) return;
+  if (trialActive) {
+    ssid = trialSsid;
+    password = trialPassword;
+  } else {
+    if (!stationCandidateCount) refreshStationCandidates();
+    if (!stationCandidateCount) return;
+    stationCandidate %= stationCandidateCount;
+    if (!getPersistentStationWifi(stationCandidates[stationCandidate], ssid, password)) return;
+  }
   WiFi.mode(accessPointActive ? WIFI_AP_STA : WIFI_STA);
   WiFi.disconnect(false, false);
-  WiFi.begin(ssid.c_str(), password.c_str());
+  // A remembered network may be open, in which case the stored password is
+  // empty. Passing no passphrase at all states that outright: the core only
+  // raises the auth-mode threshold to WPA2 when a passphrase is present, so
+  // leaving it out is what keeps an open AP eligible. The core happens to
+  // treat an empty passphrase the same way, but the open case should not have
+  // to rely on that.
+  if (password.length() == 0) WiFi.begin(ssid.c_str());
+  else WiFi.begin(ssid.c_str(), password.c_str());
   stationConnectionRequested = true;
   stationConnectionStartedAt = millis();
-  Serial.printf("[WIFI] Joining saved Wi-Fi: %s\r\n",
+  Serial.printf(trialActive ? "[WIFI] Trying Wi-Fi: %s\r\n"
+                            : "[WIFI] Joining saved Wi-Fi: %s\r\n",
                 ssid.c_str());
+}
+
+// WiFi Tethering only means anything while the badge is on saved Wi-Fi: with
+// no upstream there is nothing to share, and the profile is indistinguishable
+// from one that is working -- no badge access point to join, and a host that
+// sees an adapter carrying nothing. Leaving it returns the badge to the Field
+// Notes Drive, which needs no network to be worth having plugged in.
+void leaveTetheringWithoutUpstream(const char *why) {
+  if (getPersistentUsbDeviceProfile() != UsbDeviceProfile::NETWORK) return;
+  // The no-upstream check runs every loop, so a refused NVS write must not
+  // become an NVS write attempted thousands of times a second.
+  static bool attempted = false;
+  if (attempted) return;
+  attempted = true;
+  String error;
+  if (!setPersistentUsbDeviceProfile(UsbDeviceProfile::DRIVE, error)) {
+    Serial.printf("[USB] Could not leave WiFi Tethering: %s\r\n",
+                  error.c_str());
+    return;
+  }
+  Serial.printf("[USB] Leaving WiFi Tethering (%s); starting Field Notes Drive\r\n",
+                why);
+  delay(80);
+  ESP.restart();
 }
 
 void serviceStationConnection() {
   // NCM only advertises an active cable link while the badge's saved Wi-Fi is
   // associated. Serial and HID remain independently available.
   usbNetworkSetStationConnected(WiFi.status() == WL_CONNECTED);
+  // Nothing remembered to join, so nothing will ever arrive to share.
+  if (!hasPersistentStationWifiSettings() && !trialActive) {
+    leaveTetheringWithoutUpstream("no saved Wi-Fi");
+  }
   if (getPersistentAccessPointEnabled() && !bootHomeConnectionPending) {
     stationConnectionRequested = false;
     // Whether this was the operator's choice or the fallback below, the next
@@ -393,9 +478,31 @@ void serviceStationConnection() {
     stopMdns();
     return;
   }
-  if (!hasPersistentStationWifiSettings()) return;
+  if (!hasPersistentStationWifiSettings() && !trialActive) return;
 
   if (WiFi.status() == WL_CONNECTED) {
+    // The association is the proof -- but only an association with the network
+    // actually under test. A badge that is already on a saved network still
+    // reports WL_CONNECTED the instant a trial starts, and that connection
+    // says nothing about the credentials just typed.
+    if (trialActive && WiFi.SSID() == trialSsid) {
+      String error;
+      if (setPersistentStationWifiSettings(trialSsid, trialPassword, error)) {
+        Serial.printf("[WIFI] Joined %s -- remembering it\r\n",
+                      trialSsid.c_str());
+        stationCandidateCount = 0;  // rebuild so the new network is a candidate
+      } else {
+        Serial.printf("[WIFI] WARNING: Joined %s but could not remember it: %s\r\n",
+                      trialSsid.c_str(), error.c_str());
+      }
+      clearStationTrial();
+      trialFailedSsid = String();
+      usbTuiRefresh();
+    } else if (trialActive && millis() - trialStartedAt >= STATION_TRIAL_MS) {
+      // Still holding the old association when the window closed: the trial
+      // never got its chance, and unproven credentials are not kept anyway.
+      abandonStationTrial();
+    }
     if (bootHomeConnectionPending) {
       bootHomeConnectionPending = false;
       requestedAccessPointEnabled = false;
@@ -426,6 +533,28 @@ void serviceStationConnection() {
   stopMdns();
 
   const uint32_t now = millis();
+  if (trialActive && now - trialStartedAt >= STATION_TRIAL_MS) {
+    abandonStationTrial();
+    if (hasPersistentStationWifiSettings()) {
+      // Networks that did prove themselves get their own full window from
+      // here rather than inheriting what the trial already spent.
+      stationOfflineSince = 0;
+      startStationConnection();
+      return;
+    }
+    // Nothing is left to try, so there is no point waiting out the fallback
+    // window with no candidates: bring the portal back now.
+    String error;
+    requestedAccessPointEnabled = true;
+    if (!setPersistentAccessPointEnabled(true, error)) {
+      Serial.printf("[WIFI] Could not save AP fallback mode: %s\r\n",
+                    error.c_str());
+    }
+    stationOfflineSince = 0;
+    accessPointTogglePending = true;
+    accessPointToggleAt = now + 50;
+    return;
+  }
   if (stationOfflineSince == 0) stationOfflineSince = now;
   if (now - stationOfflineSince >= STATION_FALLBACK_MS) {
     Serial.printf("[WIFI] No saved Wi-Fi for %lus -- bringing the badge access "
@@ -447,6 +576,9 @@ void serviceStationConnection() {
     stationLastFailure = String();
     accessPointTogglePending = true;
     accessPointToggleAt = now + 50;
+    // The access-point choice above is already saved, so the badge comes back
+    // on its own AP either way; this only decides which USB device it is.
+    leaveTetheringWithoutUpstream("saved Wi-Fi did not come up");
     return;
   }
 
@@ -465,9 +597,11 @@ void serviceStationConnection() {
         Serial.printf("[WIFI]   '%s' is not visible. This radio is 2.4 GHz "
                       "only -- a 5 GHz SSID cannot be joined. Check the name "
                       "and the band.\r\n",
-                      getPersistentStationWifiSsid());
+                      trialActive ? trialSsid.c_str()
+                                  : getPersistentStationWifiSsid());
       }
-      if (stationCandidateCount > 1) {
+      // A trial has one network to try; only the saved list is a rotation.
+      if (!trialActive && stationCandidateCount > 1) {
         stationCandidate = (stationCandidate + 1) % stationCandidateCount;
       }
     }
@@ -476,6 +610,12 @@ void serviceStationConnection() {
 }
 
 String stationWifiStatusText() {
+  // The trial verdict outranks everything else: it is the answer to what the
+  // operator just did, and it says whether the network was kept.
+  if (trialActive) return F("Probando la red… se guarda solo si conecta.");
+  if (trialFailedSsid.length() > 0 && WiFi.status() != WL_CONNECTED) {
+    return F("No se pudo conectar. Esa red no se guardó.");
+  }
   if (!hasPersistentStationWifiSettings()) return F("Wi-Fi guardado sin configurar.");
   if (WiFi.status() == WL_CONNECTED) return F("Conectado al Wi-Fi guardado.");
   if (stationConnectionRequested && stationLastFailure.length() > 0) {
@@ -503,7 +643,11 @@ String stationWifiJson(bool ok, const String &message) {
     json += '\"'; json += jsonEscape(savedSsid); json += '\"';
   }
   json += F("]");
-  json += F(",\"connected\":");
+  json += F(",\"trial\":");
+  json += trialActive ? F("true") : F("false");
+  json += F(",\"trialSsid\":\"");
+  json += jsonEscape(trialActive ? trialSsid.c_str() : trialFailedSsid.c_str());
+  json += F("\",\"connected\":");
   json += connected ? F("true") : F("false");
   json += F(",\"ip\":\"");
   json += connected ? WiFi.localIP().toString() : String();
@@ -689,33 +833,32 @@ void handleStationWifiGet() {
 
 void handleStationWifiSet() {
   addNoCacheHeaders();
-  if (!server.hasArg("ssid") || !server.hasArg("password")) {
+  if (!server.hasArg("ssid")) {
     server.send(400, "application/json",
                 stationWifiJson(false,
-                                "Faltan el nombre y la contraseña del Wi-Fi guardado."));
+                                "Falta el nombre del Wi-Fi guardado."));
     return;
   }
 
   String error;
-  if (!setPersistentStationWifiSettings(server.arg("ssid"),
-                                        server.arg("password"), error)) {
+  // The portal and USB serial share one path, so a network is remembered on
+  // the same terms either way. Trying it deliberately selects the alternate
+  // mode; 700 ms is long enough for this reply to reach a browser that is
+  // still on the badge's own access point before that point goes away.
+  if (!setBadgeHomeWifiSettings(server.arg("ssid"),
+                                server.hasArg("password")
+                                    ? server.arg("password")
+                                    : String(),
+                                error, 700)) {
     server.send(400, "application/json", stationWifiJson(false, error));
     return;
   }
 
-  // Saving Wi-Fi deliberately selects the alternate mode. Reply
-  // before ending the AP connection that submitted the form.
-  if (!setPersistentAccessPointEnabled(false, error)) {
-    server.send(500, "application/json", stationWifiJson(false, error));
-    return;
-  }
-  requestedAccessPointEnabled = false;
-  accessPointTogglePending = accessPointActive;
-  accessPointToggleAt = millis() + 700;
-  if (!accessPointActive) startStationConnection();
+  // Nothing has been stored at this point, and saying otherwise would be a
+  // lie the operator only discovers when a reboot drops the network.
   server.send(202, "application/json",
               stationWifiJson(true,
-                              "Guardado. Cambiando a tu Wi-Fi guardado."));
+                              "Probando la red… se guarda solo si conecta."));
 }
 
 void servicePendingAccessPointRestart() {
@@ -1594,26 +1737,6 @@ void handleUsbButtonSet() {
   server.send(200, "application/json", usbControlsJson(true, String()));
 }
 
-void handleUsbNetworkSet() {
-  if (!server.hasArg("enabled")) {
-    server.send(400, "application/json",
-                usbControlsJson(false, "Falta el estado de USB Wi-Fi."));
-    return;
-  }
-  const String requested = server.arg("enabled");
-  if (requested != "0" && requested != "1") {
-    server.send(400, "application/json",
-                usbControlsJson(false, "Estado de USB Wi-Fi no válido."));
-    return;
-  }
-  String error;
-  if (!usbNetworkSetEnabled(requested == "1", error)) {
-    server.send(409, "application/json", usbControlsJson(false, error));
-    return;
-  }
-  server.send(200, "application/json", usbControlsJson(true, String()));
-}
-
 void handleUsbProfileSet() {
   const String requested = server.hasArg("profile") ? server.arg("profile") : String();
   const UsbDeviceProfile profile = requested == "drive" ? UsbDeviceProfile::DRIVE
@@ -1685,7 +1808,6 @@ void setupWebServer() {
   server.on("/api/usb/controls", HTTP_GET, handleUsbControlsGet);
   server.on("/api/usb/control", HTTP_POST, handleUsbControlRun);
   server.on("/api/usb/button", HTTP_POST, handleUsbButtonSet);
-  server.on("/api/usb/network", HTTP_POST, handleUsbNetworkSet);
   server.on("/api/usb/profile", HTTP_POST, handleUsbProfileSet);
 
   server.on("/api/nfc/state", HTTP_GET, handleNfcState);
@@ -1776,6 +1898,10 @@ WifiTuiState getWifiTuiState() {
   state.accessPointSelected = getPersistentAccessPointEnabled();
   state.homeConfigured = hasPersistentStationWifiSettings();
   state.homeConnected = WiFi.status() == WL_CONNECTED;
+  state.trialActive = trialActive;
+  state.trialFailed = !trialActive && trialFailedSsid.length() > 0 &&
+                      WiFi.status() != WL_CONNECTED;
+  state.trialSsid = trialActive ? trialSsid : trialFailedSsid;
   state.hidden = getPersistentWifiHidden();
   state.accessPointSsid = apSsid;
   state.homeSsid = getPersistentStationWifiSsid();
@@ -1797,13 +1923,29 @@ bool setBadgeAccessPointSettings(const String &ssid, const String &password,
 }
 
 bool setBadgeHomeWifiSettings(const String &ssid, const String &password,
-                              String &error) {
-  if (!setPersistentStationWifiSettings(ssid, password, error)) return false;
-  stationCandidateCount = 0;  // include the newly remembered network in a scan
-  if (!setPersistentAccessPointEnabled(false, error)) return false;
+                              String &error, uint32_t apHandoverDelayMs) {
+  error = getStationWifiCredentialError(ssid, password);
+  if (error.length() > 0) return false;
+  // Nothing reaches NVS here. These credentials are a trial: they are written
+  // only once the badge has associated with the network, so a network it
+  // cannot actually join never enters the list it retries on every boot.
+  trialSsid = ssid;
+  trialPassword = password;
+  trialActive = true;
+  trialStartedAt = millis();
+  trialFailedSsid = String();
+  // The trial is judged on its own clock, not on however long the badge
+  // happened to be offline before it was asked to try.
+  stationOfflineSince = 0;
+  stationAttempts = 0;
+  stationLastFailure = String();
+  if (!setPersistentAccessPointEnabled(false, error)) {
+    clearStationTrial();
+    return false;
+  }
   requestedAccessPointEnabled = false;
   accessPointTogglePending = accessPointActive;
-  accessPointToggleAt = millis() + 50;
+  accessPointToggleAt = millis() + apHandoverDelayMs;
   if (!accessPointActive) startStationConnection();
   return true;
 }

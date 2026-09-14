@@ -172,9 +172,10 @@ enum class BootButtonMenu : uint8_t { NONE, BRIGHTNESS, COLOUR };
 bool bootButtonRawPressed = false;
 bool bootButtonStablePressed = false;
 bool bootButtonLongPress = false;
-// A press that returns an active USB Wi-Fi bridge to normal badge networking
-// must not become a second action when the operator releases the button.
-bool bootButtonUsbWifiEscapeConsumed = false;
+// In the USB Wi-Fi profile, a deliberate hold arms a switch back to the
+// Field Notes Drive profile. The switch is committed only when the button is
+// released, so a short press cannot accidentally re-enumerate USB.
+bool bootButtonUsbWifiDriveSwitchArmed = false;
 int8_t bootButtonBrightnessDirection = 1;
 BootButtonMenu bootButtonMenu = BootButtonMenu::NONE;
 uint32_t bootButtonRawChangedAt = 0;
@@ -418,27 +419,26 @@ void runBootHostAction(UsbControlAction action) {
   usbTuiRefresh();
 }
 
-// USB Wi-Fi bridge mode deliberately owns the button only while it is actively
-// passing traffic. That gives a screenless way back to the portal without
-// changing the saved USB profile; a reboot therefore still remembers that NCM
-// was selected. Everywhere else, the owner's programmable button mapping wins.
-bool exitUsbWifiBridgeFromBootButton() {
-  const UsbNetworkState network = getUsbNetworkState();
-  if (!network.enabled) return false;
+bool usbWifiProfileActive() {
+  return getPersistentUsbDeviceProfile() == UsbDeviceProfile::NETWORK;
+}
 
+// NCM and Field Notes Drive need different USB descriptor sets. A running S3
+// cannot replace one set with the other, so the hold acknowledgement arms the
+// change and the release saves Drive as the next profile before rebooting.
+void switchUsbWifiProfileToDriveFromBootButton() {
   String error;
-  if (!usbNetworkSetEnabled(false, error)) {
-    Serial.printf("[BUTTON] USB Wi-Fi exit failed: %s\r\n", error.c_str());
+  if (!setPersistentUsbDeviceProfile(UsbDeviceProfile::DRIVE, error)) {
+    Serial.printf("[BUTTON] USB Drive switch failed: %s\r\n", error.c_str());
     usbTuiLog("BUTTON", error);
-    return false;
+    usbTuiRefresh();
+    return;
   }
 
-  bootButtonMenu = BootButtonMenu::NONE;
-  signalUsbWifiExitCue();
-  Serial.println("[BUTTON] USB Wi-Fi bridge stopped; portal restored");
-  usbTuiLog("BUTTON", "USB Wi-Fi bridge stopped; portal restored");
-  usbTuiRefresh();
-  return true;
+  Serial.println("[BUTTON] WiFi Tethering exit confirmed; starting Field Notes Drive");
+  usbTuiLog("BUTTON", "WiFi Tethering exit confirmed; starting Field Notes Drive");
+  delay(80);
+  ESP.restart();
 }
 
 void advanceLedPatternFromBootButton() {
@@ -547,12 +547,13 @@ void serviceBootButton() {
     if (bootButtonStablePressed) {
       bootButtonPressedAt = now;
       bootButtonLongPress = false;
-      bootButtonUsbWifiEscapeConsumed = exitUsbWifiBridgeFromBootButton();
+      bootButtonUsbWifiDriveSwitchArmed = false;
       return;
     }
 
-    if (bootButtonUsbWifiEscapeConsumed) {
-      bootButtonUsbWifiEscapeConsumed = false;
+    if (bootButtonUsbWifiDriveSwitchArmed) {
+      bootButtonUsbWifiDriveSwitchArmed = false;
+      switchUsbWifiProfileToDriveFromBootButton();
       return;
     }
 
@@ -578,7 +579,22 @@ void serviceBootButton() {
 
   if (!bootButtonLongPress && now - bootButtonPressedAt >= BOOT_BUTTON_HOLD_MS) {
     bootButtonLongPress = true;
-    if (usbButtonState.longPress == UsbControlAction::LED_CONTROLS) {
+    // In WiFi Tethering the long hold is the way out, ahead of whatever the
+    // button is otherwise bound to. The profile is a deliberate, working state
+    // now -- it tethers as soon as it has an upstream and leaves on its own
+    // when it does not -- so the hold has one obvious job while it is active.
+    // Whatever is bound to the hold still runs in the Field Notes Drive
+    // profile, which is where the badge spends its time.
+    if (usbWifiProfileActive()) {
+      // The cue tells the operator that releasing now will leave WiFi Tethering.
+      // Do not change the NVS profile yet: holding the button alone should not
+      // commit a USB-mode change.
+      bootButtonUsbWifiDriveSwitchArmed = true;
+      bootButtonMenu = BootButtonMenu::NONE;
+      signalUsbWifiExitCue();
+      Serial.println("[BUTTON] WiFi Tethering exit armed; release for Field Notes Drive");
+      usbTuiLog("BUTTON", "WiFi Tethering exit armed; release for Field Notes Drive");
+    } else if (usbButtonState.longPress == UsbControlAction::LED_CONTROLS) {
       bootButtonMenu = bootButtonMenu == BootButtonMenu::BRIGHTNESS
                            ? BootButtonMenu::COLOUR
                            : BootButtonMenu::BRIGHTNESS;
@@ -590,7 +606,7 @@ void serviceBootButton() {
     }
   }
 
-  if (bootButtonLongPress &&
+  if (bootButtonLongPress && !bootButtonUsbWifiDriveSwitchArmed &&
       usbButtonState.longPress == UsbControlAction::LED_CONTROLS &&
       now - bootButtonBrightnessChangedAt >= BOOT_BUTTON_BRIGHTNESS_STEP_MS) {
     bootButtonBrightnessChangedAt = now;
@@ -1067,6 +1083,22 @@ void renderUsbWifiRadio(uint32_t now) {
   }
 }
 
+// The Field Notes Drive has its own, familiar storage-activity indication: a
+// quiet amber core and a single green read head travelling around the halo.
+// It is shown only while the host is actively fetching virtual-drive sectors.
+void renderUsbDriveRead(uint32_t now) {
+  strip.clear();
+  const uint8_t head = static_cast<uint8_t>((now / 85) % RING_COUNT);
+  for (uint8_t i = 0; i < RING_COUNT; ++i) {
+    const uint8_t distance = static_cast<uint8_t>((i + RING_COUNT - head) % RING_COUNT);
+    const float level = distance == 0 ? 0.82f : distance == 1 ? 0.24f : 0.035f;
+    strip.setPixelColor(RING[i], hsvColor(25200, 220, level));
+  }
+  for (uint8_t i = 0; i < HAND_COUNT; ++i) {
+    strip.setPixelColor(HANDS[i], hsvColor(9000, 220, 0.16f));
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Tag acknowledgement
 //
@@ -1285,6 +1317,12 @@ void updateLEDs() {
   // what LED Tools will show or restore once the bridge is stopped.
   if (getUsbNetworkState().enabled) {
     renderUsbWifiRadio(now);
+    strip.show();
+    return;
+  }
+
+  if (usbDriveReadActive()) {
+    renderUsbDriveRead(now);
     strip.show();
     return;
   }
@@ -1599,6 +1637,26 @@ void restoreNfcSettings() {
   }
 }
 
+// The esp32s3 variant hands every sketch USB_PID 0x1001 -- the same product
+// id as the chip's own ROM USB-Serial/JTAG unit. Sharing it means a host
+// driver rule written for that unit also matches the badge: Zadig, for
+// instance, pins WinUSB to VID 303A / PID 1001 / MI_02 when anyone sets up
+// JTAG debugging, and both profiles put a badge interface on MI_02 -- NCM in
+// WiFi Tethering, and the serial console in Field Notes Drive, because the
+// core emits descriptors in a fixed order and mass storage takes MI_00 ahead
+// of it. Either one is then claimed by WinUSB and simply disappears. A product
+// id of the badge's own keeps those rules where they belong.
+// The two profiles are also two different USB devices, and they get a product
+// id each. Windows remembers which driver belongs to which interface number of
+// a given vendor/product pair, and the profiles do not agree on what lives
+// where: mass storage and the serial console trade places on MI_00, and the
+// serial console and the network adapter trade places on MI_02. One id for
+// both meant every switch handed Windows an interface whose remembered driver
+// belonged to the other profile's function. A id per profile keeps each one's
+// driver state to itself.
+constexpr uint16_t BADGE_USB_PID_DRIVE = 0x534D;    // 'S' 'M'
+constexpr uint16_t BADGE_USB_PID_NETWORK = 0x534E;  // 'S' 'N'
+
 void setup() {
   Serial.begin(115200);
   // The other USB function is selected before the controller begins, because
@@ -1615,8 +1673,20 @@ void setup() {
   usbNetworkConfigure(usbProfile == UsbDeviceProfile::NETWORK);
   usbDriveConfigure(usbProfile == UsbDeviceProfile::DRIVE);
   usbHidBegin();
+  // Must precede begin(): the descriptor is built there, and the constructor
+  // has already taken the variant's default.
+  if (!USB.PID(usbProfile == UsbDeviceProfile::NETWORK ? BADGE_USB_PID_NETWORK
+                                                       : BADGE_USB_PID_DRIVE)) {
+    Serial.println("[USB] WARNING: Could not set the badge product id");
+  }
   USB.begin();
-  usbNetworkBegin();
+  if (usbProfile == UsbDeviceProfile::NETWORK) {
+    usbNetworkBegin();
+  } else {
+    const UsbDriveState drive = getUsbDriveState();
+    Serial.printf("[USB] Field Notes Drive %s // 2 MiB read-only MSC\r\n",
+                  drive.available ? "ready" : "unavailable");
+  }
   delay(1500);
   Serial.println("===== START =====");
   usbTuiBegin();

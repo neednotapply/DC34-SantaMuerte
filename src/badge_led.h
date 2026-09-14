@@ -17,6 +17,6 @@ bool setLedTuiState(const String &pattern, int red, int green, int blue,
                     int brightness, int speed);
 void setLedTuiIdentifyFrame(uint8_t frame);
 
-// A physical acknowledgement for the USB Wi-Fi escape button. It briefly
-// overrides the running animation, then returns to it unchanged.
+// A physical acknowledgement that a held WiFi Tethering exit is armed. It briefly
+// overrides the running animation while the operator releases the button.
 void signalUsbWifiExitCue();

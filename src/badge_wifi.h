@@ -8,6 +8,11 @@ struct WifiTuiState {
   bool accessPointSelected;
   bool homeConfigured;
   bool homeConnected;
+  // A network being tried is not a saved one yet. trialSsid names whichever
+  // network that is, or the last one that failed and was therefore discarded.
+  bool trialActive;
+  bool trialFailed;
+  String trialSsid;
   bool hidden;
   String accessPointSsid;
   String homeSsid;
@@ -44,5 +49,17 @@ WifiTuiState getWifiTuiState();
 // substitute when the badge is not reachable over Wi-Fi.
 bool setBadgeAccessPointSettings(const String &ssid, const String &password,
                                  bool hidden, String &error);
+// Tries a network and remembers it only if the badge associates with it, so
+// the saved list stays a list of networks that have actually worked. The
+// credentials are validated up front and then held in RAM until the join
+// succeeds; a failed attempt is discarded. Returns whether the attempt could
+// be started, not whether it connected -- watch getWifiTuiState() or
+// /api/wifi/client for the verdict.
+//
+// apHandoverDelayMs is how long the badge's own access point stays up after
+// the switch is requested. The web portal needs a wide enough gap for its
+// reply to reach a browser that is still connected to that access point;
+// USB serial has no such constraint.
 bool setBadgeHomeWifiSettings(const String &ssid, const String &password,
-                              String &error);
+                              String &error,
+                              uint32_t apHandoverDelayMs = 50);

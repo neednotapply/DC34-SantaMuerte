@@ -558,7 +558,7 @@ void usbHidBegin() {
   usbHidBeginStorage();
 
   if (!hidConfigured) {
-    usbTuiLog("HID", "off in USB Wi-Fi profile");
+    usbTuiLog("HID", "off in WiFi Tethering profile");
     return;
   }
 
@@ -609,7 +609,7 @@ bool usbHidBusy() { return hidConfigured && runState != RunState::IDLE; }
 
 bool usbHidRunScript(const String &scriptText, String &error) {
   if (!hidConfigured) {
-    error = "HID controls are unavailable in USB Wi-Fi mode.";
+    error = "HID controls are unavailable in WiFi Tethering mode.";
     return false;
   }
   return startRun(scriptText, "inline", error);
@@ -617,7 +617,7 @@ bool usbHidRunScript(const String &scriptText, String &error) {
 
 bool usbHidRunPayload(const String &name, String &error) {
   if (!hidConfigured) {
-    error = "HID controls are unavailable in USB Wi-Fi mode.";
+    error = "HID controls are unavailable in WiFi Tethering mode.";
     return false;
   }
   String body;
@@ -637,7 +637,7 @@ uint8_t usbHidHostLeds() { return hostLeds; }
 bool usbHidHostSeen() { return sawHostReport || static_cast<bool>(Serial); }
 
 String usbHidStatusLine() {
-  if (!hidConfigured) return "off (USB Wi-Fi profile)";
+  if (!hidConfigured) return "off (WiFi Tethering profile)";
   if (runState == RunState::WAIT_LED) return "waiting on host LED (" + runName + ")";
   if (runState == RunState::RUNNING) {
     return "running " + runName + " " + String(linesDone) + "/" + String(linesTotal);
@@ -647,7 +647,7 @@ String usbHidStatusLine() {
 
 bool usbHidRunControl(UsbControlAction action, String &error) {
   if (!hidConfigured) {
-    error = "HID controls are unavailable in USB Wi-Fi mode.";
+    error = "HID controls are unavailable in WiFi Tethering mode.";
     return false;
   }
   if (runState != RunState::IDLE) {

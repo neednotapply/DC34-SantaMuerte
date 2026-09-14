@@ -11,4 +11,6 @@ struct UsbDriveState {
 // Register the virtual read-only mass-storage interface before USB.begin().
 void usbDriveConfigure(bool enabled);
 void usbDriveRefresh();
+// True for a short window after a host reads the virtual disk.
+bool usbDriveReadActive();
 UsbDriveState getUsbDriveState();

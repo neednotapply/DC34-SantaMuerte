@@ -54,13 +54,34 @@ opens help; `0` goes back; and Network option `6` briefly reveals
 masked credentials.
 
 Network mode is deliberately exclusive: choose **Santa Muerte AP** or saved
-**saved Wi-Fi**, never both. Changes, credential saves, clearing offerings, NFC
-writes/emulation, and reboot all require a `y` or `n` answer followed by Enter.
+**saved Wi-Fi**, never both. Choosing an action carries it out: the menu
+selection is the instruction, so nothing asks a second time. The exceptions are
+the three that cost work nobody can get back — erasing the offering ring,
+rebooting the badge, and powering off the attached computer — which still want
+a `y` or `n` answer followed by Enter.
 
 On every boot, the badge tries its remembered Wi-Fi networks (most recently
 used first) for up to 30 seconds, even if it was last running its own AP. It
 then restores its last configured AP automatically, so recovery never requires
 waiting minutes or connecting a cable.
+
+**A network is remembered only once it has actually been joined.** Submitting
+one starts a trial: the credentials stay in RAM, the badge tries to associate
+for 20 seconds, and only an association writes them to NVS. A typo, a wrong
+passphrase, or a network that is not on air is discarded, so the list the badge
+retries on every boot holds nothing but networks that have worked. Both
+interfaces say which network is being tried and whether it was kept — the
+portal in the status block, the serial console on the **Network** screen.
+
+A remembered network may be **open**. Leave the password empty — blank in the
+portal's field, a bare Enter at the serial prompt — and the badge joins
+without one and remembers it on the same terms as any other network. A password
+that is not empty still has to satisfy WPA2's 8 to 63 printable-ASCII rule.
+
+Neither field is pre-filled with the network you are on. The connected and
+remembered networks are named just above the form, and a box that came back
+carrying an SSID but a blank password was one stray click away from rewriting a
+WPA network as an open one.
 
 The USB menu includes live LED controls and identify frames; NFC reading,
 writing, offering capture, and emulation; and recent text offerings, creating
@@ -81,15 +102,15 @@ installation step.
 - **Dashboard** — active network/IP/hostname, LED and NFC state, offering-ring
   use, heap, uptime, and the last TUI notices.
 - **Network** — choose the exclusive AP/home mode, change the AP password,
-  save a home SSID/password, toggle the AP hidden setting, and inspect the
-  connection state.
+  save a home SSID/password (empty for an open network), toggle the AP hidden
+  setting, and inspect the connection state.
 - **LED Tools** — choose any of the sixteen patterns, set `#RRGGBB`,
   brightness, speed, and step through physical LED identify frames.
 - **NFC Tools** — queue a read or text/URL write, turn NFC Offering on/off,
   emulate text, URL, or the badge's Wi-Fi record, and stop emulation.
 - **Field Notes** — browse recent IDs, enter a four-digit ID to inspect one
-  note (including multiline text), add a text note, or erase the board after
-  confirmation. Image notes render as a compact color Unicode preview directly
+  note (including multiline text), add a text note, or erase the board, which
+  asks first. Image notes render as a compact color Unicode preview directly
   in the serial terminal.
 - **System** — view the bounded TUI event log, enter raw log streaming,
   temporarily reveal credentials, and reboot.
@@ -130,8 +151,8 @@ download mode, hold **BOOT** and tap **RESET/EN**, then flash.
 
 **Nothing types on its own,** but once a payload runs it types for real, so only
 plug the badge into a computer you own. A payload can be fired two ways: from the
-physical **Payloads** screen on the USB Altar, behind the same `y/n` confirmation
-as every other consequential action; or from the Wi-Fi portal at **`/scripting`**, a
+physical **Payloads** screen on the USB Altar, where choosing it runs it
+straight away; or from the Wi-Fi portal at **`/scripting`**, a
 visual **DuckyScript builder**: drag or tap command blocks (each explained, with
 editable fields) into a stack that compiles to DuckyScript live, then **Send to
 device**. The portal also uploads, loads and deletes stored payloads — shown in a
@@ -174,18 +195,49 @@ as a button binding.
 `/scripting` is the dedicated DuckyScript workspace. It owns the visual
 builder, saved scripts, and script execution so host controls can stay compact.
 
-### USB Wi-Fi adapter
+### WiFi Tethering
 
-The USB device also includes a real **NCM network interface**. It does not
-replace the USB Altar serial console or HID controls; a computer sees all three
-functions over one cable. In **USB Tools → USB Wi-Fi network**, start the bridge
-after the badge has joined its saved Wi-Fi. The computer then receives its IP
-configuration from that upstream Wi-Fi network through the badge.
+The USB device can use either a real **NCM network interface** or the
+**Field Notes Drive**. The WiFi Tethering profile presents serial + NCM; the Drive
+profile presents serial + HID + read-only Field Notes storage. The Drive
+exports a `NOTES` folder with one `.TXT` and (where present) matching `.JPG`
+artifact per note, plus a `SCRIPTS` folder with one file per saved script. The ESP32-S3
+cannot expose both descriptor sets together. Select **WiFi Tethering** in
+USB Tools, then start the bridge after the badge has joined its saved Wi-Fi.
+The computer then receives its IP configuration from that upstream Wi-Fi
+network through the badge.
 
-The bridge is deliberately off after every boot and is not saved as a setting.
-While it is on, it owns traffic for the saved Wi-Fi station; stop it before
-using that station link normally from the badge again. The badge AP remains the
+**There is nothing to start.** Selecting the profile is the instruction to
+tether: the bridge attaches as soon as the badge is on saved Wi-Fi and detaches
+when that link drops. It used to need a second, separate switch, which left the
+two states impossible to tell apart from outside — either way there was no badge
+access point to join and a host that saw an adapter carrying nothing.
+
+For the same reason the profile does not sit there without an upstream. If the
+badge has no saved Wi-Fi, or gives up trying to reach it, it returns to the
+Field Notes Drive and restarts, which is worth having plugged in with no network
+at all. While the bridge is attached it owns traffic for the saved Wi-Fi
+station, so the badge itself is not using that link; the badge AP remains the
 safe path to the local portal.
+
+To leave WiFi Tethering by hand, hold **BOOT** until the amber acknowledgement
+plays, then release it. In this profile the hold is the way out and takes
+precedence over whatever else the button is bound to — that binding still works
+in the Field Notes Drive profile, where the badge spends its time.
+
+### USB product id
+
+The badge enumerates under Espressif's vendor id with a product id of its own,
+`0x534D`, rather than the `0x1001` an ESP32-S3 sketch inherits by default. That
+default is the product id of the chip's own ROM USB-Serial/JTAG unit, and
+sharing it lets any host driver rule written for that unit match the badge
+instead. Zadig, for example, pins WinUSB to `VID_303A&PID_1001&MI_02` the first
+time anyone sets up JTAG debugging — and both profiles put a badge interface on
+`MI_02`: the network adapter under WiFi Tethering, and the **serial console**
+under Field Notes Drive, since descriptors are emitted in a fixed order and
+mass storage takes `MI_00` ahead of it. Whichever one lands there is claimed by
+the JTAG driver and vanishes from the host. A product id of the badge's own
+keeps those rules where they belong.
 
 ## Pages
 

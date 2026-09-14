@@ -295,7 +295,10 @@ String stationWifiValidationError(const String &ssid, const String &password) {
   if (!isValidStationSsid(ssid.c_str())) {
     return F("El SSID guardado debe tener 1 a 32 bytes sin controles.");
   }
-  String passwordError = wifiPasswordValidationError(password, false);
+  // A remembered network may be open.  An empty password is therefore a
+  // deliberate credential, not a missing one; non-empty passwords retain the
+  // WPA2 passphrase requirements.
+  String passwordError = wifiPasswordValidationError(password, true);
   if (passwordError.length() > 0) return passwordError;
   return String();
 }
@@ -790,6 +793,11 @@ const char *getPersistentStationWifiSsid() {
 const char *getPersistentStationWifiPassword() {
   if (!settingsInitialized && !initializeBadgeSettings()) return "";
   return cachedStationWifiCount ? cachedStationWifi[0].password : "";
+}
+
+String getStationWifiCredentialError(const String &ssid,
+                                     const String &password) {
+  return stationWifiValidationError(ssid, password);
 }
 
 bool setPersistentStationWifiSettings(const String &ssid,

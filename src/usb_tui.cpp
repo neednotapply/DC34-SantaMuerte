@@ -49,7 +49,7 @@ enum class Screen : uint8_t {
   HELP
 };
 enum class Prompt : uint8_t { NONE, AP_SSID, AP_PASSWORD, HOME_SSID, HOME_PASSWORD, LED_HEX, LED_BRIGHTNESS, LED_SPEED, NFC_TEXT, NFC_URL, EMU_TEXT, EMU_URL, OFFERING };
-enum class Confirm : uint8_t { NONE, SWITCH_AP, SWITCH_HOME, SAVE_AP, TOGGLE_AP_HIDDEN, SAVE_HOME, NFC_WRITE_TEXT, NFC_WRITE_URL, EMU_TEXT, EMU_URL, NFC_WIFI, CLEAR_BOARD, REBOOT, POST_OFFERING, RUN_PAYLOAD, USB_POWER_OFF };
+enum class Action : uint8_t { NONE, SWITCH_AP, SWITCH_HOME, SAVE_AP, TOGGLE_AP_HIDDEN, SAVE_HOME, NFC_WRITE_TEXT, NFC_WRITE_URL, EMU_TEXT, EMU_URL, NFC_WIFI, CLEAR_BOARD, REBOOT, POST_OFFERING, RUN_PAYLOAD, USB_POWER_OFF };
 
 struct LogLine { char module[12]; char text[LOG_LINE_LENGTH]; uint32_t at; };
 LogLine logs[LOG_CAPACITY] = {};
@@ -68,7 +68,7 @@ bool needsRedraw = true;
 bool revealSecrets = false;
 uint32_t revealUntil = 0;
 Prompt prompt = Prompt::NONE;
-Confirm confirm = Confirm::NONE;
+Action pendingConfirm = Action::NONE;
 String input;
 String command;
 String stagedA;
@@ -472,6 +472,16 @@ void renderNetwork() {
                                 ? (revealSecrets ? getBadgeWifiPassword()
                                                  : mask(getBadgeWifiPassword()))
                                 : tr("abierta", "open");
+  // A remembered open network has no key at all. Saying so borrows the AP's
+  // own wording: mask() reports an empty string as "(not saved)", which would
+  // read as a credential that failed to save rather than as a network that
+  // was deliberately joined without one.
+  const char *homeKey = getPersistentStationWifiPassword();
+  const String homePassword =
+      !wifi.homeConfigured
+          ? String(tr("(sin guardar)", "(not saved)"))
+          : (homeKey[0] ? (revealSecrets ? String(homeKey) : mask(homeKey))
+                        : String(tr("abierta", "open")));
   tuiPrintf("%s: %s\n\n", tr("MODO ACTIVO", "ACTIVE MODE"),
             wifi.accessPointActive ? "SANTA MUERTE AP"
                                    : tr("WI-FI GUARDADO", "SAVED WI-FI"));
@@ -481,11 +491,18 @@ void renderNetwork() {
   tuiPrintf("%s %s // %s %s // %s\n\n", tr("GUARDADO", "SAVED"),
             wifi.homeConfigured ? wifi.homeSsid.c_str()
                                 : tr("sin guardar", "not saved"),
-            tr("clave", "key"),
-            revealSecrets ? getPersistentStationWifiPassword()
-                          : mask(getPersistentStationWifiPassword()).c_str(),
+            tr("clave", "key"), homePassword.c_str(),
             wifi.homeConnected ? wifi.localIp.c_str()
                                : tr("sin conectar", "offline"));
+  if (wifi.trialActive) {
+    tuiPrintf("%-9s %s // %s\n\n", tr("PROBANDO", "TRYING"),
+              wifi.trialSsid.c_str(),
+              tr("se guarda solo si conecta", "only saved if it connects"));
+  } else if (wifi.trialFailed) {
+    tuiPrintf("%-9s %s // %s\n\n", tr("RECHAZADA", "REJECTED"),
+              wifi.trialSsid.c_str(),
+              tr("no conectó, no se guardó", "did not connect, not saved"));
+  }
   tuiLine(tr("1 Editar Wi-Fi del badge (SSID y clave)",
              "1 Edit badge Wi-Fi (SSID and password)"));
   tuiLine(tr("2 Alternar SSID del badge visible/oculto",
@@ -707,7 +724,7 @@ void renderHelp() {
   tuiLine(tr("Elige una sección con su número y pulsa Enter.", "Choose a section by number, then press Enter."));
   tuiLine(tr("Cada sección imprime una lista nueva de acciones numeradas.", "Each section prints a fresh numbered action list."));
   tuiLine(tr("0 vuelve al menú principal. ? muestra esta ayuda.", "0 returns to the main menu. ? shows this help."));
-  tuiLine(tr("Desconectar, NFC, borrar y reiniciar piden y/n.", "Network, NFC, erase, and reboot require y/n."));
+  tuiLine(tr("Cada acción se ejecuta al elegirla; borrar, reiniciar y apagar piden y/n.", "Each action runs when you choose it; erase, reboot and power off ask y/n."));
   tuiLine(tr("USB admite texto; dibujos/fotos y flasheo son del portal.", "USB supports text; drawings/photos and flashing stay on the web."));
 }
 
@@ -757,7 +774,7 @@ void renderUsbTools() {
   tuiLine(tr("3 Scripts", "3 Scripting"));
   tuiLine(tr("4 Modo USB", "4 USB mode"));
   if (getPersistentUsbDeviceProfile() == UsbDeviceProfile::NETWORK) {
-    tuiLine(tr("5 Red Wi-Fi USB", "5 USB Wi-Fi network"));
+    tuiLine(tr("5 WiFi Tethering", "5 WiFi Tethering"));
   }
 }
 
@@ -765,9 +782,9 @@ void renderUsbProfile() {
   const UsbDeviceProfile profile = getPersistentUsbDeviceProfile();
   const UsbDriveState drive = getUsbDriveState();
   tuiPrintf("%-9s %s\n\n", "ACTIVO",
-            profile == UsbDeviceProfile::NETWORK ? tr("Red Wi-Fi", "Wi-Fi network")
+            profile == UsbDeviceProfile::NETWORK ? tr("WiFi Tethering", "WiFi Tethering")
                                                  : tr("Unidad Field Notes", "Field Notes Drive"));
-  tuiLine(tr("1 Red Wi-Fi: Serial + HID + NCM", "1 Wi-Fi: Serial + HID + NCM"));
+  tuiLine(tr("1 WiFi Tethering: Serial + NCM", "1 WiFi Tethering: Serial + NCM"));
   tuiLine(tr("2 Unidad: Serial + HID + almacenamiento solo lectura", "2 Drive: Serial + HID + read-only storage"));
   if (profile == UsbDeviceProfile::DRIVE) {
     tuiPrintf("%-9s %u %s // %u %s\n", "UNIDAD", drive.noteCount,
@@ -783,16 +800,15 @@ void renderUsbNetwork() {
   tuiPrintf("%-9s %s\n", "NCM", state.available ? tr("instalado", "available")
                                                   : tr("no disponible", "unavailable"));
   tuiPrintf("%-9s %s\n", "MODE", state.enabled ? tr("puente activo", "bridge active")
-                                                    : tr("detenido", "stopped"));
+                                                    : tr("en espera", "waiting"));
   tuiPrintf("%-9s %s\n\n", "LINK", state.linkUp ? tr("Wi-Fi guardado conectado", "saved Wi-Fi connected")
                                                      : tr("Wi-Fi guardado desconectado", "saved Wi-Fi disconnected"));
-  tuiLine(tr("1 Iniciar puente Wi-Fi USB", "1 Start USB Wi-Fi bridge"));
-  tuiLine(tr("2 Detener puente Wi-Fi USB", "2 Stop USB Wi-Fi bridge"));
-  Serial.println();
   muted(tr("Comparte el Wi-Fi guardado con el equipo por NCM.",
            "Shares saved Wi-Fi with the attached computer through NCM."));
-  muted(tr("Al iniciarlo, el puente toma el tráfico del Wi-Fi guardado. Deténlo para usar ese enlace normalmente desde el badge.",
-           "When started, the bridge owns saved Wi-Fi traffic. Stop it before using that link normally from the badge."));
+  muted(tr("El puente sigue al Wi-Fi guardado: no hay nada que iniciar.",
+           "The bridge follows saved Wi-Fi; there is nothing to start."));
+  muted(tr("Mantén BOOT para salir a la Unidad Field Notes.",
+           "Hold BOOT to leave for the Field Notes Drive."));
 }
 
 void renderUsbControls() {
@@ -899,7 +915,7 @@ void render() {
   }
   footer();
   rowStart();
-  if (confirm != Confirm::NONE) {
+  if (pendingConfirm != Action::NONE) {
     Serial.print(tr("Confirmar [y/n]> ", "Confirm [y/n]> "));
   } else if (prompt != Prompt::NONE) {
     const bool secret = prompt == Prompt::AP_PASSWORD || prompt == Prompt::HOME_PASSWORD;
@@ -918,7 +934,7 @@ void enterRawStream() {
 }
 
 void beginPrompt(Prompt next, const String &message) { prompt = next; input = String(); notice = message; needsRedraw = true; }
-void beginConfirm(Confirm next, const String &message) { confirm = next; notice = message; needsRedraw = true; }
+void beginConfirm(Action next, const String &message) { pendingConfirm = next; notice = message; needsRedraw = true; }
 
 bool parseHex(const String &value, int &r, int &g, int &b) {
   String text = value; if (text.startsWith("#")) text.remove(0, 1);
@@ -928,27 +944,38 @@ bool parseHex(const String &value, int &r, int &g, int &b) {
   r = (number >> 16) & 0xFF; g = (number >> 8) & 0xFF; b = number & 0xFF; return true;
 }
 
-void applyConfirm() {
+// Everything the console can do. A menu selection is already an instruction,
+// so it is carried out where it is made. The exceptions are the three that
+// cost work nobody can get back: erasing the offering ring, rebooting the
+// badge, and powering off the attached computer all stop to ask first.
+void performAction(Action action) {
   String error;
   bool ok = false;
-  switch (confirm) {
-    case Confirm::SWITCH_AP: ok = setBadgeAccessPointEnabled(true, error); break;
-    case Confirm::SWITCH_HOME: ok = setBadgeAccessPointEnabled(false, error); break;
-    case Confirm::SAVE_AP:
+  switch (action) {
+    case Action::SWITCH_AP: ok = setBadgeAccessPointEnabled(true, error); break;
+    case Action::SWITCH_HOME: ok = setBadgeAccessPointEnabled(false, error); break;
+    case Action::SAVE_AP:
       ok = setBadgeAccessPointSettings(stagedA, stagedB,
                                        getPersistentWifiHidden(), error);
       break;
-    case Confirm::TOGGLE_AP_HIDDEN:
+    case Action::TOGGLE_AP_HIDDEN:
       ok = setBadgeAccessPointSettings(getBadgeWifiSsid(),
                                        getBadgeWifiPassword(),
                                        !getPersistentWifiHidden(), error);
       break;
-    case Confirm::SAVE_HOME: ok = setBadgeHomeWifiSettings(stagedA, stagedB, error); break;
-    case Confirm::NFC_WRITE_TEXT: ok = queueNfcWrite("text", stagedA); break;
-    case Confirm::NFC_WRITE_URL: ok = queueNfcWrite("url", stagedA); break;
-    case Confirm::EMU_TEXT: ok = startNfcTagEmulation("text", stagedA); break;
-    case Confirm::EMU_URL: ok = startNfcTagEmulation("url", stagedA); break;
-    case Confirm::NFC_WIFI: {
+    case Action::SAVE_HOME:
+      if (setBadgeHomeWifiSettings(stagedA, stagedB, error)) {
+        setNotice(tr("Probando la red… se guarda solo si conecta.",
+                     "Testing the network… it is only saved if it connects."));
+      } else {
+        setNotice(error, true);
+      }
+      return;
+    case Action::NFC_WRITE_TEXT: ok = queueNfcWrite("text", stagedA); break;
+    case Action::NFC_WRITE_URL: ok = queueNfcWrite("url", stagedA); break;
+    case Action::EMU_TEXT: ok = startNfcTagEmulation("text", stagedA); break;
+    case Action::EMU_URL: ok = startNfcTagEmulation("url", stagedA); break;
+    case Action::NFC_WIFI: {
       if (!isBadgeAccessPointActive()) {
         error = tr("Activa primero Santa Muerte AP; el Wi-Fi guardado no se comparte por NFC.",
                    "Turn on Santa Muerte AP first; saved Wi-Fi is not shared over NFC.");
@@ -956,21 +983,26 @@ void applyConfirm() {
       }
       uint8_t mac[6] = {}; ok = startNfcWifiOnboarding(getBadgeWifiSsid(), getBadgeWifiPassword(), getBadgeWifiApMac(mac) ? mac : nullptr); break;
     }
-    case Confirm::CLEAR_BOARD: ok = clearBoard(); break;
-    case Confirm::POST_OFFERING:
+    case Action::CLEAR_BOARD: ok = clearBoard(); break;
+    case Action::POST_OFFERING:
       ok = addBoardPost(stagedA, 0, nullptr, 0, error, USB_CONSOLE_AUTHOR_ID);
       break;
-    case Confirm::RUN_PAYLOAD: ok = usbHidRunPayload(stagedA, error); break;
-    case Confirm::USB_POWER_OFF:
+    case Action::RUN_PAYLOAD: ok = usbHidRunPayload(stagedA, error); break;
+    case Action::USB_POWER_OFF:
       ok = usbHidRunControl(UsbControlAction::SYSTEM_POWER_OFF, error);
       break;
-    case Confirm::REBOOT: Serial.println(tr("[TUI] Reiniciando...", "[TUI] Rebooting...")); delay(80); ESP.restart(); return;
+    case Action::REBOOT: Serial.println(tr("[TUI] Reiniciando...", "[TUI] Rebooting...")); delay(80); ESP.restart(); return;
     default: break;
   }
   setNotice(ok ? tr("Hecho.", "Done.")
                : error.length() ? error : String(tr("No se pudo completar la acción.", "Could not complete the action.")),
             !ok);
-  confirm = Confirm::NONE;
+}
+
+void applyConfirm() {
+  const Action action = pendingConfirm;
+  pendingConfirm = Action::NONE;
+  performAction(action);
 }
 
 void completePrompt() {
@@ -982,24 +1014,22 @@ void completePrompt() {
   }
   else if (prompt == Prompt::AP_PASSWORD) {
     stagedB = input;
-    beginConfirm(Confirm::SAVE_AP,
-                 tr("Guardar SSID y clave nuevos del AP",
-                    "Save the new AP SSID and password"));
+    prompt = Prompt::NONE;
+    performAction(Action::SAVE_AP);
   }
-  else if (prompt == Prompt::HOME_SSID) { stagedA = input; beginPrompt(Prompt::HOME_PASSWORD, tr("Clave de Wi-Fi guardado", "Saved Wi-Fi password")); }
-  else if (prompt == Prompt::HOME_PASSWORD) { stagedB = input; beginConfirm(Confirm::SAVE_HOME, tr("Guardar y cambiar a Wi-Fi guardado", "Save and switch to saved Wi-Fi")); }
+  else if (prompt == Prompt::HOME_SSID) { stagedA = input; beginPrompt(Prompt::HOME_PASSWORD, tr("Clave de Wi-Fi guardado (vacía = red abierta)", "Saved Wi-Fi password (empty = open network)")); }
+  else if (prompt == Prompt::HOME_PASSWORD) { stagedB = input; prompt = Prompt::NONE; performAction(Action::SAVE_HOME); }
   else if (prompt == Prompt::LED_HEX) { int r, g, b; if (parseHex(input, r, g, b) && setLedTuiState("", r, g, b, -1, -1)) setNotice(tr("Color actualizado.", "Colour updated.")); else setNotice(tr("Usa #RRGGBB.", "Use #RRGGBB."), true); prompt = Prompt::NONE; }
   else if (prompt == Prompt::LED_BRIGHTNESS) { const int value = input.toInt(); if (value >= 0 && value <= 255 && setLedTuiState("", -1, -1, -1, value, -1)) setNotice(tr("Brillo actualizado.", "Brightness updated.")); else setNotice(tr("Brillo: 0 a 255.", "Brightness: 0 to 255."), true); prompt = Prompt::NONE; }
   else if (prompt == Prompt::LED_SPEED) { const int value = input.toInt(); if (value >= 1 && value <= 100 && setLedTuiState("", -1, -1, -1, -1, value)) setNotice(tr("Velocidad actualizada.", "Speed updated.")); else setNotice(tr("Velocidad: 1 a 100.", "Speed: 1 to 100."), true); prompt = Prompt::NONE; }
-  else if (prompt == Prompt::NFC_TEXT) { stagedA = input; prompt = Prompt::NONE; beginConfirm(Confirm::NFC_WRITE_TEXT, tr("Escribir texto en el próximo tag", "Write text to the next tag")); }
-  else if (prompt == Prompt::NFC_URL) { stagedA = input; prompt = Prompt::NONE; beginConfirm(Confirm::NFC_WRITE_URL, tr("Escribir URL en el próximo tag", "Write a URL to the next tag")); }
-  else if (prompt == Prompt::EMU_TEXT) { stagedA = input; prompt = Prompt::NONE; beginConfirm(Confirm::EMU_TEXT, tr("Emular tag de texto", "Emulate a text tag")); }
-  else if (prompt == Prompt::EMU_URL) { stagedA = input; prompt = Prompt::NONE; beginConfirm(Confirm::EMU_URL, tr("Emular tag de URL", "Emulate a URL tag")); }
+  else if (prompt == Prompt::NFC_TEXT) { stagedA = input; prompt = Prompt::NONE; performAction(Action::NFC_WRITE_TEXT); }
+  else if (prompt == Prompt::NFC_URL) { stagedA = input; prompt = Prompt::NONE; performAction(Action::NFC_WRITE_URL); }
+  else if (prompt == Prompt::EMU_TEXT) { stagedA = input; prompt = Prompt::NONE; performAction(Action::EMU_TEXT); }
+  else if (prompt == Prompt::EMU_URL) { stagedA = input; prompt = Prompt::NONE; performAction(Action::EMU_URL); }
   else if (prompt == Prompt::OFFERING) {
     stagedA = input;
     prompt = Prompt::NONE;
-    beginConfirm(Confirm::POST_OFFERING,
-                 tr("Guardar esta nota de texto", "Save this text note"));
+    performAction(Action::POST_OFFERING);
   }
   needsRedraw = true;
 }
@@ -1024,10 +1054,7 @@ void routeGlobal(char key) {
   // per-screen menus use, and it is not A-D because those are exactly the
   // bytes that terminate an arrow-key sequence.
   if (key == 'W') {
-    beginConfirm(isBadgeAccessPointActive() ? Confirm::SWITCH_HOME : Confirm::SWITCH_AP,
-                 isBadgeAccessPointActive()
-                     ? tr("Cambiar a Wi-Fi guardado (apaga el AP)", "Switch to saved Wi-Fi (turns the AP off)")
-                     : tr("Cambiar a Santa Muerte AP (corta Wi-Fi guardado)", "Switch to Santa Muerte AP (drops saved Wi-Fi)"));
+    performAction(isBadgeAccessPointActive() ? Action::SWITCH_HOME : Action::SWITCH_AP);
   }
 }
 
@@ -1038,10 +1065,10 @@ void handleScreenKey(char key) {
     if (key == '1') beginPrompt(Prompt::AP_SSID,
                                  tr("Nombre nuevo del AP (SSID)",
                                     "New badge AP name (SSID)"));
-    else if (key == '2') beginConfirm(Confirm::TOGGLE_AP_HIDDEN, wifi.hidden ? tr("Hacer visible el SSID Santa Muerte", "Make the Santa Muerte SSID visible") : tr("Ocultar el SSID Santa Muerte", "Hide the Santa Muerte SSID"));
-    else if (key == '3') beginConfirm(Confirm::SWITCH_AP, tr("Usar el punto de acceso Santa Muerte (corta Wi-Fi guardado)", "Use the Santa Muerte access point (drops saved Wi-Fi)"));
+    else if (key == '2') performAction(Action::TOGGLE_AP_HIDDEN);
+    else if (key == '3') performAction(Action::SWITCH_AP);
     else if (key == '4') beginPrompt(Prompt::HOME_SSID, tr("SSID de Wi-Fi guardado", "Saved Wi-Fi SSID"));
-    else if (key == '5') beginConfirm(Confirm::SWITCH_HOME, tr("Usar el Wi-Fi guardado (apaga el AP)", "Use saved Wi-Fi (turns the AP off)"));
+    else if (key == '5') performAction(Action::SWITCH_HOME);
     else if (key == 'v' || key == 'V') { revealSecrets = true; revealUntil = millis() + REVEAL_MS; setNotice(tr("Claves visibles durante 10 segundos.", "Passwords visible for 10 seconds.")); }
   } else if (screen == Screen::LED) {
     const char *patterns[] = {
@@ -1067,18 +1094,18 @@ void handleScreenKey(char key) {
     else if (key == '4') { const bool next = !isNfcCaptureEnabled(); setNotice(setNfcCaptureEnabled(next) ? next ? tr("NFC Offering encendida.", "NFC Offering on.") : tr("NFC Offering apagada.", "NFC Offering off.") : tr("No se pudo cambiar NFC Offering.", "Could not change NFC Offering."), false); }
     else if (key == '5') beginPrompt(Prompt::EMU_TEXT, tr("Texto para emular", "Text to emulate"));
     else if (key == '6') beginPrompt(Prompt::EMU_URL, tr("URL para emular", "URL to emulate"));
-    else if (key == '7') beginConfirm(Confirm::NFC_WIFI, tr("Emular Wi-Fi del badge", "Emulate badge Wi-Fi"));
+    else if (key == '7') performAction(Action::NFC_WIFI);
     else if (key == '8') setNotice(stopNfcTagEmulation() ? tr("Parando emulación.", "Stopping emulation.") : tr("No se pudo parar.", "Could not stop."), false);
   } else if (screen == Screen::OFFERINGS) {
     if (key == '1') beginPrompt(Prompt::OFFERING,
                                  tr("Texto de la nota", "Field Note text"));
-    else if (key == '2') beginConfirm(Confirm::CLEAR_BOARD,
+    else if (key == '2') beginConfirm(Action::CLEAR_BOARD,
                                       tr("Borrar todas las notas", "Clear all Field Notes"));
   } else if (screen == Screen::SYSTEM) {
     if (key == '1') { screen = Screen::LOGS; needsRedraw = true; }
     else if (key == '2') enterRawStream();
     else if (key == '3') { revealSecrets = true; revealUntil = millis() + REVEAL_MS; screen = Screen::NETWORK; setNotice(tr("Claves visibles durante 10 segundos.", "Passwords visible for 10 seconds.")); }
-    else if (key == '4') beginConfirm(Confirm::REBOOT, tr("Reiniciar el badge", "Reboot the badge"));
+    else if (key == '4') beginConfirm(Action::REBOOT, tr("Reiniciar el badge", "Reboot the badge"));
     else if (key == '5') routeGlobal('l');
   } else if (screen == Screen::PAYLOADS) {
     if (key == 's' || key == 'S') { usbHidStop(); setNotice(tr("Detenido.", "Stopped.")); }
@@ -1088,9 +1115,7 @@ void handleScreenKey(char key) {
       else if (key >= 'a' && key <= 'g') index = 9 + (key - 'a');
       if (index >= 0 && index < static_cast<int>(usbHidPayloadCount())) {
         stagedA = usbHidPayloadNameAt(static_cast<uint8_t>(index));
-        beginConfirm(Confirm::RUN_PAYLOAD,
-                     String(tr("Ejecutar carga ", "Run payload ")) + stagedA +
-                         tr(": TECLEARA en el host conectado", ": it will TYPE into the attached host"));
+        performAction(Action::RUN_PAYLOAD);
       }
     }
   }
@@ -1209,9 +1234,7 @@ void handleScreenSelection(int selection) {
                              "Could not enable NFC Notes."),
                 !started);
     } else if (selection == 2) {
-      beginConfirm(Confirm::NFC_WIFI,
-                   tr("Compartir el Wi-Fi del badge por NFC",
-                      "Share the badge Wi-Fi over NFC"));
+      performAction(Action::NFC_WIFI);
     } else if (selection == 3) {
       String recordType = nfc.emulatedRecordType;
       recordType.toLowerCase();
@@ -1270,7 +1293,7 @@ void handleScreenSelection(int selection) {
     if (selection == 1) {
       beginPrompt(Prompt::OFFERING, tr("Texto de la nota", "Field Note text"));
     } else if (selection == 2) {
-      beginConfirm(Confirm::CLEAR_BOARD,
+      beginConfirm(Action::CLEAR_BOARD,
                    tr("Borrar todas las notas", "Clear all Field Notes"));
     } else {
       setNotice(tr("Selección inválida.", "Invalid selection."), true);
@@ -1314,18 +1337,10 @@ void handleScreenSelection(int selection) {
   }
 
   if (screen == Screen::USB_NETWORK) {
-    String error;
-    bool changed = false;
-    if (selection == 1) changed = usbNetworkSetEnabled(true, error);
-    else if (selection == 2) changed = usbNetworkSetEnabled(false, error);
-    else error = tr("Selección inválida.", "Invalid selection.");
-    setNotice(changed ? (selection == 1
-                             ? tr("Puente Wi-Fi USB iniciado.",
-                                  "USB Wi-Fi bridge started.")
-                             : tr("Puente Wi-Fi USB detenido.",
-                                  "USB Wi-Fi bridge stopped."))
-                      : error,
-              !changed);
+    // Nothing to choose here: the screen reports what the bridge is doing.
+    setNotice(tr("El puente sigue al Wi-Fi guardado; no hay nada que iniciar.",
+                 "The bridge follows saved Wi-Fi; there is nothing to start."),
+              true);
     needsRedraw = true;
     return;
   }
@@ -1344,7 +1359,7 @@ void handleScreenSelection(int selection) {
       case 9: action = UsbControlAction::SYSTEM_SLEEP; break;
       case 10: action = UsbControlAction::SYSTEM_WAKE; break;
       case 11:
-        beginConfirm(Confirm::USB_POWER_OFF,
+        beginConfirm(Action::USB_POWER_OFF,
                      tr("Apagar el equipo conectado", "Power off the connected computer"));
         needsRedraw = true;
         return;
@@ -1402,10 +1417,7 @@ void handleScreenSelection(int selection) {
     } else if (selection >= 1 &&
                selection <= static_cast<int>(usbHidPayloadCount())) {
       stagedA = usbHidPayloadNameAt(static_cast<uint8_t>(selection - 1));
-      beginConfirm(Confirm::RUN_PAYLOAD,
-                   String(tr("Ejecutar carga ", "Run payload ")) + stagedA +
-                       tr(": TECLEARÁ en el host conectado",
-                          ": it will TYPE into the attached host"));
+      performAction(Action::RUN_PAYLOAD);
     } else {
       setNotice(tr("Selección inválida.", "Invalid selection."), true);
     }
@@ -1444,10 +1456,10 @@ void handleCommand(const String &value) {
 
   String lower = commandText;
   lower.toLowerCase();
-  if (confirm != Confirm::NONE) {
+  if (pendingConfirm != Action::NONE) {
     if (lower == "y" || lower == "yes") applyConfirm();
     else if (lower == "n" || lower == "no") {
-      confirm = Confirm::NONE;
+      pendingConfirm = Action::NONE;
       setNotice(tr("Cancelado.", "Cancelled."));
     } else {
       setNotice(tr("Responde y o n.", "Answer y or n."), true);
@@ -1520,7 +1532,7 @@ void handleKey(char key) {
   }
   if (rawStream) { rawStream = false; needsRedraw = true; return; }
   if ((key == 'q' || key == 'Q') && prompt == Prompt::NONE &&
-      confirm == Confirm::NONE) {
+      pendingConfirm == Action::NONE) {
     command = String();
     clearTerminal();
     muted(tr("Sesión del badge cerrada. Pulsa Enter para abrirla otra vez.",
@@ -1531,7 +1543,7 @@ void handleKey(char key) {
   }
   if (key == 27) {
     prompt = Prompt::NONE;
-    confirm = Confirm::NONE;
+    pendingConfirm = Action::NONE;
     input = String();
     command = String();
     screen = Screen::DASHBOARD;
@@ -1540,8 +1552,15 @@ void handleKey(char key) {
   }
   if (prompt != Prompt::NONE) {
     if (key == '\r' || key == '\n') {
-      if (input.length() || prompt == Prompt::AP_PASSWORD) completePrompt();
-      else setNotice(tr("Escribe un valor.", "Enter a value."), true);
+      // Both password prompts take an empty line as a deliberate answer: it
+      // is how an open network is entered, for the badge's own AP and for a
+      // saved network alike. Every other prompt still needs a value.
+      if (input.length() || prompt == Prompt::AP_PASSWORD ||
+          prompt == Prompt::HOME_PASSWORD) {
+        completePrompt();
+      } else {
+        setNotice(tr("Escribe un valor.", "Enter a value."), true);
+      }
       return;
     }
     if (key == 8 || key == 127) {

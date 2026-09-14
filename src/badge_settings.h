@@ -61,6 +61,12 @@ bool setPersistentStationWifiSettings(const String &ssid,
                                       const String &password,
                                       String &error);
 
+// The same validation setPersistentStationWifiSettings() applies, without
+// storing anything. A caller that means to try a network before remembering it
+// needs to reject a malformed SSID or passphrase up front, while it can still
+// say so to whoever typed it.
+String getStationWifiCredentialError(const String &ssid, const String &password);
+
 // Persistent LED state. Only the record's integrity is checked here; the
 // meaning of each field, and the valid range of each, stays in main.cpp with
 // the rest of the LED logic.

@@ -46,7 +46,11 @@ bool descriptorRegistered = false;
 bool transmitDeferred = false;
 
 void setReportedLinkState() {
-  const bool linkUp = bridgeEnabled && stationConnected;
+  // What the host wants to know is whether there is an upstream behind this
+  // adapter, which is true or not regardless of whether the feed has been
+  // handed over yet. Tying it to the bridge would also deadlock the handover
+  // below, which waits on the host.
+  const bool linkUp = stationConnected;
   if (linkUp == reportedLinkUp) return;
   reportedLinkUp = linkUp;
   tud_network_link_state(0, linkUp);
@@ -111,22 +115,53 @@ esp_err_t forwardWifiPacket(void *buffer, uint16_t length, void *wifiBuffer) {
 
 uint16_t loadNcmDescriptor(uint8_t *destination, uint8_t *interfaceNumber) {
   const uint8_t descriptionString =
-      tinyusb_add_string_descriptor("Santa Muerte USB Wi-Fi");
+      tinyusb_add_string_descriptor("Santa Muerte WiFi Tethering");
   const uint8_t macString = tinyusb_add_string_descriptor(ncmMacString);
   const uint8_t bulkEndpoint = tinyusb_get_free_duplex_endpoint();
   const uint8_t notificationEndpoint = tinyusb_get_free_in_endpoint();
   if (!descriptionString || !macString || !bulkEndpoint || !notificationEndpoint)
     return 0;
 
+  // 64 bytes on the notification endpoint, not 8, which is what TinyUSB's own
+  // NCM example declares at full speed. NCM's CONNECTION_SPEED_CHANGE
+  // notification is sixteen bytes -- an eight-byte header and two 32-bit
+  // rates -- so an eight-byte endpoint splits every one of them across two
+  // transactions with no short packet to end the transfer. Linux's cdc_ncm
+  // reassembles that anyway; Windows' usbncm.sys refused to start the
+  // interface at all (Code 10), which is how a badge that tethered correctly
+  // on Debian appeared on Windows as a device with a fatal hardware error.
   const uint8_t descriptor[TUD_CDC_NCM_DESC_LEN] = {
       TUD_CDC_NCM_DESCRIPTOR(*interfaceNumber, descriptionString, macString,
-                             static_cast<uint8_t>(0x80 | notificationEndpoint), 8, bulkEndpoint,
+                             static_cast<uint8_t>(0x80 | notificationEndpoint), 64, bulkEndpoint,
                              static_cast<uint8_t>(0x80 | bulkEndpoint), 64, MAX_ETHERNET_FRAME, 50,
                              static_cast<uint8_t>(NCM_NETWORK_CAPS_ETH_FILTER |
                                                   NCM_NETWORK_CAPS_NTB_INPUT_SIZE))};
   memcpy(destination, descriptor, sizeof(descriptor));
   *interfaceNumber += 2;
   return sizeof(descriptor);
+}
+
+// Bridging costs nothing while the link is down and cannot work without it, so
+// both edges are driven straight from the station's state.
+void startBridge() {
+  if (bridgeEnabled || !descriptorRegistered) return;
+  const esp_err_t result =
+      esp_wifi_internal_reg_rxcb(WIFI_IF_STA, forwardWifiPacket);
+  if (result != ESP_OK) {
+    Serial.printf("[USB] WiFi Tethering could not take the Wi-Fi feed: %s\r\n",
+                  esp_err_to_name(result));
+    return;
+  }
+  bridgeEnabled = true;
+  Serial.println("[USB] WiFi Tethering is carrying saved Wi-Fi to the host");
+}
+
+void stopBridge() {
+  if (!bridgeEnabled) return;
+  esp_wifi_internal_reg_rxcb(WIFI_IF_STA, nullptr);
+  bridgeEnabled = false;
+  clearQueue();
+  Serial.println("[USB] WiFi Tethering idle: saved Wi-Fi is down");
 }
 
 }  // namespace
@@ -185,7 +220,20 @@ void usbNetworkBegin() {
 }
 
 void usbNetworkService() {
-  if (!bridgeEnabled || !stationConnected || !reportedLinkUp) return;
+  // Attaching takes the Wi-Fi feed away from the badge's own network stack,
+  // so it waits until the host has genuinely opened the network interface --
+  // tud_network_can_xmit() is false until the host selects the data
+  // interface's active alternate setting. A host that never starts it, which
+  // is what Windows does when usbncm.sys refuses the device, would otherwise
+  // leave the badge carrying traffic nobody reads while its own portal went
+  // unreachable, with no way back except the serial console.
+  if (descriptorRegistered) {
+    const bool hostReady = tud_mounted() && tud_network_can_xmit(MAX_ETHERNET_FRAME);
+    if (!bridgeEnabled && stationConnected && hostReady) startBridge();
+    else if (bridgeEnabled && (!stationConnected || !tud_mounted())) stopBridge();
+  }
+
+  if (!bridgeEnabled || !stationConnected) return;
 
   portENTER_CRITICAL(&queueMux);
   const bool shouldDefer = queueCount && !transmitDeferred;
@@ -195,36 +243,12 @@ void usbNetworkService() {
 }
 
 void usbNetworkSetStationConnected(bool connected) {
+  // Called every loop, so only the edges do any work. Attaching is left to
+  // usbNetworkService(), which also waits on the host.
+  if (connected == stationConnected) return;
   stationConnected = connected;
+  if (!connected) stopBridge();
   setReportedLinkState();
-}
-
-bool usbNetworkSetEnabled(bool enabled, String &error) {
-  error = String();
-  if (enabled == bridgeEnabled) return true;
-  if (enabled && !descriptorRegistered) {
-    error = "USB Wi-Fi is unavailable in this firmware.";
-    return false;
-  }
-  if (enabled && !stationConnected) {
-    error = "Connect saved Wi-Fi before starting USB Wi-Fi.";
-    return false;
-  }
-
-  if (enabled) {
-    const esp_err_t result = esp_wifi_internal_reg_rxcb(WIFI_IF_STA, forwardWifiPacket);
-    if (result != ESP_OK) {
-      error = String("Could not start Wi-Fi bridge (") + esp_err_to_name(result) + ").";
-      return false;
-    }
-    bridgeEnabled = true;
-  } else {
-    esp_wifi_internal_reg_rxcb(WIFI_IF_STA, nullptr);
-    bridgeEnabled = false;
-    clearQueue();
-  }
-  setReportedLinkState();
-  return true;
 }
 
 UsbNetworkState getUsbNetworkState() {
@@ -239,10 +263,6 @@ void usbNetworkConfigure(bool) {}
 void usbNetworkBegin() {}
 void usbNetworkService() {}
 void usbNetworkSetStationConnected(bool) {}
-bool usbNetworkSetEnabled(bool, String &error) {
-  error = "USB Wi-Fi requires the current Arduino 3 firmware.";
-  return false;
-}
 UsbNetworkState getUsbNetworkState() { return {false, false, false, false, 0, 0, 0}; }
 
 #endif

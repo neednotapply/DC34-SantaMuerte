@@ -494,6 +494,7 @@ bool readNextBoardPost(uint32_t &beforeId, BoardPost &post) {
                             imageSlotHoldsPost(record.imageSlot, record.id,
                                                imageLength);
     post.hasImage = hasPayload;
+    post.imageLength = hasPayload ? imageLength : 0;
 
     beforeId = record.id;
     return true;
