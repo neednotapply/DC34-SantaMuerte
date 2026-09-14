@@ -7,7 +7,7 @@
   <title>Santa Muerte // Red</title>
   <link rel="stylesheet" href="theme.css?v=30">
   <link rel="icon" type="image/png" href="assets/logo-candle.png">
-  <script src="locale.js?v=21"></script>
+  <script src="locale.js?v=24"></script>
   <style>
     :root {
       color-scheme:dark;
@@ -217,6 +217,18 @@
     .station-state .station-detail{display:block;margin-top:5px;font-size:.66rem}
     .station-state.connected{border-color:rgba(145,166,125,.6);color:#c8d9bb}
     .station-state.connecting{border-color:rgba(164,123,54,.6)}
+    .scan-row{display:flex;align-items:center;gap:10px;margin-top:9px}
+    .scan-note{color:var(--muted);font-size:.68rem}
+    .scan-results{margin-top:10px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+    .scan-item{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;
+      padding:10px 13px;background:var(--panel2);border:0;border-bottom:1px solid var(--line);
+      color:var(--text);font:inherit;font-size:.76rem;text-align:left;cursor:pointer}
+    .scan-item:last-child{border-bottom:0}
+    .scan-item:hover,.scan-item:focus-visible{background:var(--panel);color:#fff;outline:none}
+    .scan-item .ssid{font-weight:700;word-break:break-all}
+    .scan-item .meta{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.66rem;white-space:nowrap}
+    .scan-item .lock{opacity:.8}
+    .scan-bars{display:inline-block;width:22px;color:var(--green)}
     .home-password-help{margin:7px 3px 0;color:var(--muted);font-size:.66rem;line-height:1.45}
     @media(max-width:480px){
       body{padding:14px 12px 56px}
@@ -237,6 +249,8 @@
           <a href="/nfc">NFC Tools</a>
           <a href="/usb">Herramientas USB</a>
           <a href="/scripting">Scripts</a>
+          <a href="/terminal">Terminal</a>
+          <a href="/nfc-board">Tablero NFC</a>
         </nav>
       </details>
       <div class="header-page-title"><h1>Red</h1></div>
@@ -250,6 +264,8 @@
           <a href="/nfc">NFC Tools</a>
           <a href="/usb">Herramientas USB</a>
           <a href="/scripting">Scripts</a>
+          <a href="/terminal">Terminal</a>
+          <a href="/nfc-board">Tablero NFC</a>
         </nav>
       </details>
     </header>
@@ -332,6 +348,11 @@
 
       <label class="field-label" for="stationSsid">Nombre de red (SSID)</label>
       <input id="stationSsid" name="ssid" type="text" maxlength="32" autocapitalize="none" spellcheck="false" autocomplete="off" required>
+      <div class="scan-row">
+        <button class="small-button" id="scanNetworksBtn" type="button">Buscar redes</button>
+        <span class="scan-note" id="scanNote"></span>
+      </div>
+      <div id="scanResults" class="scan-results" hidden></div>
 
       <label class="field-label" for="stationPassword" style="margin-top:16px">Contraseña de red (opcional)</label>
       <div class="password-row">
@@ -359,6 +380,62 @@
     const accessPointSsidInput = document.getElementById('accessPointSsid');
     const hiddenSsidWarning = document.getElementById('hiddenSsidWarning');
     const accessPointEnabled = document.getElementById('accessPointEnabled');
+
+    // --- Wi-Fi scan-and-pick -------------------------------------------------
+    // Fills the SSID field from a tap instead of typing it blind. Scans only on
+    // the button, never on a timer: the single radio hops channels to sweep, so
+    // a scan briefly stalls anything on the badge's own AP.
+    (function () {
+      const scanBtn = document.getElementById('scanNetworksBtn');
+      const scanNote = document.getElementById('scanNote');
+      const scanResults = document.getElementById('scanResults');
+      if (!scanBtn) return;
+
+      function bars(rssi) {
+        const n = rssi >= -55 ? 4 : rssi >= -65 ? 3 : rssi >= -75 ? 2 : 1;
+        return '█'.repeat(n) + '▁'.repeat(4 - n);
+      }
+      function esc(v){ return (v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+      scanBtn.addEventListener('click', async () => {
+        const locale = window.PortalLocale ? window.PortalLocale.locale : 'es-MX';
+        const t = (es, en) => locale === 'en-US' ? en : es;
+        scanBtn.disabled = true;
+        scanNote.textContent = t('Buscando…', 'Scanning…');
+        scanResults.hidden = true;
+        try {
+          const res = await fetch('/api/wifi/scan', { cache: 'no-store' });
+          const data = await res.json();
+          const nets = (data.networks || []);
+          if (!nets.length) {
+            scanNote.textContent = t('No se vieron redes.', 'No networks found.');
+            return;
+          }
+          scanNote.textContent = '';
+          scanResults.innerHTML = nets.map(function (n) {
+            const lock = n.secure ? '🔒' : '';
+            return '<button type="button" class="scan-item" data-ssid="' + esc(n.ssid) + '">'
+              + '<span class="ssid">' + esc(n.ssid) + '</span>'
+              + '<span class="meta"><span class="lock">' + lock + '</span>'
+              + '<span class="scan-bars">' + bars(n.rssi) + '</span></span></button>';
+          }).join('');
+          scanResults.hidden = false;
+          scanResults.querySelectorAll('.scan-item').forEach(function (item) {
+            item.addEventListener('click', function () {
+              stationSsidInput.value = item.getAttribute('data-ssid');
+              scanResults.hidden = true;
+              scanNote.textContent = '';
+              const pw = document.getElementById('stationPassword');
+              if (pw) pw.focus();
+            });
+          });
+        } catch (e) {
+          scanNote.textContent = t('No se pudo buscar.', 'Scan failed.');
+        } finally {
+          scanBtn.disabled = false;
+        }
+      });
+    })();
     const accessPointWarning = document.getElementById('accessPointWarning');
     const stationForm = document.getElementById('stationWifiForm');
     const stationSsidInput = document.getElementById('stationSsid');

@@ -19,6 +19,17 @@ struct NfcTuiState {
   String emulatedPayload;
 };
 
+// One tag the reader met in capture mode, handed from the reader task to the
+// loop task (the only task that may write LittleFS) to be recorded on the
+// unified NFC board. Carries identity and content together: raw UID bytes, the
+// card type, and any decoded record.
+struct NfcCapturedTag {
+  uint8_t uid[10];
+  uint8_t uidLength;
+  char tagType[40];
+  char content[208];
+};
+
 // Initializes the PN532 and starts its dedicated FreeRTOS worker task.
 // Failure is reported through getNfcStateJson() and does not stop the LED or
 // Wi-Fi controller.
@@ -56,8 +67,9 @@ bool stopNfcTagEmulation();
 bool setNfcCaptureEnabled(bool enabled);
 bool isNfcCaptureEnabled();
 
-// Pops one captured payload. Returns false when nothing is waiting.
-bool takeNfcCapture(String &text);
+// Pops one captured tag. Returns false when nothing is waiting. The loop task
+// drains these and records them on the NFC board.
+bool takeNfcCapture(NfcCapturedTag &tag);
 
 // Called by the capture drain once a post has been stored, so the page can
 // show how many tags have made it onto the board.

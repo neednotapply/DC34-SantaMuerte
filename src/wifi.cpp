@@ -26,6 +26,7 @@
 #include "usb_drive.h"
 #include "usb_console.h"
 #include "usb_tui.h"
+#include "nfc_log.h"
 
 // Implemented in main.cpp. wifi.cpp only transports and parses LED requests;
 // main.cpp remains responsible for LED state, validation, and animation logic.
@@ -831,6 +832,67 @@ void handleStationWifiGet() {
   server.send(200, "application/json", stationWifiJson(true, String()));
 }
 
+// On-demand scan for the "pick a network" helper on the settings page. The
+// scan is synchronous, so this request takes a second or two and, because the
+// single radio hops channels to sweep, a browser on the badge's own AP sees a
+// brief stall while it runs -- which is why the page only scans on a tap and
+// never on a timer. Results are de-duplicated by SSID (keeping the strongest
+// sighting), hidden/blank SSIDs dropped, sorted strongest first.
+void handleWifiScan() {
+  addNoCacheHeaders();
+
+  const int found = WiFi.scanNetworks(false, false);
+  if (found <= 0) {
+    WiFi.scanDelete();
+    server.send(200, "application/json", F("{\"networks\":[]}"));
+    return;
+  }
+
+  const int count = found > 64 ? 64 : found;
+  bool used[64];
+  for (int i = 0; i < count; ++i) used[i] = false;
+
+  String seen[24];
+  int seenCount = 0;
+  String body = F("{\"networks\":[");
+  int emitted = 0;
+
+  // Selection sort by RSSI (strongest first) over the small scan list, so the
+  // first sighting of an SSID is its best one and later duplicates are dropped.
+  for (int n = 0; n < count && emitted < 24; ++n) {
+    int best = -1;
+    for (int i = 0; i < count; ++i) {
+      if (used[i]) continue;
+      if (best < 0 || WiFi.RSSI(i) > WiFi.RSSI(best)) best = i;
+    }
+    if (best < 0) break;
+    used[best] = true;
+
+    const String ssid = WiFi.SSID(best);
+    if (ssid.length() == 0) continue;  // hidden / blank
+    bool duplicate = false;
+    for (int j = 0; j < seenCount; ++j) {
+      if (seen[j] == ssid) { duplicate = true; break; }
+    }
+    if (duplicate) continue;
+    seen[seenCount++] = ssid;
+
+    if (emitted > 0) body += ',';
+    body += F("{\"ssid\":\"");
+    body += jsonEscape(ssid);
+    body += F("\",\"rssi\":");
+    body += WiFi.RSSI(best);
+    body += F(",\"secure\":");
+    body += (WiFi.encryptionType(best) == WIFI_AUTH_OPEN) ? F("false") : F("true");
+    body += '}';
+    ++emitted;
+  }
+  body += F("]}");
+
+  WiFi.scanDelete();
+  server.send(200, "application/json", body);
+}
+
 void handleStationWifiSet() {
   addNoCacheHeaders();
   if (!server.hasArg("ssid")) {
@@ -1440,6 +1502,67 @@ void handleBoardClear() {
               boardStateJson(true, "Se borraron todas las ofrendas."));
 }
 
+void handleNfcBoardPage() {
+  serveLittleFsFile("/nfcboard.html", "text/html; charset=utf-8");
+}
+
+// Streams the unified NFC board newest-first, the same chunked way the Field
+// Notes board does, so a long list never has to fit in one String.
+void handleNfcBoard() {
+  const uint32_t requestedBefore =
+      server.hasArg("before")
+          ? strtoul(server.arg("before").c_str(), nullptr, 10)
+          : 0;
+  const uint16_t limit =
+      constrain(server.hasArg("limit") ? server.arg("limit").toInt() : 30, 1, 60);
+
+  addNoCacheHeaders();
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "application/json", "");
+  server.sendContent(F("{\"tags\":["));
+
+  uint32_t cursor = requestedBefore;
+  uint16_t sent = 0;
+  NfcLogEntry entry;
+  while (sent < limit && nfcLogReadNext(cursor, entry)) {
+    String chunk;
+    chunk.reserve(entry.content.length() + entry.uid.length() + 96);
+    if (sent > 0) chunk += ',';
+    chunk += F("{\"id\":");
+    chunk += entry.lastSeenId;
+    chunk += F(",\"uid\":\"");
+    chunk += jsonEscape(entry.uid);
+    chunk += F("\",\"type\":\"");
+    chunk += jsonEscape(entry.tagType);
+    chunk += F("\",\"content\":\"");
+    chunk += jsonEscape(entry.content);
+    chunk += F("\",\"hits\":");
+    chunk += entry.hitCount;
+    chunk += '}';
+    server.sendContent(chunk);
+    ++sent;
+  }
+
+  String tail = F("],\"stored\":");
+  tail += nfcLogStoredCount();
+  tail += F(",\"capacity\":");
+  tail += nfcLogCapacity();
+  tail += '}';
+  server.sendContent(tail);
+  server.sendContent(F(""));
+}
+
+void handleNfcBoardClear() {
+  addNoCacheHeaders();
+  if (!clearNfcLog()) {
+    server.send(500, "application/json",
+                F("{\"ok\":false,\"message\":\"No se pudo limpiar el tablero NFC.\"}"));
+    return;
+  }
+  server.send(200, "application/json",
+              F("{\"ok\":true,\"message\":\"Tablero NFC borrado.\"}"));
+}
+
 // -----------------------------------------------------------------------------
 // Captive portal
 // -----------------------------------------------------------------------------
@@ -1752,6 +1875,68 @@ void handleUsbProfileSet() {
   ESP.restart();
 }
 
+// The Terminal page mirrors the USB console byte for byte, so this transport
+// only ever carries bytes: what the console has printed since the page last
+// asked, and whatever has been typed into the page. Base64 is what makes that
+// safe through JSON -- the stream is full of ANSI escapes, and the mirror ring
+// can hand back a UTF-8 character cut in half at its boundary. The page
+// reassembles both with a streaming decoder.
+String base64Encode(const String &value) {
+  static const char alphabet[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  String encoded;
+  const size_t length = value.length();
+  encoded.reserve(((length + 2) / 3) * 4 + 1);
+  for (size_t i = 0; i < length; i += 3) {
+    const size_t remaining = length - i;
+    const uint32_t block =
+        (static_cast<uint32_t>(static_cast<uint8_t>(value[i])) << 16) |
+        (remaining > 1 ? static_cast<uint32_t>(static_cast<uint8_t>(value[i + 1])) << 8 : 0) |
+        (remaining > 2 ? static_cast<uint32_t>(static_cast<uint8_t>(value[i + 2])) : 0);
+    encoded += alphabet[(block >> 18) & 0x3F];
+    encoded += alphabet[(block >> 12) & 0x3F];
+    encoded += remaining > 1 ? alphabet[(block >> 6) & 0x3F] : '=';
+    encoded += remaining > 2 ? alphabet[block & 0x3F] : '=';
+  }
+  return encoded;
+}
+
+void handleTerminalPage() {
+  serveLittleFsFile("/terminal.html", "text/html; charset=utf-8");
+}
+
+void handleTerminalStream() {
+  addNoCacheHeaders();
+  // Polling is what keeps capture alive, and it is also what asks for the
+  // first frame, so this comes before the read rather than after it.
+  usbTuiMirrorOpen();
+  const uint32_t since =
+      server.hasArg("since")
+          ? static_cast<uint32_t>(strtoul(server.arg("since").c_str(), nullptr, 10))
+          : 0;
+  uint32_t sequence = 0;
+  bool resynchronised = false;
+  const String pending = usbTuiMirrorRead(since, sequence, resynchronised);
+  String body = "{\"sequence\":";
+  body += sequence;
+  body += ",\"reset\":";
+  body += resynchronised ? "true" : "false";
+  body += ",\"data\":\"";
+  body += base64Encode(pending);
+  body += "\"}";
+  server.send(200, "application/json", body);
+}
+
+void handleTerminalKey() {
+  addNoCacheHeaders();
+  if (!server.hasArg("keys")) {
+    server.send(400, "application/json", "{\"ok\":false}");
+    return;
+  }
+  usbTuiInjectKeys(server.arg("keys"));
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
 void setupWebServer() {
   // The portal opens on the board. "/" used to be a dashboard whose first
   // element was a row of links onward, so landing there was navigable; it is
@@ -1770,8 +1955,14 @@ void setupWebServer() {
   server.on("/assets/badge-figure.png", HTTP_GET, handleBadgeFigureAsset);
   server.on("/led", HTTP_GET, handleLedPage);
   server.on("/led.html", HTTP_GET, handleLedPage);
+  server.on("/terminal", HTTP_GET, handleTerminalPage);
+  server.on("/terminal.html", HTTP_GET, handleTerminalPage);
+  server.on("/api/terminal/stream", HTTP_GET, handleTerminalStream);
+  server.on("/api/terminal/key", HTTP_POST, handleTerminalKey);
   server.on("/nfc", HTTP_GET, handleNfcPage);
   server.on("/nfc.html", HTTP_GET, handleNfcPage);
+  server.on("/nfc-board", HTTP_GET, handleNfcBoardPage);
+  server.on("/nfcboard.html", HTTP_GET, handleNfcBoardPage);
   server.on("/notes", HTTP_GET, handleBoardPage);
   server.on("/board", HTTP_GET, redirectLegacyBoardPage);
   server.on("/board.html", HTTP_GET, redirectLegacyBoardPage);
@@ -1785,6 +1976,7 @@ void setupWebServer() {
   server.on("/api/wifi/settings", HTTP_POST, handleWifiSettingsSet);
   server.on("/api/wifi/ap", HTTP_POST, handleAccessPointSet);
   server.on("/api/wifi/client", HTTP_GET, handleStationWifiGet);
+  server.on("/api/wifi/scan", HTTP_GET, handleWifiScan);
   server.on("/api/wifi/client", HTTP_POST, handleStationWifiSet);
   server.on("/api/ui/language", HTTP_GET, handleLanguageGet);
   server.on("/api/ui/language", HTTP_POST, handleLanguageSet);
@@ -1794,6 +1986,8 @@ void setupWebServer() {
   server.on("/api/board/image", HTTP_GET, handleBoardImage);
   server.on("/api/board/post", HTTP_POST, handleBoardCreate);
   server.on("/api/board/clear", HTTP_POST, handleBoardClear);
+  server.on("/api/nfc/board", HTTP_GET, handleNfcBoard);
+  server.on("/api/nfc/board/clear", HTTP_POST, handleNfcBoardClear);
 
   server.on("/usb", HTTP_GET, handlePayloadsPage);
   server.on("/usb.html", HTTP_GET, handlePayloadsPage);
@@ -1847,14 +2041,25 @@ void setupWebServer() {
 // Drains what the NFC reader captured while capture mode was on. This runs on
 // the Arduino loop task, the only task that writes the board: the reader task
 // stages payloads in a queue instead of touching LittleFS from a second core.
-void serviceNfcCapture() {
-  String captured;
-  // One per pass so a burst of tags cannot stall the web server.
-  if (!takeNfcCapture(captured)) return;
+static String uidToStringForLog(const uint8_t *uid, uint8_t length) {
+  String out;
+  char b[4];
+  for (uint8_t i = 0; i < length; ++i) {
+    snprintf(b, sizeof(b), "%02X", uid[i]);
+    if (i) out += ':';
+    out += b;
+  }
+  return out;
+}
 
-  String error;
-  if (!addBoardPost(captured, 0, nullptr, 0, error, NFC_CAPTURE_AUTHOR_ID)) {
-    Serial.printf("[BOARD][NFC] Capture rejected: %s\r\n", error.c_str());
+void serviceNfcCapture() {
+  NfcCapturedTag tag;
+  // One per pass so a burst of tags cannot stall the web server.
+  if (!takeNfcCapture(tag)) return;
+
+  if (!nfcLogRecord(tag.uid, tag.uidLength, String(tag.tagType),
+                    String(tag.content))) {
+    Serial.println("[NFCLOG] Capture rejected by storage");
     // Whoever tapped is most likely not on the access point, so the failure has
     // to be visible on the badge or it is invisible entirely.
     signalTagCue(false);
@@ -1863,8 +2068,8 @@ void serviceNfcCapture() {
 
   noteNfcCapturePosted();
   signalTagCue(true);
-  Serial.printf("[BOARD][NFC] Captured tag posted (%u bytes)\r\n",
-                static_cast<unsigned>(captured.length()));
+  Serial.printf("[NFCLOG] Recorded %s on the NFC board\r\n",
+                uidToStringForLog(tag.uid, tag.uidLength).c_str());
 }
 
 const char *getBadgeWifiSsid() {
@@ -1964,6 +2169,10 @@ void setupWiFiAccessPoint() {
                   LittleFS.exists("/nfc.html") ? "ready" : "missing");
     Serial.printf("[WIFI] /board.html: %s\r\n",
                   LittleFS.exists("/board.html") ? "ready" : "missing");
+    Serial.printf("[WIFI] /terminal.html: %s\r\n",
+                  LittleFS.exists("/terminal.html") ? "ready" : "missing");
+    Serial.printf("[WIFI] /nfcboard.html: %s\r\n",
+                  LittleFS.exists("/nfcboard.html") ? "ready" : "missing");
   }
 
   // Resolve and verify the persistent password before starting Wi-Fi.

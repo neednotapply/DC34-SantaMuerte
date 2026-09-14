@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#151615">
+  <title>Santa Muerte // Terminal</title>
+  <link rel="stylesheet" href="theme.css?v=30">
+  <link rel="icon" type="image/png" href="assets/logo-candle.png">
+  <script src="locale.js?v=24"></script>
+  <style>
+    :root{
+      --bg:#151615;--panel:#1e1f1c;--panel2:#282823;--line:#504d44;
+      --text:#ece6d8;--muted:#a9a397;--blue:#a47b36;--cyan:#a47b36;
+      --green:#91a67d;--amber:#a47b36;--red:#b85a4d;--violet:#6f1d24;
+      --shadow:none
+    }
+    *{box-sizing:border-box}
+    html{color-scheme:dark}
+    body{margin:0;min-height:100vh;background:linear-gradient(90deg,#101110,var(--bg) 52%,#101110);
+      color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    button,input{font:inherit}
+    button,a{-webkit-tap-highlight-color:transparent}
+    .wrap{width:min(1180px,100%);margin:auto;padding:24px 20px 44px}
+    .card{border:1px solid var(--line);border-radius:23px;background:linear-gradient(155deg,rgba(20,24,35,.97),rgba(13,16,24,.98));box-shadow:var(--shadow);overflow:hidden}
+    .pad{padding:22px}
+    .card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+    h2{margin:0;font-size:.91rem;letter-spacing:.01em}
+    .eyebrow{color:var(--muted);font-size:.69rem;text-transform:uppercase;letter-spacing:.13em;font-weight:800;margin-bottom:7px}
+    .reader-pill{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:.7rem;font-weight:750}
+    .reader-pill i{width:7px;height:7px;border-radius:50%;background:#596071;transition:background .2s}
+    .reader-pill.live i{background:var(--green);box-shadow:0 0 0 4px rgba(145,166,125,.13)}
+    .reader-pill.lost i{background:var(--red);box-shadow:0 0 0 4px rgba(184,90,77,.13)}
+
+    /* The screen is a terminal, so it is monospaced, it does not wrap, and it
+       scrolls sideways rather than reflowing the badge's 60-column rules. */
+    .terminal-screen{
+      margin:0;padding:16px 18px;border:1px solid var(--line);border-radius:15px;
+      background:#0d0e0c;color:#ece6d8;
+      font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+      font-size:.78rem;line-height:1.45;white-space:pre;overflow:auto;
+      min-height:46vh;max-height:62vh;outline:none;-webkit-overflow-scrolling:touch}
+    .terminal-screen:focus-visible{border-color:var(--amber)}
+    .terminal-screen b{font-weight:700}
+
+    .term-controls{display:flex;gap:9px;margin-top:14px;flex-wrap:wrap;align-items:center}
+    .term-input{flex:1 1 240px;min-width:0;height:40px;padding:0 13px;border:1px solid var(--line);
+      border-radius:999px;background:var(--panel2);color:var(--text);font-size:.78rem;
+      font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .term-input:focus{outline:none;border-color:var(--amber)}
+    .keycap{height:40px;padding:0 15px;border:1px solid var(--line);border-radius:999px;
+      background:var(--panel2);color:var(--text);font-size:.72rem;font-weight:750;cursor:pointer;transition:all .15s}
+    .keycap:hover{border-color:var(--amber);background:var(--panel)}
+    .keycap:active{transform:translateY(1px)}
+    .hint{color:var(--muted);font-size:.69rem;margin-top:12px;line-height:1.55}
+    .hint b{color:var(--text);font-weight:750}
+    .notice{display:flex;gap:10px;margin-top:16px;padding:13px 15px;border:1px solid var(--line);
+      border-radius:15px;background:rgba(110,29,36,.13);color:var(--muted);font-size:.7rem;line-height:1.55}
+    .notice .mark{flex:0 0 auto;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;
+      background:var(--violet);color:var(--text);font-weight:900;font-size:.66rem}
+    @media (max-width:640px){
+      .wrap{padding:16px 13px 34px}
+      .pad{padding:16px}
+      .terminal-screen{font-size:.69rem;padding:12px;min-height:40vh;max-height:52vh}
+    }
+  </style>
+</head>
+<body class="terminal-page">
+  <div class="wrap">
+    <header class="saint-header">
+      <details class="nav-menu">
+        <summary aria-label="Abrir menú">
+          <img class="brand-mark" src="assets/logo-candle.png" alt="">
+        </summary>
+        <nav class="nav-menu-list" aria-label="Navegación del badge">
+          <a href="/notes">Field Notes</a>
+          <a href="/led">LED Tools</a>
+          <a href="/nfc">NFC Tools</a>
+          <a href="/usb">Herramientas USB</a>
+          <a href="/scripting">Scripts</a>
+          <a href="/nfc-board">Tablero NFC</a>
+          <a href="/network">Red</a>
+        </nav>
+      </details>
+      <div class="header-page-title">
+        <h1>Terminal</h1>
+      </div>
+      <details class="nav-menu nav-menu--right">
+        <summary aria-label="Abrir menú">
+          <img class="brand-mark" src="assets/logo-candle.png" alt="">
+        </summary>
+        <nav class="nav-menu-list" aria-label="Navegación del badge">
+          <a href="/notes">Field Notes</a>
+          <a href="/led">LED Tools</a>
+          <a href="/nfc">NFC Tools</a>
+          <a href="/usb">Herramientas USB</a>
+          <a href="/scripting">Scripts</a>
+          <a href="/nfc-board">Tablero NFC</a>
+          <a href="/network">Red</a>
+        </nav>
+      </details>
+    </header>
+
+    <main>
+      <section class="card pad">
+        <div class="card-head">
+          <div>
+            <div class="eyebrow">Consola USB</div>
+            <h2>La misma sesión que ve el cable</h2>
+          </div>
+          <div id="livePill" class="reader-pill"><i></i><span id="liveLabel">Conectando</span></div>
+        </div>
+
+        <div id="screen" class="terminal-screen raw" tabindex="0" role="log" aria-live="polite"></div>
+
+        <div class="term-controls">
+          <input id="lineInput" class="term-input" autocomplete="off" autocorrect="off"
+                 autocapitalize="off" spellcheck="false" placeholder="Escribe y pulsa Enter">
+          <button class="keycap" data-key="enter">Enter</button>
+          <button class="keycap" data-key="escape">Esc</button>
+          <button class="keycap" data-key="back">&#9003;</button>
+          <button class="keycap" data-key="colour" title="Alterna el color ANSI (tecla p)">Color</button>
+        </div>
+
+        <div class="hint">
+          Haz clic en la pantalla y escribe igual que en el cable, o usa la caja de
+          arriba desde el teléfono. <b>Enter</b> abre una sesión cerrada, y
+          <b>Color</b> enciende el color ANSI en las dos vistas a la vez.
+        </div>
+
+        <div class="notice">
+          <span class="mark">!</span>
+          <div>Una sola sesión: el cable y esta página comparten pantalla y lo que
+          está escrito a medias. Las claves guardadas, los payloads de teclado y
+          borrar las notas siguen siendo solo por cable, porque el portal no pide
+          contraseña.</div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="saint-footer">
+      <span class="footer-identity">SANTAMUERTE.LOCAL // ESP32 // 10.69.4.20</span>
+      <div class="footer-language"></div>
+    </footer>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  var screenEl = document.getElementById('screen');
+  var lineInput = document.getElementById('lineInput');
+  var pill = document.getElementById('livePill');
+  var pillLabel = document.getElementById('liveLabel');
+
+  // ---- screen model -------------------------------------------------------
+  // The badge opens every redraw with ESC[2J ESC[H, so this only needs the
+  // handful of sequences the TUI actually emits: clear, home, SGR colour, and
+  // the CR/BS the line editor uses to rub a character out.
+  var MAX_LINES = 300;
+  var lines = [[]];
+  var row = 0, col = 0;
+  var attr = {fg: null, bg: null, bold: false};
+  var partial = '';
+  // Whether the chunk just parsed repainted the whole screen. A menu frame
+  // wants its first row in view; raw log mode wants its last.
+  var framed = false;
+
+  function resetScreen() {
+    lines = [[]]; row = 0; col = 0;
+    attr = {fg: null, bg: null, bold: false};
+  }
+
+  function lineAt(index) {
+    while (lines.length <= index) lines.push([]);
+    return lines[index];
+  }
+
+  function putChar(ch) {
+    var line = lineAt(row);
+    while (line.length < col) line.push({ch: ' ', fg: null, bg: null, bold: false});
+    line[col] = {ch: ch, fg: attr.fg, bg: attr.bg, bold: attr.bold};
+    col++;
+  }
+
+  function newLine() {
+    row++;
+    if (row >= MAX_LINES) {           // raw log mode streams forever
+      lines.shift();
+      row = MAX_LINES - 1;
+    }
+    lineAt(row);
+  }
+
+  function applySgr(params) {
+    var parts = params.length ? params.split(';') : ['0'];
+    for (var i = 0; i < parts.length; i++) {
+      var code = parseInt(parts[i], 10);
+      if (isNaN(code) || code === 0) { attr = {fg: null, bg: null, bold: false}; }
+      else if (code === 1) { attr.bold = true; }
+      else if (code === 22) { attr.bold = false; }
+      else if (code === 39) { attr.fg = null; }
+      else if (code === 49) { attr.bg = null; }
+      else if ((code === 38 || code === 48) && parts[i + 1] === '5') {
+        var value = parseInt(parts[i + 2], 10);
+        if (!isNaN(value)) { if (code === 38) attr.fg = value; else attr.bg = value; }
+        i += 2;
+      }
+    }
+  }
+
+  function applyCsi(params, letter) {
+    if (letter === 'm') { applySgr(params); return; }
+    if (letter === 'J') {                       // the badge only ever sends 2J
+      if (params === '' || params === '0') {
+        lineAt(row).length = col;
+        lines.length = row + 1;
+      } else { resetScreen(); framed = true; }
+      return;
+    }
+    if (letter === 'H' || letter === 'f') {
+      var at = params.split(';');
+      row = Math.max(0, (parseInt(at[0], 10) || 1) - 1);
+      col = Math.max(0, (parseInt(at[1], 10) || 1) - 1);
+      lineAt(row);
+      return;
+    }
+    if (letter === 'K') { lineAt(row).length = Math.min(lineAt(row).length, col); }
+  }
+
+  function feed(text) {
+    var data = partial + text;
+    partial = '';
+    framed = false;
+    var i = 0;
+    while (i < data.length) {
+      var ch = data.charAt(i);
+      if (ch === '\x1b') {
+        var match = /^\x1b\[([0-9;?]*)([A-Za-z])/.exec(data.slice(i));
+        if (!match) {
+          // An escape split across two polls: hold it for the next chunk.
+          if (data.length - i < 24) { partial = data.slice(i); break; }
+          i++; continue;
+        }
+        applyCsi(match[1], match[2]);
+        i += match[0].length;
+        continue;
+      }
+      if (ch === '\r') { col = 0; i++; continue; }
+      if (ch === '\n') { newLine(); i++; continue; }
+      if (ch === '\b') { if (col > 0) col--; i++; continue; }
+      if (ch === '\t') { col = (Math.floor(col / 8) + 1) * 8; i++; continue; }
+      if (ch < ' ' && ch !== '\x1b') { i++; continue; }
+      putChar(ch);
+      i++;
+    }
+  }
+
+  // ---- xterm-256 to CSS ---------------------------------------------------
+  var BASE16 = ['#000000','#b03030','#4f8a3f','#a48b36','#3c6ab0','#8a4fa8','#3f9a9a','#c8c3b6',
+                '#6a6a66','#d15c4c','#7fb069','#d6b34a','#5d8fd6','#b073c8','#5fc4c4','#f0ece0'];
+  function cssColor(index) {
+    if (index === null || index === undefined) return null;
+    if (index < 16) return BASE16[index];
+    if (index < 232) {
+      var steps = [0, 95, 135, 175, 215, 255];
+      var n = index - 16;
+      return 'rgb(' + steps[Math.floor(n / 36) % 6] + ',' +
+                      steps[Math.floor(n / 6) % 6] + ',' + steps[n % 6] + ')';
+    }
+    var grey = 8 + (index - 232) * 10;
+    return 'rgb(' + grey + ',' + grey + ',' + grey + ')';
+  }
+
+  function escapeHtml(value) {
+    return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // Runs of identical attributes become one span; a cell-per-span version of
+  // this made a full redraw visibly slow on a phone.
+  function render() {
+    var html = '';
+    for (var r = 0; r < lines.length; r++) {
+      var line = lines[r];
+      var runText = '', runFg = null, runBg = null, runBold = false, open = false;
+      for (var c = 0; c < line.length; c++) {
+        var cell = line[c] || {ch: ' ', fg: null, bg: null, bold: false};
+        if (!open || cell.fg !== runFg || cell.bg !== runBg || cell.bold !== runBold) {
+          if (open) html += closeRun(runText, runFg, runBg, runBold);
+          runText = ''; runFg = cell.fg; runBg = cell.bg; runBold = cell.bold; open = true;
+        }
+        runText += cell.ch;
+      }
+      if (open) html += closeRun(runText, runFg, runBg, runBold);
+      html += '\n';
+    }
+    screenEl.innerHTML = html;
+    screenEl.scrollTop = framed ? 0 : screenEl.scrollHeight;
+  }
+
+  function closeRun(text, fg, bg, bold) {
+    var body = escapeHtml(text);
+    if (bold) body = '<b>' + body + '</b>';
+    var style = '';
+    var foreground = cssColor(fg), background = cssColor(bg);
+    if (foreground) style += 'color:' + foreground + ';';
+    if (background) style += 'background:' + background + ';';
+    return style ? '<span style="' + style + '">' + body + '</span>' : body;
+  }
+
+  // ---- transport ----------------------------------------------------------
+  var sequence = 0;
+  var decoder = new TextDecoder('utf-8');
+  var inFlight = false;
+  var soonTimer = null;
+
+  function setLive(state, label) {
+    pill.className = 'reader-pill' + (state ? ' ' + state : '');
+    pillLabel.textContent = label;
+  }
+
+  function poll() {
+    if (inFlight) return;
+    inFlight = true;
+    fetch('/api/terminal/stream?since=' + sequence, {cache: 'no-store'})
+      .then(function (response) {
+        if (!response.ok) throw new Error('http ' + response.status);
+        return response.json();
+      })
+      .then(function (payload) {
+        if (payload.reset) { resetScreen(); decoder = new TextDecoder('utf-8'); partial = ''; }
+        sequence = payload.sequence;
+        if (payload.data) {
+          var binary = atob(payload.data);
+          var bytes = new Uint8Array(binary.length);
+          for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          // Streaming: the mirror ring can split a UTF-8 character in half at
+          // its boundary, and the decoder carries the remainder to next time.
+          feed(decoder.decode(bytes, {stream: true}));
+          render();
+        }
+        setLive('live', 'En vivo');
+      })
+      .catch(function () { setLive('lost', 'Sin conexión'); })
+      .then(function () { inFlight = false; });
+  }
+
+  // A keypress redraws the whole screen, so look again sooner than the idle
+  // cadence rather than leaving the operator waiting a full interval for it.
+  function soon() {
+    if (soonTimer) clearTimeout(soonTimer);
+    soonTimer = setTimeout(poll, 60);
+  }
+
+  function send(keys) {
+    if (!keys) return;
+    fetch('/api/terminal/key', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'keys=' + encodeURIComponent(keys)
+    }).then(soon).catch(function () { setLive('lost', 'Sin conexión'); });
+  }
+
+  // ---- input --------------------------------------------------------------
+  screenEl.addEventListener('keydown', function (event) {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    var keys = '';
+    if (event.key === 'Enter') keys = '\r';
+    else if (event.key === 'Backspace') keys = '\x7f';
+    else if (event.key === 'Escape') keys = '\x1b';
+    else if (event.key.length === 1) keys = event.key;
+    else return;
+    event.preventDefault();
+    send(keys);
+  });
+
+  // The on-screen keyboard on a phone will not drive keydown on a div, so the
+  // text box is the way in there: a whole line at a time, Enter included.
+  lineInput.addEventListener('keydown', function (event) {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    send(lineInput.value + '\r');
+    lineInput.value = '';
+  });
+
+  document.querySelectorAll('.keycap').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var which = button.getAttribute('data-key');
+      if (which === 'enter') { send(lineInput.value + '\r'); lineInput.value = ''; }
+      else if (which === 'escape') send('\x1b');
+      else if (which === 'back') send('\x7f');
+      // The console starts monochrome so it stays readable in minicom and in a
+      // log file. A browser has no such problem, but the stream is shared, so
+      // this offers the console's own `p` toggle rather than forcing it on.
+      else if (which === 'colour') send('p\r');
+      screenEl.focus();
+    });
+  });
+
+  setLive('', 'Conectando');
+  poll();
+  setInterval(poll, 300);
+  screenEl.focus();
+})();
+</script>
+</body>
+</html>

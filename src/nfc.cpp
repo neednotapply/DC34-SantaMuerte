@@ -1461,16 +1461,364 @@ void serviceTagEmulation() {
   }
 }
 
+
+// --- MIFARE Classic dictionary read -----------------------------------------
+//
+// Interop, not attack. The badge tries keys the world already publishes -- the
+// factory default, the NFC Forum's public NDEF keys, and a handful of common
+// transit/vendor keys -- so a Classic card left on one of them reads its
+// content instead of surfacing only a UID. It deliberately does NOT recover
+// unknown keys: no darkside, no nested Crypto1. A card whose sectors are on
+// diversified keys stays a UID here, which is the honest outcome.
+//
+// Every entry is six bytes and lives in flash (.rodata), so a long list costs
+// no RAM. Order matters only for speed: the most common keys come first, and a
+// key that unlocks one sector is retried first on the next.
+const uint8_t CLASSIC_KEYS[][6] = {
+    {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},  // factory default
+    {0xD3, 0xF7, 0xD3, 0xF7, 0xD3, 0xF7},  // NFC Forum NDEF, data sectors
+    {0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5},  // NFC Forum MAD, sector 0 key A
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},  // all zeros
+    {0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5},
+    {0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0},
+    {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF},
+    {0x4D, 0x3A, 0x99, 0xC3, 0x51, 0xDD},
+    {0x1A, 0x98, 0x2C, 0x7E, 0x45, 0x9A},
+    {0x71, 0x4C, 0x5C, 0x88, 0x6E, 0x97},
+    {0x58, 0x7E, 0xE5, 0xF9, 0x35, 0x0F},
+    {0xA0, 0x47, 0x8C, 0xC3, 0x90, 0x91},
+    {0x53, 0x3C, 0xB6, 0xC7, 0x23, 0xF6},
+    {0x8F, 0xD0, 0xA4, 0xF2, 0x56, 0xE9},
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
+    {0xB1, 0x27, 0xC6, 0xF4, 0x1C, 0x11},
+    {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC},
+    {0x64, 0x71, 0xA5, 0xEF, 0x2D, 0x1A},
+    {0x4E, 0x35, 0x52, 0x42, 0x6B, 0x32},
+    {0x6A, 0x19, 0x87, 0xC4, 0x0A, 0x21},
+};
+constexpr uint8_t CLASSIC_KEY_COUNT =
+    sizeof(CLASSIC_KEYS) / sizeof(CLASSIC_KEYS[0]);
+
+// A failed authentication leaves the PN532's view of the card halted, so the
+// card must be re-selected before the next attempt or every following auth
+// fails too. Re-selection is a fresh passive poll; the card is sitting on the
+// antenna during a read, so it costs only a few milliseconds.
+bool reselectForClassic(const uint8_t *expectUid, uint8_t expectLen) {
+  uint8_t uid[10] = {};
+  uint8_t len = 0;
+  if (!nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &len,
+                               TAG_POLL_TIMEOUT_MS)) {
+    return false;
+  }
+  // A different card mid-read means the encounter changed; abandon rather than
+  // stitch two cards' sectors into one result.
+  return len == expectLen && memcmp(uid, expectUid, len) == 0;
+}
+
+// Whole-scan budget. A cooperative card finishes in well under a second; this
+// only bounds the pathological case where most sectors reject every key and
+// each rejection pays a re-selection.
+constexpr uint32_t CLASSIC_READ_BUDGET_MS = 4000;
+
+bool readMifareClassic(const uint8_t *uid, uint8_t uidLength) {
+  // 1K is sixteen 4-block sectors. 4K's upper sectors are rarely NDEF and cost
+  // the most time, so content parsing stays within the first 1K; the sector
+  // tally still reflects that the deeper region was not walked.
+  constexpr uint8_t SECTOR_COUNT = 16;
+  constexpr uint8_t BLOCKS_PER_SECTOR = 4;
+
+  const uint32_t started = millis();
+  uint8_t readableSectors = 0;
+  size_t accumulated = 0;
+  int fastKey = -1;
+  uint8_t fastType = 0;
+  uint8_t workingKey[6] = {};
+
+  for (uint8_t sector = 0; sector < SECTOR_COUNT; ++sector) {
+    if (millis() - started > CLASSIC_READ_BUDGET_MS) break;
+    const uint8_t firstBlock = sector * BLOCKS_PER_SECTOR;
+    bool authed = false;
+
+    // Fast path: the key that unlocked the previous sector, tried first. Most
+    // cards key every sector alike, or share one data key across the NDEF
+    // region, so this collapses the common case to a single auth per sector.
+    if (fastKey >= 0 && reselectForClassic(uid, uidLength) &&
+        nfc.mifareclassic_AuthenticateBlock(const_cast<uint8_t *>(uid),
+                                            uidLength, firstBlock, fastType,
+                                            workingKey)) {
+      authed = true;
+    }
+
+    for (uint8_t k = 0; k < CLASSIC_KEY_COUNT && !authed; ++k) {
+      for (uint8_t keyType = 0; keyType <= 1 && !authed; ++keyType) {
+        if (millis() - started > CLASSIC_READ_BUDGET_MS) break;
+        uint8_t key[6];
+        memcpy(key, CLASSIC_KEYS[k], 6);
+        if (!reselectForClassic(uid, uidLength)) return accumulated > 0;
+        if (nfc.mifareclassic_AuthenticateBlock(const_cast<uint8_t *>(uid),
+                                                uidLength, firstBlock, keyType,
+                                                key)) {
+          authed = true;
+          fastKey = k;
+          fastType = keyType;
+          memcpy(workingKey, key, 6);
+        }
+      }
+    }
+    if (!authed) continue;
+    ++readableSectors;
+
+    // Data blocks only; the trailer (last block of the sector) holds the keys
+    // and access bits, never content. Sector 0 block 0 is the read-only
+    // manufacturer/UID block and blocks 1-2 are the MAD -- kept, because the
+    // NDEF TLV search below simply skips over non-NDEF bytes.
+    for (uint8_t b = 0; b < BLOCKS_PER_SECTOR - 1; ++b) {
+      if (accumulated + 16 > MAX_TYPE2_USER_BYTES) break;
+      uint8_t block[16];
+      if (nfc.mifareclassic_ReadDataBlock(firstBlock + b, block)) {
+        memcpy(type2Buffer + accumulated, block, 16);
+        accumulated += 16;
+      }
+    }
+  }
+
+  if (readableSectors == 0) return false;  // UID-only card; caller reports it
+
+  state.uid = uidToString(uid, uidLength);
+  state.tagType = "MIFARE Classic";
+  state.capacity = static_cast<uint16_t>(accumulated);
+
+  // Classic NDEF wraps its message in a TLV stream (0x03 = NDEF) inside the
+  // data blocks of the MAD-designated sectors. Rather than parse the MAD, scan
+  // the readable bytes for a 0x03 TLV with a length that fits, and hand the
+  // message to the same NDEF parser the Type 2 path uses. A card with no NDEF
+  // (raw access data) falls through to a plain summary.
+  for (size_t i = 0; i + 1 < accumulated; ++i) {
+    if (type2Buffer[i] != 0x03) continue;
+    size_t length = type2Buffer[i + 1];
+    size_t headerBytes = 2;
+    if (length == 0xFF) {
+      if (i + 3 >= accumulated) continue;
+      length = (static_cast<size_t>(type2Buffer[i + 2]) << 8) |
+               static_cast<size_t>(type2Buffer[i + 3]);
+      headerBytes = 4;
+    }
+    if (length == 0 || length > accumulated - i - headerBytes) continue;
+    if (parseNdefRecord(type2Buffer + i + headerBytes, length)) {
+      return true;
+    }
+  }
+
+  // No NDEF, but sectors did open. Report what was recovered so the encounter
+  // is still useful: how much of the card read on known keys, plus a short
+  // printable preview of the first data.
+  state.recordType = "MIFARE Classic";
+  String preview;
+  for (size_t i = 0; i < accumulated && preview.length() < 48; ++i) {
+    const char c = static_cast<char>(type2Buffer[i]);
+    preview += (c >= 32 && c <= 126) ? c : '.';
+  }
+  state.payload = String(readableSectors) +
+                  " sector(es) leídos con llaves conocidas. Sin NDEF. Vista: " +
+                  preview;
+  return true;
+}
+
+
+// --- NFC Forum Type 4 read (APDU over ISO-DEP) ------------------------------
+//
+// A DESFire-backed tag, or a phone sharing a record, presents its NDEF as a
+// Type 4 file read over ISO14443-4 APDUs rather than as Type 2 pages. The badge
+// already *emulates* a Type 4 tag; this walks the same protocol from the reader
+// side, so it can pull NDEF from anything that speaks it. Only the public NDEF
+// application is touched -- no authentication, nothing beyond the NDEF file.
+
+// One APDU round trip. `respLen` is the buffer capacity going in and the reply
+// length coming out; a well-formed Type 4 reply ends in the 90 00 status word.
+bool type4Exchange(const uint8_t *apdu, uint8_t apduLen, uint8_t *resp,
+                   uint8_t *respLen) {
+  const uint8_t capacity = *respLen;
+  if (!nfc.inDataExchange(const_cast<uint8_t *>(apdu), apduLen, resp, respLen)) {
+    return false;
+  }
+  if (*respLen < 2 || *respLen > capacity) return false;
+  return resp[*respLen - 2] == 0x90 && resp[*respLen - 1] == 0x00;
+}
+
+bool readType4Tag() {
+  // Re-activate first: a prior failed Type 2 read can leave the card halted,
+  // and inDataExchange talks to whatever the last poll selected.
+  {
+    uint8_t uid[10] = {};
+    uint8_t len = 0;
+    if (!nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &len,
+                                 TAG_POLL_TIMEOUT_MS)) {
+      return false;
+    }
+  }
+
+  uint8_t resp[64];
+  uint8_t respLen;
+
+  // 1. SELECT the NDEF tag application (name D2 76 00 00 85 01 01).
+  static const uint8_t SELECT_APP[] = {0x00, 0xA4, 0x04, 0x00, 0x07, 0xD2, 0x76,
+                                       0x00, 0x00, 0x85, 0x01, 0x01, 0x00};
+  respLen = sizeof(resp);
+  if (!type4Exchange(SELECT_APP, sizeof(SELECT_APP), resp, &respLen)) {
+    return false;  // not a Type 4 tag; fails fast
+  }
+
+  // 2. SELECT the Capability Container file (E1 03).
+  static const uint8_t SELECT_CC[] = {0x00, 0xA4, 0x00, 0x0C, 0x02, 0xE1, 0x03};
+  respLen = sizeof(resp);
+  if (!type4Exchange(SELECT_CC, sizeof(SELECT_CC), resp, &respLen)) return false;
+
+  // 3. READ the 15-byte CC; its NDEF File Control TLV names the NDEF file id.
+  static const uint8_t READ_CC[] = {0x00, 0xB0, 0x00, 0x00, 0x0F};
+  respLen = sizeof(resp);
+  if (!type4Exchange(READ_CC, sizeof(READ_CC), resp, &respLen)) return false;
+  if (respLen < 2 + 11) return false;
+  const uint8_t ndefFileHi = resp[9];   // CC bytes 9-10: NDEF file id, inside
+  const uint8_t ndefFileLo = resp[10];  // the File Control TLV (tag 04, len 06)
+
+  // 4. SELECT the NDEF file.
+  const uint8_t selectNdef[] = {0x00,       0xA4, 0x00, 0x0C,
+                                0x02,       ndefFileHi, ndefFileLo};
+  respLen = sizeof(resp);
+  if (!type4Exchange(selectNdef, sizeof(selectNdef), resp, &respLen)) return false;
+
+  // 5. READ the 2-byte NLEN (message length) from the file's first two bytes.
+  static const uint8_t READ_NLEN[] = {0x00, 0xB0, 0x00, 0x00, 0x02};
+  respLen = sizeof(resp);
+  if (!type4Exchange(READ_NLEN, sizeof(READ_NLEN), resp, &respLen)) return false;
+  if (respLen < 2 + 2) return false;
+  size_t ndefLen = (static_cast<size_t>(resp[0]) << 8) | resp[1];
+
+  state.tagType = "NFC Forum Type 4";
+  if (ndefLen == 0) {
+    state.recordType = "Empty";
+    state.payload = "El tag Type 4 trae un mensaje NDEF vacío.";
+    return true;
+  }
+  if (ndefLen > MAX_TYPE2_USER_BYTES) ndefLen = MAX_TYPE2_USER_BYTES;
+
+  // 6. READ the NDEF message in chunks. Content starts at offset 2, past NLEN.
+  //    The PN532's packet buffer caps a single reply, so keep each Le small.
+  size_t got = 0;
+  while (got < ndefLen) {
+    const size_t offset = 2 + got;
+    const uint8_t want =
+        static_cast<uint8_t>(std::min<size_t>(48, ndefLen - got));
+    const uint8_t readCmd[] = {0x00, 0xB0,
+                               static_cast<uint8_t>((offset >> 8) & 0xFF),
+                               static_cast<uint8_t>(offset & 0xFF), want};
+    respLen = sizeof(resp);
+    if (!type4Exchange(readCmd, sizeof(readCmd), resp, &respLen)) break;
+    const size_t payloadBytes = respLen - 2;  // drop the 90 00 status word
+    if (payloadBytes == 0) break;
+    const size_t copy = std::min<size_t>(payloadBytes, ndefLen - got);
+    memcpy(type2Buffer + got, resp, copy);
+    got += copy;
+  }
+  if (got == 0) return false;
+
+  state.capacity = static_cast<uint16_t>(got);
+  if (parseNdefRecord(type2Buffer, got)) return true;
+  state.recordType = "NDEF";
+  state.payload = "Se leyó un tag Type 4, pero el NDEF no se pudo interpretar.";
+  return true;
+}
+
+
+// --- MIFARE Classic write (URL only, tested library path) -------------------
+//
+// Writing NDEF to Classic means rewriting a sector trailer -- its keys and
+// access bits -- and a wrong trailer locks the sector for good. So this uses
+// only the library's tested Format + WriteNDEFURI sequence, and only for a URL
+// up to 38 bytes in sector 1 of a factory-keyed (or already-NDEF) card. Text
+// records and multi-sector payloads are deliberately not hand-rolled onto
+// Classic trailers here.
+bool classicAuthKeyA(const uint8_t *uid, uint8_t uidLength, uint8_t block,
+                     const uint8_t *key) {
+  if (!reselectForClassic(uid, uidLength)) return false;
+  return nfc.mifareclassic_AuthenticateBlock(const_cast<uint8_t *>(uid),
+                                             uidLength, block, 0,
+                                             const_cast<uint8_t *>(key));
+}
+
+bool writeMifareClassicUri(const uint8_t *uid, uint8_t uidLength,
+                           const String &url, String &error) {
+  static const uint8_t FACTORY[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  static const uint8_t MAD_A[6] = {0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5};
+  static const uint8_t NDEF_A[6] = {0xD3, 0xF7, 0xD3, 0xF7, 0xD3, 0xF7};
+
+  String remainder;
+  const uint8_t prefix = selectUriPrefix(url, remainder);
+  if (remainder.length() < 1 || remainder.length() > 38) {
+    error =
+        "La URL para MIFARE Classic debe medir entre 1 y 38 caracteres después "
+        "del prefijo.";
+    return false;
+  }
+
+  // Format sector 0's MAD on a factory-fresh card; a card already NDEF (MAD key
+  // A0A1) is left as it is. Either way sector 0 must authenticate, or the card
+  // is on unknown keys and cannot be safely formatted.
+  if (classicAuthKeyA(uid, uidLength, 0, FACTORY)) {
+    nfc.mifareclassic_FormatNDEF();
+  } else if (!classicAuthKeyA(uid, uidLength, 0, MAD_A)) {
+    error =
+        "La tarjeta MIFARE Classic no responde a llaves de fábrica ni NDEF; no "
+        "se puede formatear para escritura.";
+    return false;
+  }
+
+  // Authenticate sector 1 for the data write: factory key first, then the NDEF
+  // data key if the sector was already formatted by a previous write.
+  if (!classicAuthKeyA(uid, uidLength, 4, FACTORY) &&
+      !classicAuthKeyA(uid, uidLength, 4, NDEF_A)) {
+    error = "No se pudo autenticar el sector 1 para escribir.";
+    return false;
+  }
+
+  if (!nfc.mifareclassic_WriteNDEFURI(1, prefix, remainder.c_str())) {
+    error = "Falló la escritura NDEF en MIFARE Classic.";
+    return false;
+  }
+  return true;
+}
+
+// Names a card family from its SAK (SEL_RES) byte, the identity the PN532
+// returns on selection. This works even when the card cannot be read -- a
+// locked MIFARE Classic still says it is a Classic 1K -- which is what turns a
+// bare "UID only" row into something useful. The successful readers below
+// refine this with what they actually parsed; this is the baseline and the
+// last word for a tag nothing could open.
+String cardTypeFromSAK(uint8_t sak, uint8_t uidLength) {
+  switch (sak) {
+    case 0x00:
+      return uidLength == 7 ? "NTAG / MIFARE Ultralight" : "MIFARE Ultralight";
+    case 0x08: return "MIFARE Classic 1K";
+    case 0x09: return "MIFARE Mini";
+    case 0x18: return "MIFARE Classic 4K";
+    case 0x10: return "MIFARE Plus 2K";
+    case 0x11: return "MIFARE Plus 4K";
+    case 0x20: return "ISO14443-4 (DESFire / Type 4)";
+    case 0x28: return "SmartMX + Classic 1K";
+    case 0x38: return "SmartMX + Classic 4K";
+    default: break;
+  }
+  if (sak & 0x20) return "ISO14443-4 (Type 4)";
+  if (sak & 0x08) return "MIFARE Classic compatible";
+  char buffer[28];
+  snprintf(buffer, sizeof(buffer), "ISO14443A (SAK 0x%02X)", sak);
+  return String(buffer);
+}
+
 void identifyTag(const uint8_t *uid, uint8_t uidLength) {
   clearTagResult();
   state.uid = uidToString(uid, uidLength);
-  if (uidLength == 7) {
-    state.tagType = "ISO14443A (7-byte UID)";
-  } else if (uidLength == 4) {
-    state.tagType = "ISO14443A (4-byte UID)";
-  } else {
-    state.tagType = "ISO14443A";
-  }
+  state.tagType = cardTypeFromSAK(nfc.lastSAK(), uidLength);
 }
 
 void processDetectedTag(uint8_t *uid, uint8_t uidLength) {
@@ -1481,13 +1829,37 @@ void processDetectedTag(uint8_t *uid, uint8_t uidLength) {
 #endif
 
   if (pendingOperation == NfcOperation::READ) {
+    // A genuine NTAG / Ultralight (NFC Forum Type 2) always carries a 7-byte
+    // UID. A 4-byte UID is MIFARE Classic or a Type 4 emulator -- and a Classic
+    // card can even hand back a bogus "successful" Type 2 read, the same junk
+    // on every page (e.g. 67 00 83 00), which used to be shown as content. So a
+    // 4-byte tag is resolved straight as Type 4 or Classic, never as a Type 2
+    // preview.
+    if (uidLength == 4) {
+      if (readType4Tag()) {
+        finishSuccess("Tag Type 4 leído.");
+        return;
+      }
+      if (readMifareClassic(uid, uidLength)) {
+        finishSuccess("MIFARE Classic leído.");
+        return;
+      }
+      state.recordType = "UID only";
+      state.payload =
+          "Se leyó el UID. No respondió como Type 4 ni abrió con llaves MIFARE "
+          "Classic conocidas.";
+      finishSuccess("UID del tag leído.");
+      return;
+    }
+
+    // 7-byte UID: NTAG / Ultralight (Type 2), or a DESFire-backed Type 4 tag.
     bool type2MemoryResponded = false;
     if (readType2Tag(type2MemoryResponded)) {
       finishSuccess("Tag leído.");
       return;
     }
 
-    if (type2MemoryResponded || uidLength == 7) {
+    if (type2MemoryResponded) {
       const String detail = type2IoError.length()
                                 ? " " + type2IoError
                                 : String();
@@ -1496,10 +1868,17 @@ void processDetectedTag(uint8_t *uid, uint8_t uidLength) {
       return;
     }
 
+    // Type 2 stayed silent. Try Type 4: a quick APDU probe that fails fast on
+    // anything that is not ISO14443-4, and how DESFire tags and phones present
+    // their NDEF.
+    if (readType4Tag()) {
+      finishSuccess("Tag Type 4 leído.");
+      return;
+    }
+
     state.recordType = "UID only";
     state.payload =
-        "Se leyó el UID. Este badge lee y escribe NDEF en memoria NFC Forum "
-        "Type 2. MIFARE Classic requiere autenticación y no se toca aquí.";
+        "Se leyó el UID. No trae NDEF Type 2 legible ni respondió como Type 4.";
     finishSuccess("UID del tag leído.");
     return;
   }
@@ -1507,6 +1886,28 @@ void processDetectedTag(uint8_t *uid, uint8_t uidLength) {
   uint16_t capacity = 0;
   String error;
   if (!prepareType2ForWrite(capacity, error)) {
+    // Type 2 preparation fails on a MIFARE Classic card. Offer the tested
+    // Classic URL path for a 4-byte card; text and other families are not
+    // hand-rolled onto Classic trailers.
+    if (uidLength == 4 && pendingOperation == NfcOperation::WRITE_URL) {
+      String classicError;
+      if (writeMifareClassicUri(uid, uidLength, pendingPayload, classicError)) {
+        state.tagType = "MIFARE Classic";
+        state.recordType = "URL";
+        state.payload = pendingPayload;
+        state.writable = true;
+        finishSuccess("URL escrita en MIFARE Classic.");
+        return;
+      }
+      finishError(classicError);
+      return;
+    }
+    if (uidLength == 4 && pendingOperation == NfcOperation::WRITE_TEXT) {
+      finishError(
+          "Para MIFARE Classic el badge escribe solo URLs; escribe texto en un "
+          "tag NTAG / Ultralight (Type 2).");
+      return;
+    }
     finishError(error);
     return;
   }
@@ -1816,19 +2217,22 @@ bool executeSetCapture(const NfcCommand &command) {
 // Queues one decoded payload for the loop task. Dropping on a full queue is
 // deliberate: the board is the slow end, and a burst of tags should not stall
 // the reader or grow memory without bound.
-void stageCapture(const String &text) {
+void stageCapturedTag(const uint8_t *uid, uint8_t uidLength,
+                      const String &tagType, const String &content) {
   if (!nfcCaptureQueue) return;
 
-  char buffer[MAX_CAPTURE_BYTES + 1] = {};
-  strncpy(buffer, text.c_str(), MAX_CAPTURE_BYTES);
-  buffer[MAX_CAPTURE_BYTES] = '\0';
+  NfcCapturedTag tag = {};
+  tag.uidLength = min<uint8_t>(uidLength, sizeof(tag.uid));
+  memcpy(tag.uid, uid, tag.uidLength);
+  strncpy(tag.tagType, tagType.c_str(), sizeof(tag.tagType) - 1);
+  strncpy(tag.content, content.c_str(), sizeof(tag.content) - 1);
 
-  if (xQueueSend(nfcCaptureQueue, buffer, 0) != pdTRUE) {
+  if (xQueueSend(nfcCaptureQueue, &tag, 0) != pdTRUE) {
     Serial.println("[NFC][CAPTURE] Queue full; dropped one capture");
     return;
   }
-  Serial.printf("[NFC][CAPTURE] Staged %u byte(s)\r\n",
-                static_cast<unsigned>(strlen(buffer)));
+  Serial.printf("[NFC][CAPTURE] Staged %s (%s)\r\n",
+                uidToString(uid, uidLength).c_str(), tag.tagType);
 }
 
 // Runs a read against a tag that capture mode found on its own. Reuses the
@@ -1849,29 +2253,21 @@ void captureDetectedTag(uint8_t *uid, uint8_t uidLength) {
   lastCaptureUid = seenUid;
   lastCaptureAt = millis();
 
-  // Whatever the tag turned out to be, it becomes an offering. A Text or URL
-  // record posts its own payload; anything else -- a blank tag, an unsupported
-  // record, a card that only ever gives up its UID -- posts what was actually
-  // read, because a detection with nothing to show for it is still the badge
-  // having met something.
-  String offering = state.payload;
-  const bool hasPayload =
-      (state.recordType == "Text" || state.recordType == "URL") &&
-      offering.length() > 0;
+  // Every meeting goes to the unified NFC board, identity and content together.
+  // Decoded records (Text, URL, an NDEF message off a Classic card) carry their
+  // payload as content; a card that only gave up its UID is still worth a row --
+  // its UID and type stand on their own, with empty content.
+  const bool hasContent =
+      (state.recordType == "Text" || state.recordType == "URL" ||
+       state.recordType == "NDEF" || state.recordType == "MIFARE Classic") &&
+      state.payload.length() > 0;
+  const String content = hasContent ? state.payload : String();
 
-  if (!hasPayload) {
-    offering = "Tag ";
-    offering += seenUid;
-    if (state.tagType.length() > 0) {
-      offering += " // ";
-      offering += state.tagType;
-    }
-  }
-
-  stageCapture(offering);
+  stageCapturedTag(uid, uidLength, state.tagType, content);
   ++state.captureCount;
-  state.captureMessage = hasPayload ? "Tag guardado en Field Notes."
-                                    : "Tag sin datos. Su UID se guardó en Field Notes.";
+  state.captureMessage = hasContent
+                             ? "Tag guardado en el tablero NFC."
+                             : "Tag sin datos; su UID quedó en el tablero NFC.";
   state.updatedAt = millis();
 }
 
@@ -2060,7 +2456,7 @@ void setupNFC() {
   nfcCommandQueue =
       xQueueCreate(NFC_COMMAND_QUEUE_DEPTH, sizeof(NfcCommand));
   nfcCaptureQueue =
-      xQueueCreate(CAPTURE_QUEUE_DEPTH, MAX_CAPTURE_BYTES + 1);
+      xQueueCreate(CAPTURE_QUEUE_DEPTH, sizeof(NfcCapturedTag));
 
   if (!nfcStateMutex || !nfcCommandQueue || !nfcCaptureQueue) {
     state.readerReady = false;
@@ -2193,15 +2589,9 @@ bool isNfcCaptureEnabled() {
   return getPublishedStateSnapshot().captureEnabled;
 }
 
-bool takeNfcCapture(String &text) {
+bool takeNfcCapture(NfcCapturedTag &tag) {
   if (!nfcCaptureQueue) return false;
-
-  char buffer[MAX_CAPTURE_BYTES + 1] = {};
-  if (xQueueReceive(nfcCaptureQueue, buffer, 0) != pdTRUE) return false;
-
-  buffer[MAX_CAPTURE_BYTES] = '\0';
-  text = String(buffer);
-  return true;
+  return xQueueReceive(nfcCaptureQueue, &tag, 0) == pdTRUE;
 }
 
 void armNfcPersistence() {

@@ -8,6 +8,7 @@
 #include "badge_led.h"
 #include "badge_settings.h"
 #include "board.h"
+#include "nfc_log.h"
 #include "nfc.h"
 #include "usb_tui.h"
 #include "usb_hid.h"
@@ -1719,6 +1720,13 @@ void setup() {
     Serial.println(
         "[MAIN] WARNING: Message board storage is unavailable; posting is "
         "disabled");
+  }
+
+  if (setupNfcLog()) {
+    Serial.printf("[MAIN] NFC board ready: %u of %u tags stored\r\n",
+                  nfcLogStoredCount(), nfcLogCapacity());
+  } else {
+    Serial.println("[MAIN] WARNING: NFC board storage is unavailable");
   }
   usbDriveRefresh();
 

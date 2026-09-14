@@ -442,6 +442,30 @@
     'Escaneo constante': 'Constant scanning',
     'El lector se queda buscando. Cada tag que aparece se publica solo: su texto o URL, o su UID si no trae nada. Apaga la emulación.': 'The reader keeps looking. Every tag that turns up posts itself: its text or URL, or its UID when it carries nothing. Turns emulation off.',
     'Tag sin datos. Se ofrendó su UID.': 'Tag had no data. Its UID was offered.',
+    // Terminal page. The hint is deliberately split into its own fragments:
+    // translation walks one text node at a time, and the <b> around Enter and
+    // Color breaks the sentence into separate nodes, so a single key spanning
+    // the bold words could never match one. Each fragment is its own entry.
+    // Wi-Fi scan-and-pick.
+    'Buscar redes': 'Scan networks',
+    // NFC board page.
+    'Tablero NFC': 'NFC Board',
+    'Santa Muerte // Tablero NFC': 'Santa Muerte // NFC Board',
+    'Encuentros NFC': 'NFC Encounters',
+    'Cada tag que el lector conoció': 'Every tag the reader met',
+    'Actualizar': 'Refresh',
+    'Borrar tablero': 'Clear board',
+    'Solo UID — sin contenido legible': 'UID only — no readable content',
+    '¿Borrar todos los tags del tablero NFC?': 'Clear every tag from the NFC board?',
+    'Consola USB': 'USB Console',
+    'La misma sesión que ve el cable': 'The same session the cable sees',
+    'Conectando': 'Connecting', 'En vivo': 'Live', 'Sin conexión': 'Offline',
+    'Escribe y pulsa Enter': 'Type, then press Enter',
+    'Alterna el color ANSI (tecla p)': 'Toggles ANSI colour (key p)',
+    'Haz clic en la pantalla y escribe igual que en el cable, o usa la caja de arriba desde el teléfono.': 'Click the screen and type just as you would over the cable, or use the box above from a phone.',
+    'abre una sesión cerrada, y': 'reopens a closed session, and',
+    'enciende el color ANSI en las dos vistas a la vez.': 'turns on ANSI colour in both views at once.',
+    'Una sola sesión: el cable y esta página comparten pantalla y lo que está escrito a medias. Las claves guardadas, los payloads de teclado y borrar las notas siguen siendo solo por cable, porque el portal no pide contraseña.': 'One session: the cable and this page share a screen and whatever is half-typed. Saved passwords, keyboard payloads and clearing the notes stay cable-only, because the portal asks for no password.',
     'Cian': 'Cyan', 'Azul': 'Blue', 'Morado': 'Purple', 'Rosa': 'Pink', 'Blanco': 'White'
   };
   // The reverse table cannot be a blind inversion. "Red" is Spanish for

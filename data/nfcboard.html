@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#151615">
+  <title>Santa Muerte // Tablero NFC</title>
+  <link rel="stylesheet" href="theme.css?v=30">
+  <link rel="icon" type="image/png" href="assets/logo-candle.png">
+  <script src="locale.js?v=24"></script>
+  <style>
+    :root{
+      --bg:#151615;--panel:#1e1f1c;--panel2:#282823;--line:#504d44;
+      --text:#ece6d8;--muted:#a9a397;--blue:#a47b36;--cyan:#a47b36;
+      --green:#91a67d;--amber:#a47b36;--red:#b85a4d;--violet:#6f1d24;--shadow:none
+    }
+    *{box-sizing:border-box}
+    html{color-scheme:dark}
+    body{margin:0;min-height:100vh;background:linear-gradient(90deg,#101110,var(--bg) 52%,#101110);
+      color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    button,a{-webkit-tap-highlight-color:transparent}
+    .wrap{width:min(1180px,100%);margin:auto;padding:24px 20px 44px}
+    .card{border:1px solid var(--line);border-radius:23px;background:linear-gradient(155deg,rgba(20,24,35,.97),rgba(13,16,24,.98));box-shadow:var(--shadow);overflow:hidden}
+    .pad{padding:22px}
+    .card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+    h2{margin:0;font-size:.91rem;letter-spacing:.01em}
+    .eyebrow{color:var(--muted);font-size:.69rem;text-transform:uppercase;letter-spacing:.13em;font-weight:800;margin-bottom:7px}
+    .count-pill{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:.7rem;font-weight:750}
+    .btn{height:38px;padding:0 15px;border:1px solid var(--line);border-radius:999px;background:var(--panel2);color:var(--text);font-size:.73rem;font-weight:750;cursor:pointer;transition:all .15s}
+    .btn:hover{border-color:var(--amber);background:var(--panel)}
+    .btn-danger:hover{border-color:var(--red);color:#f0c9c2}
+    .head-actions{display:flex;gap:9px;flex-wrap:wrap}
+
+    .tag-list{display:flex;flex-direction:column;gap:11px}
+    .tag{border:1px solid var(--line);border-radius:15px;background:var(--panel);padding:14px 16px;
+      display:grid;grid-template-columns:1fr auto;gap:6px 14px;align-items:start}
+    .tag-uid{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.86rem;font-weight:700;letter-spacing:.02em;word-break:break-all}
+    .tag-type{color:var(--muted);font-size:.72rem;margin-top:2px}
+    .tag-content{grid-column:1/-1;font-size:.8rem;line-height:1.5;color:#dcd7c9;word-break:break-word;
+      border-top:1px dashed var(--line);margin-top:8px;padding-top:9px}
+    .tag-content a{color:var(--amber)}
+    .tag-content.empty{color:var(--muted);font-style:italic;border-top:none;margin-top:0;padding-top:0}
+    .hits{justify-self:end;display:inline-flex;align-items:center;gap:6px;background:var(--sm-maroon,#3a1620);
+      border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:.68rem;font-weight:800;color:#e7c9c2;white-space:nowrap}
+    .hits b{color:#fff}
+    .empty-state{text-align:center;color:var(--muted);font-size:.82rem;padding:34px 10px;line-height:1.6}
+    .hint{color:var(--muted);font-size:.69rem;margin-top:16px;line-height:1.55}
+    @media (max-width:640px){.wrap{padding:16px 13px 34px}.pad{padding:16px}}
+  </style>
+</head>
+<body class="nfcboard-page">
+  <div class="wrap">
+    <header class="saint-header">
+      <details class="nav-menu">
+        <summary aria-label="Abrir menú"><img class="brand-mark" src="assets/logo-candle.png" alt=""></summary>
+        <nav class="nav-menu-list" aria-label="Navegación del badge">
+          <a href="/notes">Field Notes</a>
+          <a href="/led">LED Tools</a>
+          <a href="/nfc">NFC Tools</a>
+          <a href="/usb">Herramientas USB</a>
+          <a href="/scripting">Scripts</a>
+          <a href="/terminal">Terminal</a>
+          <a href="/nfc-board">Tablero NFC</a>
+          <a href="/network">Red</a>
+        </nav>
+      </details>
+      <div class="header-page-title"><h1>Tablero NFC</h1></div>
+      <details class="nav-menu nav-menu--right">
+        <summary aria-label="Abrir menú"><img class="brand-mark" src="assets/logo-candle.png" alt=""></summary>
+        <nav class="nav-menu-list" aria-label="Navegación del badge">
+          <a href="/notes">Field Notes</a>
+          <a href="/led">LED Tools</a>
+          <a href="/nfc">NFC Tools</a>
+          <a href="/usb">Herramientas USB</a>
+          <a href="/scripting">Scripts</a>
+          <a href="/terminal">Terminal</a>
+          <a href="/nfc-board">Tablero NFC</a>
+          <a href="/network">Red</a>
+        </nav>
+      </details>
+    </header>
+
+    <main>
+      <section class="card pad">
+        <div class="card-head">
+          <div>
+            <div class="eyebrow">Encuentros NFC</div>
+            <h2>Cada tag que el lector conoció</h2>
+          </div>
+          <div class="head-actions">
+            <span id="countPill" class="count-pill">—</span>
+            <button id="refreshBtn" class="btn">Actualizar</button>
+            <button id="clearBtn" class="btn btn-danger">Borrar tablero</button>
+          </div>
+        </div>
+
+        <div id="tagList" class="tag-list"></div>
+        <div id="emptyState" class="empty-state" hidden>
+          Todavía no hay tags. Enciende <b>Notas NFC</b> en Herramientas NFC y
+          acerca una tarjeta: su identidad y su contenido aparecerán aquí.
+        </div>
+
+        <div class="hint">
+          Los tags leídos ya no van a Field Notes; llegan aquí, con su UID, su
+          tipo y lo que se pudo leer. Volver a ver el mismo tag suma a su cuenta
+          en vez de repetirlo.
+        </div>
+      </section>
+    </main>
+
+    <footer class="saint-footer">
+      <span class="footer-identity">SANTAMUERTE.LOCAL // ESP32 // 10.69.4.20</span>
+      <div class="footer-language"></div>
+    </footer>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+  var listEl = document.getElementById('tagList');
+  var emptyEl = document.getElementById('emptyState');
+  var countEl = document.getElementById('countPill');
+
+  function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  // Linkify a bare URL as content, otherwise show text as-is. Content is marked
+  // .raw so the locale auto-translator leaves tag payloads untouched.
+  function renderContent(c){
+    if(!c) return '<div class="tag-content empty">Solo UID — sin contenido legible</div>';
+    var safe = esc(c);
+    if(/^https?:\/\//i.test(c)){
+      safe = '<a href="'+esc(c)+'" target="_blank" rel="noopener noreferrer">'+safe+'</a>';
+    }
+    return '<div class="tag-content raw">'+safe+'</div>';
+  }
+
+  function render(tags, stored, capacity){
+    countEl.textContent = stored + ' / ' + capacity;
+    if(!tags.length){ listEl.innerHTML=''; emptyEl.hidden=false; return; }
+    emptyEl.hidden=true;
+    listEl.innerHTML = tags.map(function(t){
+      var hits = t.hits>1 ? '<span class="hits">×<b>'+t.hits+'</b></span>' : '';
+      return '<div class="tag">'
+        + '<div><div class="tag-uid raw">'+esc(t.uid)+'</div>'
+        + '<div class="tag-type raw">'+esc(t.type||'ISO14443A')+'</div></div>'
+        + hits
+        + renderContent(t.content)
+        + '</div>';
+    }).join('');
+  }
+
+  function load(){
+    fetch('/api/nfc/board?limit=60',{cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ render(d.tags||[], d.stored||0, d.capacity||0); })
+      .catch(function(){ countEl.textContent='sin conexión'; });
+  }
+
+  document.getElementById('refreshBtn').addEventListener('click', load);
+  document.getElementById('clearBtn').addEventListener('click', function(){
+    if(!confirm('¿Borrar todos los tags del tablero NFC?')) return;
+    fetch('/api/nfc/board/clear',{method:'POST'})
+      .then(function(r){ return r.json(); })
+      .then(load).catch(load);
+  });
+
+  load();
+  setInterval(load, 4000);
+})();
+</script>
+</body>
+</html>

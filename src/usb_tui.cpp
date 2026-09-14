@@ -67,6 +67,15 @@ bool sessionClosed = false;
 bool needsRedraw = true;
 bool revealSecrets = false;
 uint32_t revealUntil = 0;
+// Set only while a key posted by the Terminal page is being dispatched, so the
+// handlers below can tell the cable apart from an open web portal.
+bool keyFromPortal = false;
+// Portal keys are queued, not handled inside the HTTP call: handleKey() can
+// redraw a whole screen or reboot the badge, and none of that belongs inside
+// a request the browser is still waiting on.
+constexpr size_t PORTAL_KEY_CAPACITY = 64;
+char portalKeys[PORTAL_KEY_CAPACITY];
+size_t portalKeyCount = 0;
 Prompt prompt = Prompt::NONE;
 Action pendingConfirm = Action::NONE;
 String input;
@@ -110,11 +119,74 @@ const char *screenName(Screen value) {
   return "SANTA MUERTE";
 }
 
-void color(const char *code) { if (ansi) Serial.print(code); }
-void resetColor() { if (ansi) Serial.print("\x1b[0m"); }
-void rowStart() { Serial.write('\r'); }
-void tuiLine(const char *value) { rowStart(); Serial.println(value); }
-void tuiLine(const String &value) { rowStart(); Serial.println(value); }
+// The portal's Terminal page is a second window onto this console, not a
+// console of its own: same globals, same screen, same staged input. What it
+// shows is therefore the byte stream the cable receives rather than a second
+// rendering of it, so ANSI colour and the offering photo previews arrive in
+// the browser exactly as they arrive in minicom.
+constexpr size_t MIRROR_CAPACITY = 8192;
+constexpr uint32_t MIRROR_IDLE_MS = 15000;
+uint8_t mirror[MIRROR_CAPACITY];
+size_t mirrorHead = 0;         // where the next byte lands
+size_t mirrorHeld = 0;         // bytes still readable, up to MIRROR_CAPACITY
+uint32_t mirrorSequence = 0;   // bytes ever written; the browser's cursor
+uint32_t mirrorPolledAt = 0;
+bool mirrorWanted = false;     // nothing captured while no page is open
+
+void mirrorWrite(const uint8_t *bytes, size_t length) {
+  if (!mirrorWanted || !bytes || length == 0) return;
+  mirrorSequence += length;
+  // A single write longer than the ring could only ever be shown from its
+  // tail, so drop the head of it here rather than wrapping over ourselves.
+  if (length >= MIRROR_CAPACITY) {
+    bytes += length - MIRROR_CAPACITY;
+    length = MIRROR_CAPACITY;
+  }
+  for (size_t i = 0; i < length; ++i) {
+    mirror[mirrorHead] = bytes[i];
+    mirrorHead = (mirrorHead + 1) % MIRROR_CAPACITY;
+  }
+  mirrorHeld = (mirrorHeld + length < MIRROR_CAPACITY) ? mirrorHeld + length
+                                                       : MIRROR_CAPACITY;
+}
+
+// Every byte the console prints goes to the cable and, while the Terminal page
+// is open, into the ring as well. Routing all output through one object is
+// what keeps the two views identical: nothing below writes to Serial directly.
+struct ConsoleOut {
+  void write(uint8_t value) { Serial.write(value); mirrorWrite(&value, 1); }
+  void write(const uint8_t *bytes, size_t length) {
+    Serial.write(bytes, length);
+    mirrorWrite(bytes, length);
+  }
+  void print(const char *value) {
+    if (value) write(reinterpret_cast<const uint8_t *>(value), strlen(value));
+  }
+  void print(const String &value) { print(value.c_str()); }
+  void print(char value) { write(static_cast<uint8_t>(value)); }
+  // Arduino's println() is CRLF; matching it keeps `screen` and PuTTY happy
+  // for the same reason tuiPrintf() below prefixes CR.
+  void println() { print("\r\n"); }
+  void println(const char *value) { print(value); println(); }
+  void println(const String &value) { print(value.c_str()); println(); }
+  void printf(const char *format, ...) {
+    char buffer[768];
+    va_list arguments;
+    va_start(arguments, format);
+    const int length = vsnprintf(buffer, sizeof(buffer), format, arguments);
+    va_end(arguments);
+    if (length > 0)
+      write(reinterpret_cast<const uint8_t *>(buffer),
+            min(length, static_cast<int>(sizeof(buffer) - 1)));
+  }
+};
+ConsoleOut out;
+
+void color(const char *code) { if (ansi) out.print(code); }
+void resetColor() { if (ansi) out.print("\x1b[0m"); }
+void rowStart() { out.write('\r'); }
+void tuiLine(const char *value) { rowStart(); out.println(value); }
+void tuiLine(const String &value) { rowStart(); out.println(value); }
 // HardwareSerial::printf emits whatever the format string says, and `screen`
 // treats a bare LF as "down one row, same column" — which staircases output
 // across the width of the terminal. Subsystem logs terminate with CRLF for the
@@ -126,19 +198,19 @@ void tuiPrintf(const char *format, ...) {
   va_start(arguments, format);
   const int length = vsnprintf(buffer, sizeof(buffer), format, arguments);
   va_end(arguments);
-  Serial.write('\r');
-  if (length > 0) Serial.write(reinterpret_cast<const uint8_t *>(buffer),
+  out.write('\r');
+  if (length > 0) out.write(reinterpret_cast<const uint8_t *>(buffer),
                                min(length, static_cast<int>(sizeof(buffer) - 1)));
 }
 // A full-screen terminal only needs one control sequence per completed menu
 // action. Unlike the old TUI, nothing redraws while the operator is typing.
-void clearTerminal() { Serial.print("\x1b[2J\x1b[H"); }
-void line() { rowStart(); color("\x1b[38;5;137m"); Serial.println("------------------------------------------------------------"); resetColor(); }
-void title(const char *value) { rowStart(); color("\x1b[1;38;5;179m"); Serial.println(value); resetColor(); }
-void muted(const String &value) { rowStart(); color("\x1b[38;5;245m"); Serial.println(value); resetColor(); }
-void good(const String &value) { rowStart(); color("\x1b[38;5;150m"); Serial.println(value); resetColor(); }
-void warn(const String &value) { rowStart(); color("\x1b[38;5;215m"); Serial.println(value); resetColor(); }
-void danger(const String &value) { rowStart(); color("\x1b[1;38;5;203m"); Serial.println(value); resetColor(); }
+void clearTerminal() { out.print("\x1b[2J\x1b[H"); }
+void line() { rowStart(); color("\x1b[38;5;137m"); out.println("------------------------------------------------------------"); resetColor(); }
+void title(const char *value) { rowStart(); color("\x1b[1;38;5;179m"); out.println(value); resetColor(); }
+void muted(const String &value) { rowStart(); color("\x1b[38;5;245m"); out.println(value); resetColor(); }
+void good(const String &value) { rowStart(); color("\x1b[38;5;150m"); out.println(value); resetColor(); }
+void warn(const String &value) { rowStart(); color("\x1b[38;5;215m"); out.println(value); resetColor(); }
+void danger(const String &value) { rowStart(); color("\x1b[1;38;5;203m"); out.println(value); resetColor(); }
 
 String mask(const char *value) {
   if (!value || !value[0]) return tr("(sin guardar)", "(not saved)");
@@ -293,14 +365,14 @@ void renderBoardImagePreview(uint32_t postId) {
           terminalImagePixels[min(y + 1, terminalImageHeight - 1) *
                               TERMINAL_IMAGE_EDGE + x]);
       if (nextForeground != foreground || nextBackground != background) {
-        Serial.printf("\x1b[38;5;%d;48;5;%dm", nextForeground,
+        out.printf("\x1b[38;5;%d;48;5;%dm", nextForeground,
                       nextBackground);
         foreground = nextForeground;
         background = nextBackground;
       }
-      Serial.print("\xE2\x96\x80");
+      out.print("\xE2\x96\x80");
     }
-    Serial.print("\x1b[0m\r\n");
+    out.print("\x1b[0m\r\n");
   }
 }
 
@@ -418,6 +490,28 @@ void setNotice(const String &message, bool error = false) {
   needsRedraw = true;
 }
 
+// The portal has no login of its own: anyone who joins the badge's AP reaches
+// it. So the actions that hand out something nobody can take back -- the saved
+// passphrases, a keystroke payload typed into the attached computer, the
+// offering ring, the host's power state -- answer to the cable only. Nothing
+// is hidden from the page; the refusal simply says where to go instead.
+bool portalMayNot(const char *spanish, const char *englishText) {
+  if (!keyFromPortal) return false;
+  setNotice(String(tr(spanish, englishText)) +
+                tr(" Usa la consola USB.", " Use the USB console."),
+            true);
+  return true;
+}
+
+void revealPasswords() {
+  if (portalMayNot("Las claves se muestran solo por cable.",
+                   "Passwords are shown over the cable only.")) return;
+  revealSecrets = true;
+  revealUntil = millis() + REVEAL_MS;
+  setNotice(tr("Claves visibles durante 10 segundos.",
+               "Passwords visible for 10 seconds."));
+}
+
 void header() {
   line();
   title("SANTA MUERTE // USB CONSOLE // 115200");
@@ -455,7 +549,7 @@ void renderDashboard() {
             tr("dibujos", "drawings"));
   tuiPrintf("%-9s %u KB %s // %u KB // %lus\n", tr("MEMORIA", "MEMORY"), ESP.getFreeHeap() / 1024, tr("libres", "free"), ESP.getMaxAllocHeap() / 1024, millis() / 1000);
   tuiPrintf("%-9s %s\n", "HID", usbHidStatusLine().c_str());
-  Serial.println();
+  out.println();
   tuiLine("1 Field Notes");
   tuiLine(tr("2 Herramientas LED", "2 LED Tools"));
   tuiLine(tr("3 Herramientas NFC", "3 NFC Tools"));
@@ -642,7 +736,7 @@ void renderNfcEmulate() {
   } else {
     muted(tr("No hay un tag recordado todavía.",
              "There is no remembered tag yet."));
-    Serial.println();
+    out.println();
   }
   tuiLine(tr("1 Emular texto", "1 Emulate text"));
   tuiLine(tr("2 Emular URL", "2 Emulate URL"));
@@ -667,7 +761,7 @@ void renderOfferings() {
     ++shown;
   }
   if (!shown) muted(tr("La pared está vacía.", "The wall is empty."));
-  Serial.println();
+  out.println();
   muted(tr("Escribe un ID de cuatro dígitos para abrir una nota.",
            "Enter a four-digit ID to open a note."));
   tuiLine(tr("1 Nueva nota de texto", "1 New text note"));
@@ -688,13 +782,13 @@ void renderOfferingDetail() {
     tuiLine("SOURCE: USB");
   }
   if (post.text.length()) {
-    Serial.println();
+    out.println();
     tuiTextLines(post.text);
   } else if (!post.hasImage) {
     muted(tr("[nota vacía]", "[empty note]"));
   }
   if (post.hasImage) {
-    Serial.println();
+    out.println();
     renderBoardImagePreview(post.id);
   }
 }
@@ -790,7 +884,7 @@ void renderUsbProfile() {
     tuiPrintf("%-9s %u %s // %u %s\n", "UNIDAD", drive.noteCount,
               tr("notas", "notes"), drive.scriptCount, tr("scripts", "scripts"));
   }
-  Serial.println();
+  out.println();
   muted(tr("Cambiar el modo guarda la opción y reinicia el badge. Serial sigue disponible.",
            "Changing mode saves it and reboots the badge. Serial remains available."));
 }
@@ -872,7 +966,7 @@ void renderPayloads() {
       tuiPrintf("%u %s\n", i + 1, usbHidPayloadNameAt(i).c_str());
     }
   }
-  Serial.println();
+  out.println();
   muted(tr("17 detiene una carga en curso.", "17 stops a running payload."));
   danger(tr("TECLEA en la computadora conectada. Úsalo solo en la tuya.",
             "This TYPES into the attached computer. Use it only on your own."));
@@ -916,20 +1010,20 @@ void render() {
   footer();
   rowStart();
   if (pendingConfirm != Action::NONE) {
-    Serial.print(tr("Confirmar [y/n]> ", "Confirm [y/n]> "));
+    out.print(tr("Confirmar [y/n]> ", "Confirm [y/n]> "));
   } else if (prompt != Prompt::NONE) {
     const bool secret = prompt == Prompt::AP_PASSWORD || prompt == Prompt::HOME_PASSWORD;
-    Serial.print(tr("Valor> ", "Value> "));
-    if (secret) Serial.print(maskedInput()); else Serial.print(input);
+    out.print(tr("Valor> ", "Value> "));
+    if (secret) out.print(maskedInput()); else out.print(input);
   } else {
-    Serial.print(tr("Selección> ", "Selection> "));
+    out.print(tr("Selección> ", "Selection> "));
   }
   needsRedraw = false;
 }
 
 void enterRawStream() {
   rawStream = true;
-  Serial.println(tr("\r\n[RAW LOGS] Pulsa cualquier tecla para volver al TUI.\r\n",
+  out.println(tr("\r\n[RAW LOGS] Pulsa cualquier tecla para volver al TUI.\r\n",
                     "\r\n[RAW LOGS] Press any key to return to the TUI.\r\n"));
 }
 
@@ -951,6 +1045,15 @@ bool parseHex(const String &value, int &r, int &g, int &b) {
 void performAction(Action action) {
   String error;
   bool ok = false;
+  switch (action) {
+    case Action::CLEAR_BOARD:
+    case Action::RUN_PAYLOAD:
+    case Action::USB_POWER_OFF:
+      if (portalMayNot("Esa accion es solo por cable.",
+                       "That action is cable-only.")) return;
+      break;
+    default: break;
+  }
   switch (action) {
     case Action::SWITCH_AP: ok = setBadgeAccessPointEnabled(true, error); break;
     case Action::SWITCH_HOME: ok = setBadgeAccessPointEnabled(false, error); break;
@@ -991,7 +1094,7 @@ void performAction(Action action) {
     case Action::USB_POWER_OFF:
       ok = usbHidRunControl(UsbControlAction::SYSTEM_POWER_OFF, error);
       break;
-    case Action::REBOOT: Serial.println(tr("[TUI] Reiniciando...", "[TUI] Rebooting...")); delay(80); ESP.restart(); return;
+    case Action::REBOOT: out.println(tr("[TUI] Reiniciando...", "[TUI] Rebooting...")); delay(80); ESP.restart(); return;
     default: break;
   }
   setNotice(ok ? tr("Hecho.", "Done.")
@@ -1069,7 +1172,7 @@ void handleScreenKey(char key) {
     else if (key == '3') performAction(Action::SWITCH_AP);
     else if (key == '4') beginPrompt(Prompt::HOME_SSID, tr("SSID de Wi-Fi guardado", "Saved Wi-Fi SSID"));
     else if (key == '5') performAction(Action::SWITCH_HOME);
-    else if (key == 'v' || key == 'V') { revealSecrets = true; revealUntil = millis() + REVEAL_MS; setNotice(tr("Claves visibles durante 10 segundos.", "Passwords visible for 10 seconds.")); }
+    else if (key == 'v' || key == 'V') revealPasswords();
   } else if (screen == Screen::LED) {
     const char *patterns[] = {
         "solid","rainbow","chase","pulse","twinkle","theater","aurora","off",
@@ -1104,7 +1207,7 @@ void handleScreenKey(char key) {
   } else if (screen == Screen::SYSTEM) {
     if (key == '1') { screen = Screen::LOGS; needsRedraw = true; }
     else if (key == '2') enterRawStream();
-    else if (key == '3') { revealSecrets = true; revealUntil = millis() + REVEAL_MS; screen = Screen::NETWORK; setNotice(tr("Claves visibles durante 10 segundos.", "Passwords visible for 10 seconds.")); }
+    else if (key == '3') { screen = Screen::NETWORK; revealPasswords(); }
     else if (key == '4') beginConfirm(Action::REBOOT, tr("Reiniciar el badge", "Reboot the badge"));
     else if (key == '5') routeGlobal('l');
   } else if (screen == Screen::PAYLOADS) {
@@ -1426,10 +1529,7 @@ void handleScreenSelection(int selection) {
   }
 
   if (screen == Screen::NETWORK && selection == 6) {
-    revealSecrets = true;
-    revealUntil = millis() + REVEAL_MS;
-    setNotice(tr("Claves visibles durante 10 segundos.",
-                 "Passwords visible for 10 seconds."));
+    revealPasswords();
   } else if (selection >= 1 && selection <= 9) {
     // The remaining sections already use one-digit numbered actions.
     handleScreenKey(static_cast<char>('0' + selection));
@@ -1470,6 +1570,15 @@ void handleCommand(const String &value) {
   if (lower == "?" || lower == "help") {
     screen = Screen::HELP;
     needsRedraw = true;
+    return;
+  }
+  // routeGlobal() has carried an ANSI toggle since the TUI was written, but
+  // nothing ever called it with 'p': every caller passes 'l'. On a line
+  // oriented console the letter has to arrive as a typed command like any
+  // other, so this is the path that was missing. The Terminal page's Colour
+  // button sends exactly this.
+  if (lower == "p" || lower == "color" || lower == "colour") {
+    routeGlobal('p');
     return;
   }
   if (lower == "0" || lower == "m" || lower == "menu" || lower == "back") {
@@ -1566,21 +1675,21 @@ void handleKey(char key) {
     if (key == 8 || key == 127) {
       if (input.length()) {
         input.remove(input.length() - 1);
-        Serial.print("\b \b");
+        out.print("\b \b");
       }
       return;
     }
     if (key >= 32 && key <= 126 && input.length() < 700) {
       input += key;
       const bool secret = prompt == Prompt::AP_PASSWORD || prompt == Prompt::HOME_PASSWORD;
-      Serial.print(secret ? '*' : key);
+      out.print(secret ? '*' : key);
     }
     return;
   }
 
   if (key == '\r' || key == '\n') {
     if (command.length()) {
-      Serial.println();
+      out.println();
       handleCommand(command);
       command = String();
     } else {
@@ -1594,13 +1703,13 @@ void handleKey(char key) {
   if (key == 8 || key == 127) {
     if (command.length()) {
       command.remove(command.length() - 1);
-      Serial.print("\b \b");
+      out.print("\b \b");
     }
     return;
   }
   if (key >= 32 && key <= 126 && command.length() < 32) {
     command += key;
-    Serial.write(key);
+    out.write(key);
   }
 }
 
@@ -1623,6 +1732,23 @@ void usbTuiRefresh() {
 
 void usbTuiService() {
   while (Serial.available()) handleKey(static_cast<char>(Serial.read()));
+  if (portalKeyCount) {
+    // Copied out first: handleKey() can append to the queue itself, and the
+    // buffer must not move under the loop walking it.
+    char pending[PORTAL_KEY_CAPACITY];
+    const size_t count = portalKeyCount;
+    memcpy(pending, portalKeys, count);
+    portalKeyCount = 0;
+    keyFromPortal = true;
+    for (size_t i = 0; i < count; ++i) handleKey(pending[i]);
+    keyFromPortal = false;
+  }
+  // A page that stopped polling has been closed or navigated away from. The
+  // ring costs nothing to hold, but capturing into it for a reader that left
+  // is pure work, so capture stops until the next poll asks for it again.
+  if (mirrorWanted && millis() - mirrorPolledAt > MIRROR_IDLE_MS) {
+    mirrorWanted = false;
+  }
   // The web portal can change the language too, and it writes the setting
   // directly. usbTuiBegin() only reads it once, so without this the TUI keeps
   // rendering in whatever language it booted with until the badge reboots.
@@ -1638,4 +1764,45 @@ void usbTuiService() {
     revealSecrets = false;
   }
   if (!rawStream && needsRedraw) render();
+}
+
+void usbTuiInjectKeys(const String &keys) {
+  for (size_t i = 0; i < keys.length() && portalKeyCount < PORTAL_KEY_CAPACITY;
+       ++i) {
+    portalKeys[portalKeyCount++] = keys.charAt(i);
+  }
+}
+
+void usbTuiMirrorOpen() {
+  const bool wasClosed = !mirrorWanted;
+  mirrorWanted = true;
+  mirrorPolledAt = millis();
+  // The ring holds whatever happened to scroll past, which is not necessarily
+  // a whole screen. One redraw on open costs a single frame and leaves the
+  // browser showing exactly what the cable shows. A session someone closed
+  // with `q` stays closed -- the page shows that, and Enter reopens it, just
+  // as it does over the cable.
+  if (wasClosed && !rawStream && !sessionClosed) needsRedraw = true;
+}
+
+String usbTuiMirrorRead(uint32_t since, uint32_t &sequence,
+                        bool &resynchronised) {
+  mirrorPolledAt = millis();
+  sequence = mirrorSequence;
+  const uint32_t oldest = mirrorSequence - mirrorHeld;
+  // Behind the ring means the page missed bytes; ahead of it means the badge
+  // rebooted under a browser still holding the old cursor. Both are answered
+  // the same way: hand back everything held and let the page start over.
+  resynchronised = since < oldest || since > mirrorSequence;
+  const uint32_t from = resynchronised ? oldest : since;
+  String pending;
+  if (from >= mirrorSequence) return pending;
+  const size_t count = static_cast<size_t>(mirrorSequence - from);
+  pending.reserve(count);
+  size_t cursor = (mirrorHead + MIRROR_CAPACITY - count) % MIRROR_CAPACITY;
+  for (size_t i = 0; i < count; ++i) {
+    pending += static_cast<char>(mirror[cursor]);
+    cursor = (cursor + 1) % MIRROR_CAPACITY;
+  }
+  return pending;
 }
