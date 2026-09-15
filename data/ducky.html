@@ -259,13 +259,14 @@
           <a href="/nfc">NFC Tools</a>
           <a href="/nfc-log">Registro NFC</a>
           <a href="/usb">Herramientas USB</a>
-          <a href="/scripting">Scripts</a>
+          <a href="/ducky">DuckyScript</a>
+          <a href="/badusb">BadUSB</a>
           <a href="/terminal">Terminal</a>
           <a href="/network">Red</a>
         </nav>
       </details>
       <div class="header-page-title">
-        <h1 id="pageTitle">Herramientas USB</h1>
+        <h1 id="pageTitle">DuckyScript</h1>
       </div>
       <details class="nav-menu nav-menu--right">
         <summary aria-label="Abrir menú"><img class="brand-mark" src="assets/logo-candle.png" alt=""></summary>
@@ -275,7 +276,8 @@
           <a href="/nfc">NFC Tools</a>
           <a href="/nfc-log">Registro NFC</a>
           <a href="/usb">Herramientas USB</a>
-          <a href="/scripting">Scripts</a>
+          <a href="/ducky">DuckyScript</a>
+          <a href="/badusb">BadUSB</a>
           <a href="/terminal">Terminal</a>
           <a href="/network">Red</a>
         </nav>
@@ -320,7 +322,8 @@
           </div>
           <button id="saveButtonActions" class="button-save" type="button">Guardar acciones del botón</button>
           <div id="buttonNote" class="button-note" role="status" aria-live="polite"></div>
-          <a class="scripting-link" href="/scripting">Abrir constructor de scripts</a>
+          <a class="scripting-link" href="/ducky">Abrir DuckyScript</a>
+          <a class="scripting-link" href="/badusb">Abrir BadUSB</a>
         </section>
 
         <section class="card pad wide-card" aria-label="WiFi Tethering">
@@ -384,11 +387,8 @@
 (() => {
   const $ = s => document.querySelector(s);
   const T = es => (window.PortalLocale ? window.PortalLocale.convert(es, window.PortalLocale.locale) : es);
-  const isScriptingPage = document.documentElement.classList.contains('scripting-page');
-  if (isScriptingPage) {
-    document.title=T('Santa Muerte // Scripts');
-    $('#pageTitle').textContent=T('Scripts');
-  }
+  document.title=T('Santa Muerte // DuckyScript');
+  $('#pageTitle').textContent=T('DuckyScript');
   let toastTimer = 0;
   function toast(msg){ const t=$('#toast'); t.textContent=T(msg); t.classList.add('show');
     clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),2600); }

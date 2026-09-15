@@ -140,13 +140,52 @@ bool usbBadUSBDeletePayload(const String &name, String &error) {
   return true;
 }
 
+// Seeds a few illustrative BadUSB-only scripts on first boot -- the same
+// courtesy usb_hid.cpp extends to DuckyScript, tuned to show off the commands
+// that don't exist in plain DuckyScript (HOLD/RELEASE, ALTCHAR, STRING_DELAY).
+// Keys off an empty directory, so deleting them all is respected.
+void usbBadUSBBeginStorage() {
+  if (!LittleFS.begin(false) && !LittleFS.begin(true)) return;
+  if (!LittleFS.exists(PAYLOAD_DIR)) LittleFS.mkdir(PAYLOAD_DIR);
+
+  if (usbBadUSBPayloadCount() > 0) return;
+
+  String error;
+  usbBadUSBSavePayload("hello",
+                    "REM A harmless demo in BadUSB format: types one line.\n"
+                    "DEFAULT_DELAY 20\n"
+                    "STRINGLN Hello from the Santa Muerte badge (BadUSB).\n",
+                    error);
+  usbBadUSBSavePayload("alt-tab-hold",
+                    "REM Demonstrates HOLD/RELEASE: holds Alt across two Tab\n"
+                    "REM taps to cycle windows forward, then lands on the new one.\n"
+                    "HOLD ALT\n"
+                    "TAB\n"
+                    "DELAY 200\n"
+                    "TAB\n"
+                    "RELEASE ALT\n",
+                    error);
+  usbBadUSBSavePayload("altcode-heart",
+                    "REM Windows only. Types a heart via numpad Alt code -- the\n"
+                    "REM classic demo of ALTCHAR, which plain DuckyScript lacks.\n"
+                    "ALTCHAR 3\n",
+                    error);
+  usbBadUSBSavePayload("slow-type",
+                    "REM Demonstrates STRING_DELAY: some targets (KVMs, BIOS\n"
+                    "REM screens, remote sessions) drop keystrokes typed too fast.\n"
+                    "STRING_DELAY 60\n"
+                    "STRINGLN This types slowly, one keystroke every 60 ms.\n",
+                    error);
+}
+
 // ===========================================================================
 // BadUSB script execution
 // ===========================================================================
 #if ARDUINO_USB_MODE  // 1 == Hardware CDC + JTAG: no HID peripheral available.
 
-void usbBadusb Configure(bool) {}
+void usbBadUSBConfigure(bool) {}
 void usbBadUSBBegin() {
+  usbBadUSBBeginStorage();
   usbTuiLog("BadUSB", "needs OTG mode; not available in this build");
 }
 void usbBadUSBService() {}
@@ -561,6 +600,8 @@ void usbBadUSBConfigure(bool enabled) {
 }
 
 void usbBadUSBBegin() {
+  usbBadUSBBeginStorage();
+
   if (!badusb_configured) {
     usbTuiLog("BadUSB", "off in WiFi Tethering profile");
     return;

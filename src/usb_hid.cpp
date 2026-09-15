@@ -25,10 +25,13 @@ String payloadPath(const String &name) {
 
 // LittleFS::openNextFile() returns either a bare name or a full path depending
 // on the core; reduce whichever to the payload's display name (no dir, no .txt).
+// /payloads also holds .badusb files (usb_badusb.cpp's own payloads) -- those
+// are deliberately rejected here so they never surface as a DuckyScript name.
 String stemFromEntry(const String &raw) {
   int slash = raw.lastIndexOf('/');
   String stem = slash >= 0 ? raw.substring(slash + 1) : raw;
-  if (stem.endsWith(".txt")) stem.remove(stem.length() - 4);
+  if (!stem.endsWith(".txt")) return String();
+  stem.remove(stem.length() - 4);
   return stem;
 }
 

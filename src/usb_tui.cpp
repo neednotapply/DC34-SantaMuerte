@@ -1007,8 +1007,8 @@ void renderPayloads() {
 
   const uint8_t count = usbHidPayloadCount();
   if (count == 0) {
-    muted(tr("Sin scripts. Créales en el portal: http://10.69.4.20/scripting",
-             "No scripts. Author them in the portal: http://10.69.4.20/scripting"));
+    muted(tr("Sin scripts. Créales en el portal: http://10.69.4.20/ducky",
+             "No scripts. Author them in the portal: http://10.69.4.20/ducky"));
   } else {
     for (uint8_t i = 0; i < count && i < 16; ++i) {
       tuiPrintf("%u %s\n", i + 1, usbHidPayloadNameAt(i).c_str());

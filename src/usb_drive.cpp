@@ -30,10 +30,11 @@ constexpr char README[] =
     "This virtual disk is read-only; the badge remains the only writer.\r\n"
     "Each folder is one page of the portal:\r\n\r\n"
     "  Field Notes  /notes      one text file per note, with its JPEG\r\n"
-    "  Scripting    /scripting  one text file per saved USB script\r\n"
+    "  Scripting    /ducky      one text file per saved DuckyScript\r\n"
     "  NFC Log      /nfc-log    one text file per tag the reader met\r\n\r\n"
     "Open http://santamuerte.local to write notes and scripts; the log\r\n"
-    "fills itself whenever Auto-scan is on.\r\n";
+    "fills itself whenever Auto-scan is on. BadUSB scripts live on the\r\n"
+    "portal's /badusb page and are not yet mirrored to this drive.\r\n";
 
 enum class FileKind : uint8_t { README, DIRECTORY, NOTE, IMAGE, SCRIPT, TAG };
 enum class Directory : uint8_t { ROOT, NOTES, SCRIPTS, NFCLOG };
