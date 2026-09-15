@@ -22,6 +22,7 @@
 #include "board.h"
 #include "nfc.h"
 #include "usb_hid.h"
+#include "usb_badusb.h"
 #include "usb_network.h"
 #include "usb_drive.h"
 #include "usb_console.h"
@@ -1733,6 +1734,14 @@ void handlePayloadsPage() {
   serveLittleFsFile("/usb.html", "text/html; charset=utf-8");
 }
 
+void handleDuckyscriptPage() {
+  serveLittleFsFile("/ducky.html", "text/html; charset=utf-8");
+}
+
+void handleBadUSBPage() {
+  serveLittleFsFile("/badusb.html", "text/html; charset=utf-8");
+}
+
 // `/usb` and `/scripting` deliberately share the small offline document. The
 // route is still distinct: the document reads the path before paint and shows
 // either the host-control workspace or the dedicated script-builder workspace.
@@ -1803,6 +1812,89 @@ void handlePayloadRun() {
     return;
   }
   server.send(202, "application/json", payloadsListJson(true, String()));
+}
+
+// ---- BadUSB Payloads ----
+
+String badUSBListJson(bool ok, const String &error) {
+  String json;
+  json.reserve(512);
+  json += "{\"ok\":";
+  json += ok ? "true" : "false";
+  json += ",\"max\":16,\"error\":\"";
+  json += jsonEscape(error);
+  json += "\",\"items\":[";
+  const uint8_t count = usbBadUSBPayloadCount();
+  for (uint8_t i = 0; i < count; ++i) {
+    if (i) json += ',';
+    const String name = usbBadUSBPayloadNameAt(i);
+    String script;
+    usbBadUSBReadPayload(name, script);
+    json += "{\"name\":\"";
+    json += jsonEscape(name);
+    json += "\",\"script\":\"";
+    json += jsonEscape(script);
+    json += "\"}";
+  }
+  json += "]}";
+  return json;
+}
+
+void handleBadUSBList() {
+  addNoCacheHeaders();
+  server.send(200, "application/json", badUSBListJson(true, String()));
+}
+
+void handleBadUSBGet() {
+  addNoCacheHeaders();
+  const String name = server.hasArg("name") ? server.arg("name") : String();
+  String script;
+  if (!usbBadUSBReadPayload(name, script)) {
+    server.send(404, "application/json", "{\"ok\":false,\"error\":\"No existe.\"}");
+    return;
+  }
+  String json;
+  json.reserve(script.length() + 64);
+  json += "{\"ok\":true,\"name\":\"";
+  json += jsonEscape(name);
+  json += "\",\"script\":\"";
+  json += jsonEscape(script);
+  json += "\"}";
+  server.send(200, "application/json", json);
+}
+
+void handleBadUSBSave() {
+  addNoCacheHeaders();
+  const String name = server.hasArg("name") ? server.arg("name") : String();
+  const String script = server.hasArg("script") ? server.arg("script") : String();
+  String error;
+  if (!usbBadUSBSavePayload(name, script, error)) {
+    server.send(400, "application/json", badUSBListJson(false, error));
+    return;
+  }
+  server.send(201, "application/json", badUSBListJson(true, String()));
+}
+
+void handleBadUSBDelete() {
+  addNoCacheHeaders();
+  const String name = server.hasArg("name") ? server.arg("name") : String();
+  String error;
+  if (!usbBadUSBDeletePayload(name, error)) {
+    server.send(400, "application/json", badUSBListJson(false, error));
+    return;
+  }
+  server.send(200, "application/json", badUSBListJson(true, String()));
+}
+
+void handleBadUSBRun() {
+  addNoCacheHeaders();
+  const String script = server.hasArg("script") ? server.arg("script") : String();
+  String error;
+  if (!usbBadUSBRunScript(script, error)) {
+    server.send(409, "application/json", badUSBListJson(false, error));
+    return;
+  }
+  server.send(202, "application/json", badUSBListJson(true, String()));
 }
 
 void handleUsbControlsGet() {
@@ -2000,6 +2092,10 @@ void setupWebServer() {
 
   server.on("/usb", HTTP_GET, handlePayloadsPage);
   server.on("/usb.html", HTTP_GET, handlePayloadsPage);
+  server.on("/ducky", HTTP_GET, handleDuckyscriptPage);
+  server.on("/ducky.html", HTTP_GET, handleDuckyscriptPage);
+  server.on("/badusb", HTTP_GET, handleBadUSBPage);
+  server.on("/badusb.html", HTTP_GET, handleBadUSBPage);
   server.on("/scripting", HTTP_GET, handleScriptingPage);
   server.on("/scripting.html", HTTP_GET, handleScriptingPage);
   server.on("/api/payloads/list", HTTP_GET, handlePayloadsList);
@@ -2008,6 +2104,11 @@ void setupWebServer() {
   server.on("/api/payloads/save", HTTP_POST, handlePayloadSave);
   server.on("/api/payloads/delete", HTTP_POST, handlePayloadDelete);
   server.on("/api/payloads/run", HTTP_POST, handlePayloadRun);
+  server.on("/api/payloads/badusb/list", HTTP_GET, handleBadUSBList);
+  server.on("/api/payloads/badusb/get", HTTP_GET, handleBadUSBGet);
+  server.on("/api/payloads/badusb/save", HTTP_POST, handleBadUSBSave);
+  server.on("/api/payloads/badusb/delete", HTTP_POST, handleBadUSBDelete);
+  server.on("/api/payloads/badusb/run", HTTP_POST, handleBadUSBRun);
   server.on("/api/usb/controls", HTTP_GET, handleUsbControlsGet);
   server.on("/api/usb/control", HTTP_POST, handleUsbControlRun);
   server.on("/api/usb/button", HTTP_POST, handleUsbButtonSet);

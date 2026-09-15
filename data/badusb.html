@@ -9,7 +9,7 @@
   <meta name="google" content="notranslate">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#151615">
-  <title>Santa Muerte // Herramientas USB</title>
+  <title>Santa Muerte // BadUSB Scripts</title>
   <link rel="stylesheet" href="theme.css?v=30">
   <link rel="icon" type="image/png" href="assets/logo-candle.png">
   <script src="locale.js?v=25"></script>
@@ -462,7 +462,7 @@
       make:()=>({type:'rem',text:''}),
       compile:b=>'REM '+(b.text||'')},
     raw: {cat:null, label:'Línea literal',
-      fields:[{k:'text',t:'text',ph:'DuckyScript'}],
+      fields:[{k:'text',t:'text',ph:'BadUSB'}],
       help:'Una línea DuckyScript escrita a mano (para comandos no listados).',
       make:()=>({type:'raw',text:''}),
       compile:b=>b.text||''},
@@ -742,7 +742,7 @@
 
   function playSavedScript(code){
     if(!code.trim()){ toast('Escribe un script primero.'); return; }
-    post('/api/payloads/run',{script:code}).then(({ok,j})=>{
+    post('/api/payloads/badusb/run',{script:code}).then(({ok,j})=>{
       if(!ok||!(j&&j.ok)){ $('#editorNote').textContent=(j&&j.error)||T('No se pudo enviar.'); if(j)applyStatus(j); return; }
       $('#editorNote').textContent=''; toast('Enviado al equipo'); applyStatus(j);
     });
@@ -766,14 +766,14 @@
       del.innerHTML='<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 2.5 9.5 9.5M9.5 2.5 2.5 9.5"></path></svg>';
       del.addEventListener('click',()=>{
         if(!window.confirm(T('¿Seguro que quieres borrar este script?'))) return;
-        post('/api/payloads/delete',{name:it.name}).then(({ok,j})=>{ if(!ok||!j.ok){ toast('No se pudo borrar'); return; } toast('Borrada'); renderList(j); });
+        post('/api/payloads/badusb/delete',{name:it.name}).then(({ok,j})=>{ if(!ok||!j.ok){ toast('No se pudo borrar'); return; } toast('Borrada'); renderList(j); });
       });
       ops.appendChild(play); ops.appendChild(del); head.appendChild(nm); head.appendChild(ops);
       const pre=document.createElement('pre'); pre.className='post-text payload'; typewriter(pre,it.script||'');
       art.appendChild(head); art.appendChild(pre); list.appendChild(art);
     });
   }
-  function refreshList(){ fetch('/api/payloads/list',{cache:'no-store'}).then(r=>r.json()).then(renderList).catch(()=>setConn('disconnected')); }
+  function refreshList(){ fetch('/api/payloads/badusb/list',{cache:'no-store'}).then(r=>r.json()).then(renderList).catch(()=>setConn('disconnected')); }
 
   // ---------- actions ----------
   $('#sendButton').addEventListener('click',()=>{
@@ -784,7 +784,7 @@
   $('#uploadButton').addEventListener('click',()=>{
     const name=$('#payloadName').value.trim();
     if(!name){ $('#editorNote').textContent=T('Ponle un nombre para subir.'); return; }
-    post('/api/payloads/save',{name,script:compile()}).then(({ok,j})=>{
+    post('/api/payloads/badusb/save',{name,script:compile()}).then(({ok,j})=>{
       if(!ok||!j.ok){ $('#editorNote').textContent=(j&&j.error)||T('No se pudo subir.'); return; }
       $('#editorNote').textContent=''; toast('Subida'); renderList(j);
     });

@@ -7,11 +7,13 @@
 #include "badge_button.h"
 #include "badge_led.h"
 #include "badge_settings.h"
+#include "led_output.h"
 #include "board.h"
 #include "nfc_log.h"
 #include "nfc.h"
 #include "usb_tui.h"
 #include "usb_hid.h"
+#include "usb_badusb.h"
 #include "usb_network.h"
 #include "usb_drive.h"
 #include "usb_console.h"
@@ -140,6 +142,22 @@ constexpr uint8_t RING_RANK_MAX = 3;
 // Ring pixels ordered left to right across the badge, for a sweep that reads as
 // horizontal rather than as travel around the circle.
 constexpr uint8_t RING_BY_X[RING_COUNT] = {1, 0, 2, 3, 4, 5, 7, 6};
+
+// The render task's wake-up period. Also the divisor the frame-rate-dependent
+// effects scale themselves against, so the two can never drift apart.
+constexpr uint32_t LED_FRAME_INTERVAL_MS = 20;  // 50 frames per second
+// Only the loop() fallback below ever sees a shorter gap than a full period;
+// the task is paced to the grid and would otherwise trip on millis() rounding
+// a 20ms wait down to 19 and dropping the frame.
+constexpr uint32_t LED_FRAME_MIN_INTERVAL_MS = 15;
+// Cleared if the render task cannot be created, which is what moves the
+// animation onto loop().
+bool ledRenderTaskRunning = false;
+
+// What the strand is driven at this frame. Held here rather than pushed into
+// the strip object because, on the DMA path, brightness is applied at output
+// time -- see showStrip().
+uint8_t activeBrightness = 160;
 
 LedPattern currentPattern = PATTERN_AURORA;
 uint8_t selectedR = 166;
@@ -290,8 +308,63 @@ void fillPixels(uint32_t color) {
   for (uint16_t i = 0; i < LED_COUNT; i++) strip.setPixelColor(i, color);
 }
 
-uint32_t animationInterval(uint32_t slowMs, uint32_t fastMs) {
-  return slowMs - ((slowMs - fastMs) * (animationSpeed - 1UL) / 99UL);
+// -----------------------------------------------------------------------------
+// Animation tempo
+//
+// The slider used to be wired straight into each pattern as its own (slow, fast)
+// pair, which meant it did not mean the same thing twice: at the middle of the
+// travel a full cycle ran anywhere from 0.55s (Theater) to 12.3s (Prism), and
+// the slider's own range varied from 2.1x to 34x depending on which pattern was
+// running. So 100% was a strobe on some and barely moving on others.
+//
+// Instead there is one rate curve, and each pattern declares what it considers
+// one cycle. "How fast" genuinely means different things to a head that travels,
+// a level that breathes, a hue that rotates and a story with beats, so there are
+// four yardsticks -- but the same curve scales all four, which is what makes a
+// slider position mean one thing across the whole catalogue.
+// -----------------------------------------------------------------------------
+
+// Nominal values, i.e. what the middle of the slider gives.
+constexpr uint32_t TRAVEL_STEP_MS = 280;  // one pixel of travel, about 3.5 px/s
+constexpr uint32_t BREATH_MS = 4000;      // one rise and fall
+constexpr uint32_t HUE_LAP_MS = 8000;     // one full turn of the colour wheel
+constexpr uint32_t NARRATIVE_MS = 5200;   // one telling of a pattern with beats
+
+// Three patterns have no cycle to scale, so their tempo lands on whatever in
+// them actually reads as speed. These are nominal too.
+constexpr float TWINKLE_FADE_MS = 700.0f;         // how long one spark takes to die
+constexpr float TWINKLE_SPARKS_PER_SECOND = 6.0f;
+constexpr float AURORA_DRIFT = 1.45f;             // hue units per frame, scaled
+// The Wi-Fi bridge indicator is a hardware status, not a pattern anyone picks,
+// and its contract is that it never flashes. It still follows the slider, just
+// from a deliberately calmer nominal than anything in the catalogue.
+constexpr uint32_t USB_WIFI_WAVE_MS = 5600;
+
+// Geometric, not linear: a linear map spends most of its travel in the fast half,
+// which is why the bottom of the old slider felt dead. 1 -> a third of nominal,
+// 50 -> nominal, 100 -> three times nominal. Nine times end to end is enough
+// range to be worth dragging without either end being unusable.
+float animationRate() {
+  return powf(3.0f, (static_cast<float>(animationSpeed) - 50.5f) / 49.5f);
+}
+
+// One cycle in milliseconds. Clamped so a pattern can never divide by zero or
+// stall past the point where it reads as motion at all.
+uint32_t animationPeriod(uint32_t nominalMs) {
+  const float scaled = static_cast<float>(nominalMs) / animationRate();
+  return static_cast<uint32_t>(constrain(scaled, 60.0f, 600000.0f));
+}
+
+// Milliseconds a travelling head spends on each pixel. Every stepping pattern
+// shares this, so a chase round eleven pixels and a comet round the eight-pixel
+// halo move at the same speed across the badge rather than finishing together.
+uint32_t animationTravelStep() { return animationPeriod(TRAVEL_STEP_MS); }
+
+// Radians per millisecond for the continuous fields, which are summed sines
+// rather than a cycle with a start. Kept unwrapped so the harmonics keep
+// beating against each other instead of resetting together.
+float animationOmega(uint32_t nominalMs) {
+  return TWO_PI / static_cast<float>(nominalMs) * animationRate();
 }
 
 StoredLedSettings currentLedSettings() {
@@ -621,13 +694,19 @@ void serviceBootButton() {
 // LED setup and animation engine
 // -----------------------------------------------------------------------------
 void ledRenderTask(void *parameter);
+void showStrip();
 
 void setupLEDs() {
   Serial.println("[LED] begin");
   strip.begin();
-  strip.setBrightness(ledBrightness);
   strip.clear();
-  strip.show();
+  // Claimed before the first frame so that frame already goes out the DMA path.
+  ledOutputBegin(LED_PIN, LED_COUNT);
+  // On the DMA path the buffer is left at full scale and showStrip() dims it on
+  // the way out; only the library fallback needs the strip object to know.
+  strip.setBrightness(ledOutputReady() ? 255 : ledBrightness);
+  activeBrightness = ledBrightness;
+  showStrip();
 
   randomSeed(esp_random());
   for (int i = 0; i < LED_COUNT; i++) {
@@ -635,8 +714,10 @@ void setupLEDs() {
     auroraVelocity[i] = random(8, 18) / 100.0f;
   }
 
-  if (xTaskCreatePinnedToCore(ledRenderTask, "leds", 4096, nullptr, 2, nullptr,
-                              1) != pdPASS) {
+  ledRenderTaskRunning = xTaskCreatePinnedToCore(ledRenderTask, "leds", 4096,
+                                                 nullptr, 2, nullptr,
+                                                 1) == pdPASS;
+  if (!ledRenderTaskRunning) {
     Serial.println("[LED] WARNING: render task not created; animating from loop()");
   }
   Serial.println("[LED] ready");
@@ -647,7 +728,8 @@ void renderSolid() {
 }
 
 void renderRainbow(uint32_t now) {
-  uint16_t firstHue = (uint16_t)(now * (2UL + animationSpeed / 2UL));
+  const uint32_t period = animationPeriod(HUE_LAP_MS);
+  uint16_t firstHue = (uint16_t)((now % period) * 65536UL / period);
   for (uint16_t i = 0; i < LED_COUNT; i++) {
     uint16_t pixelHue = firstHue + (uint32_t)i * 65536UL / LED_COUNT;
     strip.setPixelColor(i, strip.gamma32(strip.ColorHSV(pixelHue, 255, 255)));
@@ -656,7 +738,7 @@ void renderRainbow(uint32_t now) {
 
 void renderChase(uint32_t now) {
   fillPixels(0);
-  uint16_t head = (now / animationInterval(240, 35)) % LED_COUNT;
+  uint16_t head = (now / animationTravelStep()) % LED_COUNT;
   const float tail[] = {1.0f, 0.46f, 0.20f, 0.08f};
   for (uint8_t t = 0; t < 4; t++) {
     int index = (head - t + LED_COUNT) % LED_COUNT;
@@ -665,25 +747,30 @@ void renderChase(uint32_t now) {
 }
 
 void renderPulse(uint32_t now) {
-  uint32_t period = animationInterval(5000, 650);
+  uint32_t period = animationPeriod(BREATH_MS);
   float phase = (float)(now % period) / period * TWO_PI;
   float level = 0.10f + 0.90f * (sinf(phase - HALF_PI) + 1.0f) * 0.5f;
   fillPixels(selectedColor(level));
 }
 
 void renderTwinkle(float frameScale) {
-  const float baseFade = 5.0f + animationSpeed / 12.0f;
-  const uint8_t fadeAmount =
-      static_cast<uint8_t>(constrain(roundf(baseFade * frameScale), 1.0f, 255.0f));
+  // Twinkle has no cycle to scale, so the tempo lands on the two things that do
+  // read as speed: how long a spark takes to die, and how often one appears.
+  const float rate = animationRate();
+  const float fadeMs = TWINKLE_FADE_MS / rate;
+  const uint8_t fadeAmount = static_cast<uint8_t>(constrain(
+      roundf(255.0f * (LED_FRAME_INTERVAL_MS * frameScale) / fadeMs), 1.0f,
+      255.0f));
 
   for (uint16_t i = 0; i < LED_COUNT; i++) {
     twinkleLevel[i] =
         (twinkleLevel[i] > fadeAmount) ? twinkleLevel[i] - fadeAmount : 0;
   }
 
-  // Convert the original per-frame sparkle chance to an elapsed-time chance.
-  // At the normal 20 ms frame interval this is visually equivalent.
-  const float baseChance = (3.0f + animationSpeed / 5.0f) / 100.0f;
+  // Held as a rate per second so it tracks the tempo the same way the fade does,
+  // then converted to this frame's chance of lighting one.
+  const float baseChance =
+      TWINKLE_SPARKS_PER_SECOND * rate * (LED_FRAME_INTERVAL_MS / 1000.0f);
   const float elapsedChance = 1.0f - powf(1.0f - baseChance, frameScale);
   if (random(10000) < static_cast<long>(elapsedChance * 10000.0f)) {
     twinkleLevel[random(LED_COUNT)] = random(175, 256);
@@ -695,14 +782,14 @@ void renderTwinkle(float frameScale) {
 }
 
 void renderTheater(uint32_t now) {
-  uint8_t offset = (now / animationInterval(320, 45)) % 3;
+  uint8_t offset = (now / animationTravelStep()) % 3;
   for (uint16_t i = 0; i < LED_COUNT; i++) {
     strip.setPixelColor(i, ((i + offset) % 3 == 0) ? selectedColor() : 0);
   }
 }
 
 void renderAurora(uint32_t now, float frameScale) {
-  float speedMultiplier = 0.35f + animationSpeed / 45.0f;
+  const float speedMultiplier = AURORA_DRIFT * animationRate();
   for (int i = 0; i < LED_COUNT; i++) {
     auroraHue[i] +=
         auroraVelocity[i] * 110.0f * speedMultiplier * frameScale;
@@ -711,7 +798,7 @@ void renderAurora(uint32_t now, float frameScale) {
       auroraHue[i] +=
           auroraVelocity[i] * 110.0f * speedMultiplier * frameScale;
     }
-    uint8_t value = 175 + 70 * sinf((now * (0.0007f + animationSpeed * 0.000018f)) + i * 0.8f);
+    uint8_t value = 175 + 70 * sinf(now * animationOmega(BREATH_MS) + i * 0.8f);
     strip.setPixelColor(i, strip.gamma32(strip.ColorHSV(auroraHue[i], 255, value)));
   }
 }
@@ -729,7 +816,7 @@ void renderAurora(uint32_t now, float frameScale) {
 // gesture: an offering raised, received, and let go.
 void renderOfrenda(uint32_t now) {
   fillPixels(0);
-  const uint32_t period = animationInterval(9000, 1600);
+  const uint32_t period = animationPeriod(NARRATIVE_MS);
   const float t = static_cast<float>(now % period) / period;  // 0..1
 
   if (t < 0.28f) {
@@ -769,7 +856,7 @@ void renderOfrenda(uint32_t now) {
 // the figure never goes fully dark.
 void renderCorona(uint32_t now) {
   fillPixels(0);
-  const uint16_t head = (now / animationInterval(230, 34)) % RING_COUNT;
+  const uint16_t head = (now / animationTravelStep()) % RING_COUNT;
   const float tail[] = {1.0f, 0.5f, 0.24f, 0.10f};
   for (uint8_t t = 0; t < 4; ++t) {
     const uint8_t i = (head - t + RING_COUNT) % RING_COUNT;
@@ -784,7 +871,7 @@ void renderCorona(uint32_t now) {
 // two groups make when you treat the hands as the centre.
 void renderAureola(uint32_t now) {
   fillPixels(0);
-  const uint32_t period = animationInterval(6000, 900);
+  const uint32_t period = animationPeriod(BREATH_MS);
   const float phase = static_cast<float>(now % period) / period * TWO_PI;
   const float open = (sinf(phase - HALF_PI) + 1.0f) * 0.5f;   // 0..1..0
   const float reach = open * (RING_RANK_MAX + 1.4f);
@@ -803,7 +890,7 @@ void renderAureola(uint32_t now) {
 // the crown, which flares. Then the hands answer and it starts again.
 void renderEncuentro(uint32_t now) {
   fillPixels(0);
-  const uint32_t period = animationInterval(4200, 700);
+  const uint32_t period = animationPeriod(NARRATIVE_MS);
   const float t = static_cast<float>(now % period) / period;
 
   if (t < 0.72f) {
@@ -828,7 +915,7 @@ void renderEncuentro(uint32_t now) {
 // The hand triangle pulses corner to corner while the halo holds a low wash —
 // the three-pixel group given something to do on its own.
 void renderManos(uint32_t now) {
-  const uint32_t step = animationInterval(700, 110);
+  const uint32_t step = animationTravelStep();
   const float t = static_cast<float>(now % (step * HAND_COUNT)) / step;
 
   for (uint8_t i = 0; i < RING_COUNT; ++i) {
@@ -846,7 +933,7 @@ void renderManos(uint32_t now) {
 // rather than chain order, so it reads as a horizontal scan of the halo.
 void renderEscaner(uint32_t now) {
   fillPixels(0);
-  const uint32_t period = animationInterval(2600, 420);
+  const uint32_t period = animationTravelStep() * 2 * (RING_COUNT - 1);
   const float phase = static_cast<float>(now % period) / period * TWO_PI;
   const float head = (sinf(phase) + 1.0f) * 0.5f * (RING_COUNT - 1);
 
@@ -864,7 +951,7 @@ void renderEscaner(uint32_t now) {
 // Multicolour field. Hue runs round the ring and across the hands from two
 // slow sines, so neighbours drift together instead of stepping.
 void renderPlasma(uint32_t now) {
-  const float t = now * (0.00035f + animationSpeed * 0.00002f);
+  const float t = now * animationOmega(HUE_LAP_MS);
   for (uint8_t i = 0; i < RING_COUNT; ++i) {
     const float a = static_cast<float>(i) / RING_COUNT * TWO_PI;
     const float v = sinf(a + t * 2.1f) + sinf(a * 2.0f - t * 1.3f);
@@ -881,7 +968,8 @@ void renderPlasma(uint32_t now) {
 // The two groups drift in opposite directions: the halo turns one way, the
 // hands the other, so the badge never quite repeats.
 void renderDeriva(uint32_t now) {
-  const uint16_t ringHue = static_cast<uint16_t>(now * (1UL + animationSpeed / 3UL));
+  const uint32_t period = animationPeriod(HUE_LAP_MS);
+  const uint16_t ringHue = static_cast<uint16_t>((now % period) * 65536UL / period);
   for (uint8_t i = 0; i < RING_COUNT; ++i) {
     const uint16_t hue = ringHue + static_cast<uint32_t>(i) * 65536UL / RING_COUNT;
     strip.setPixelColor(RING[i], strip.gamma32(strip.ColorHSV(hue, 250, 255)));
@@ -897,7 +985,7 @@ void renderDeriva(uint32_t now) {
 // motion well below strobe-like rates; each is a continuous field of light.
 // -----------------------------------------------------------------------------
 void renderCandle(uint32_t now) {
-  const float t = now * (0.00055f + animationSpeed * 0.000006f);
+  const float t = now * animationOmega(BREATH_MS);
   for (uint8_t i = 0; i < LED_COUNT; ++i) {
     const float level = 0.30f + 0.30f * (sinf(t + i * 0.73f) + 1.0f) * 0.5f;
     strip.setPixelColor(i, selectedColor(level));
@@ -905,13 +993,13 @@ void renderCandle(uint32_t now) {
 }
 
 void renderBreath(uint32_t now) {
-  const uint32_t period = animationInterval(9000, 3000);
+  const uint32_t period = animationPeriod(BREATH_MS);
   const float phase = static_cast<float>(now % period) / period * TWO_PI;
   fillPixels(selectedColor(0.18f + 0.55f * (sinf(phase - HALF_PI) + 1.0f) * 0.5f));
 }
 
 void renderEmbers(uint32_t now) {
-  const float t = now * (0.00042f + animationSpeed * 0.000006f);
+  const float t = now * animationOmega(BREATH_MS);
   for (uint8_t i = 0; i < LED_COUNT; ++i) {
     const float slow = (sinf(t + i * 1.31f) + 1.0f) * 0.5f;
     const float drift = (sinf(t * 0.57f + i * 2.47f) + 1.0f) * 0.5f;
@@ -920,7 +1008,7 @@ void renderEmbers(uint32_t now) {
 }
 
 void renderTide(uint32_t now) {
-  const uint32_t period = animationInterval(10000, 3600);
+  const uint32_t period = animationPeriod(BREATH_MS);
   const float wave = static_cast<float>(now % period) / period * TWO_PI;
   for (uint8_t i = 0; i < RING_COUNT; ++i) {
     const float level = 0.14f + 0.56f * (sinf(wave - RING_RANK[i] * 0.95f) + 1.0f) * 0.5f;
@@ -930,7 +1018,7 @@ void renderTide(uint32_t now) {
 }
 
 void renderVigil(uint32_t now) {
-  const uint32_t period = animationInterval(11000, 4000);
+  const uint32_t period = animationPeriod(BREATH_MS);
   const float phase = static_cast<float>(now % period) / period * TWO_PI;
   for (uint8_t i = 0; i < RING_COUNT; ++i) {
     const float rise = (sinf(phase - (RING_RANK_MAX - RING_RANK[i]) * 0.62f) + 1.0f) * 0.5f;
@@ -940,7 +1028,7 @@ void renderVigil(uint32_t now) {
 }
 
 void renderComet(uint32_t now) {
-  const uint32_t period = animationInterval(12000, 4200);
+  const uint32_t period = animationTravelStep() * RING_COUNT;
   const float head = static_cast<float>(now % period) / period * RING_COUNT;
   for (uint8_t i = 0; i < RING_COUNT; ++i) {
     float distance = fabsf(i - head);
@@ -951,7 +1039,7 @@ void renderComet(uint32_t now) {
 }
 
 void renderRosary(uint32_t now) {
-  const uint32_t period = animationInterval(9000, 3200);
+  const uint32_t period = animationTravelStep() * RING_COUNT;
   const float position = static_cast<float>(now % period) / period * RING_COUNT;
   for (uint8_t i = 0; i < RING_COUNT; ++i) {
     float distance = fabsf(i - position);
@@ -964,7 +1052,7 @@ void renderRosary(uint32_t now) {
 }
 
 void renderVeil(uint32_t now) {
-  const uint32_t period = animationInterval(11000, 4000);
+  const uint32_t period = animationPeriod(BREATH_MS);
   const float phase = static_cast<float>(now % period) / period * TWO_PI;
   for (uint8_t i = 0; i < LED_COUNT; ++i) {
     const float level = 0.16f + 0.42f * (sinf(phase + i * 0.55f) + 1.0f) * 0.5f;
@@ -973,7 +1061,7 @@ void renderVeil(uint32_t now) {
 }
 
 void renderPrism(uint32_t now) {
-  const uint32_t period = animationInterval(18000, 6500);
+  const uint32_t period = animationPeriod(HUE_LAP_MS);
   const uint16_t base = static_cast<uint16_t>((now % period) * 65536UL / period);
   for (uint8_t i = 0; i < LED_COUNT; ++i) {
     strip.setPixelColor(i, hsvColor(base + static_cast<uint32_t>(i) * 65536UL / LED_COUNT, 190, 0.54f));
@@ -981,7 +1069,7 @@ void renderPrism(uint32_t now) {
 }
 
 void renderSunset(uint32_t now) {
-  const uint32_t period = animationInterval(16000, 6000);
+  const uint32_t period = animationPeriod(BREATH_MS);
   const float phase = static_cast<float>(now % period) / period * TWO_PI;
   for (uint8_t i = 0; i < LED_COUNT; ++i) {
     const float mix = (sinf(phase + i * 0.45f) + 1.0f) * 0.5f;
@@ -991,7 +1079,7 @@ void renderSunset(uint32_t now) {
 }
 
 void renderOcean(uint32_t now) {
-  const uint32_t period = animationInterval(15000, 5200);
+  const uint32_t period = animationPeriod(BREATH_MS);
   const float phase = static_cast<float>(now % period) / period * TWO_PI;
   for (uint8_t i = 0; i < LED_COUNT; ++i) {
     const float mix = (sinf(phase - i * 0.60f) + 1.0f) * 0.5f;
@@ -1001,7 +1089,7 @@ void renderOcean(uint32_t now) {
 }
 
 void renderNebula(uint32_t now) {
-  const float t = now * (0.00022f + animationSpeed * 0.000003f);
+  const float t = now * animationOmega(HUE_LAP_MS);
   for (uint8_t i = 0; i < LED_COUNT; ++i) {
     const float field = (sinf(t + i * 0.91f) + sinf(t * 0.61f - i * 1.43f) + 2.0f) * 0.25f;
     const uint16_t hue = static_cast<uint16_t>(44000 + field * 15000);
@@ -1010,7 +1098,7 @@ void renderNebula(uint32_t now) {
 }
 
 void renderOrbit(uint32_t now) {
-  const uint32_t period = animationInterval(18000, 6500);
+  const uint32_t period = animationPeriod(HUE_LAP_MS);
   const uint16_t base = static_cast<uint16_t>((now % period) * 65536UL / period);
   for (uint8_t i = 0; i < RING_COUNT; ++i) {
     strip.setPixelColor(RING[i], hsvColor(base + static_cast<uint32_t>(i) * 65536UL / RING_COUNT, 200, 0.52f));
@@ -1021,7 +1109,7 @@ void renderOrbit(uint32_t now) {
 }
 
 void renderBloom(uint32_t now) {
-  const uint32_t period = animationInterval(14000, 5000);
+  const uint32_t period = animationPeriod(HUE_LAP_MS);
   const uint16_t base = static_cast<uint16_t>((now % period) * 65536UL / period);
   for (uint8_t i = 0; i < RING_COUNT; ++i) {
     const uint16_t hue = base + static_cast<uint16_t>((RING_RANK_MAX - RING_RANK[i]) * 7500);
@@ -1031,7 +1119,7 @@ void renderBloom(uint32_t now) {
 }
 
 void renderMirage(uint32_t now) {
-  const float t = now * (0.00020f + animationSpeed * 0.000003f);
+  const float t = now * animationOmega(HUE_LAP_MS);
   for (uint8_t i = 0; i < LED_COUNT; ++i) {
     const float field = (sinf(t + i * 0.63f) + 1.0f) * 0.5f;
     const uint16_t hue = static_cast<uint16_t>(7600 + field * 39000);
@@ -1040,7 +1128,7 @@ void renderMirage(uint32_t now) {
 }
 
 void renderCosmos(uint32_t now) {
-  const float t = now * (0.00018f + animationSpeed * 0.0000025f);
+  const float t = now * animationOmega(HUE_LAP_MS);
   for (uint8_t i = 0; i < LED_COUNT; ++i) {
     const float field = (sinf(t * 1.3f + i * 1.77f) + 1.0f) * 0.5f;
     const uint16_t hue = static_cast<uint16_t>(38500 + field * 21000);
@@ -1060,7 +1148,7 @@ void renderCosmos(uint32_t now) {
 void renderUsbWifiRadio(uint32_t now) {
   strip.clear();
 
-  const uint32_t period = animationInterval(8000, 3200);
+  const uint32_t period = animationPeriod(USB_WIFI_WAVE_MS);
   const float wave = static_cast<float>(now % period) / period *
                      (RING_RANK_MAX + 1.15f);
   const float echo = wave - 1.20f;
@@ -1268,27 +1356,56 @@ void releaseLedIdentifyMode() {
 
 uint8_t currentIdentifyFrame() { return identifyFrame; }
 
+// Every frame leaves through here, so which of the two output paths is in use
+// is decided in one place.
+void showStrip() {
+  if (ledOutputReady()) {
+    // Brightness is applied here instead of by the strip object, which keeps
+    // the pixel buffer at full 8-bit colour whatever the badge is dimmed to.
+    // Adafruit's setBrightness() rescales the buffer in place and is lossy by
+    // its own documentation: at 11% there are only 28 levels left, so the
+    // bottom of a pattern's range quantises to zero. On the strand that is
+    // invisible -- those pixels are merely very dim -- but the portal preview
+    // reads this buffer back, and it was painting six of Cosmos's eleven
+    // pixels as off. Scaling on the way out costs one pass over 33 bytes.
+    static uint8_t scaled[LED_COUNT * 3];
+    const uint8_t *source = strip.getPixels();
+    const uint16_t scale = static_cast<uint16_t>(activeBrightness) + 1;
+    for (size_t i = 0; i < sizeof(scaled); ++i) {
+      scaled[i] = static_cast<uint8_t>((source[i] * scale) >> 8);
+    }
+    ledOutputShow(scaled, sizeof(scaled));
+    return;
+  }
+  strip.show();
+}
+
 void updateLEDs() {
   static uint32_t lastFrame = 0;
   static uint8_t appliedBrightness = 255;
   const uint32_t now = millis();
 
-  if (lastFrame == 0) lastFrame = now - 20;
+  if (lastFrame == 0) lastFrame = now - LED_FRAME_INTERVAL_MS;
   const uint32_t elapsedMs = now - lastFrame;
-  if (elapsedMs < 20) return;  // approximately 50 frames per second
+  if (elapsedMs < LED_FRAME_MIN_INTERVAL_MS) return;
   lastFrame = now;
 
   // Frame-dependent effects keep their intended speed through occasional
   // scheduling delays. Clamp large gaps so an effect never jumps excessively.
   const float frameScale =
-      constrain(static_cast<float>(elapsedMs) / 20.0f, 0.25f, 5.0f);
+      constrain(static_cast<float>(elapsedMs) /
+                    static_cast<float>(LED_FRAME_INTERVAL_MS),
+                0.25f, 5.0f);
 
   uint8_t wantBrightness = identifyFrame ? IDENTIFY_BRIGHTNESS : ledBrightness;
   if ((activeCue != TagCue::NONE || usbWifiExitCueActive) &&
       wantBrightness < CUE_MIN_BRIGHTNESS) {
     wantBrightness = CUE_MIN_BRIGHTNESS;
   }
-  if (appliedBrightness != wantBrightness) {
+  activeBrightness = wantBrightness;
+  // Only the fallback path needs this; on the DMA path the buffer deliberately
+  // stays at full scale so the preview can read a pattern's real levels back.
+  if (!ledOutputReady() && appliedBrightness != wantBrightness) {
     strip.setBrightness(wantBrightness);
     appliedBrightness = wantBrightness;
   }
@@ -1297,19 +1414,19 @@ void updateLEDs() {
   // never taken mid-animation.
   if (identifyFrame) {
     renderIdentify();
-    strip.show();
+    showStrip();
     return;
   }
 
   // A screenless exit from USB Wi-Fi needs a conspicuous acknowledgement too.
   if (renderUsbWifiExitCue(now)) {
-    strip.show();
+    showStrip();
     return;
   }
 
   // A tag was just read. This outranks the running pattern for under a second.
   if (renderTagCue(now)) {
-    strip.show();
+    showStrip();
     return;
   }
 
@@ -1318,13 +1435,13 @@ void updateLEDs() {
   // what LED Tools will show or restore once the bridge is stopped.
   if (getUsbNetworkState().enabled) {
     renderUsbWifiRadio(now);
-    strip.show();
+    showStrip();
     return;
   }
 
   if (usbDriveReadActive()) {
     renderUsbDriveRead(now);
-    strip.show();
+    showStrip();
     return;
   }
 
@@ -1363,7 +1480,7 @@ void updateLEDs() {
     case PATTERN_OFF: strip.clear(); break;
     case PATTERN_LIMIT: break;
   }
-  strip.show();
+  showStrip();
 }
 
 // The web server hands out a whole file inside a single handleClient() call,
@@ -1377,9 +1494,15 @@ void updateLEDs() {
 // blocking transfer cannot starve it.
 void ledRenderTask(void *parameter) {
   (void)parameter;
+  // A fixed wake-up grid rather than "sleep 5ms, then check the clock". The
+  // old shape pushed each wake-up out by however long the previous frame took
+  // to render, so the interval wandered between 20 and 25ms -- visible as
+  // judder in the patterns slow enough to watch.
+  TickType_t nextFrame = xTaskGetTickCount();
+  const TickType_t period = pdMS_TO_TICKS(LED_FRAME_INTERVAL_MS);
   for (;;) {
     updateLEDs();
-    vTaskDelay(pdMS_TO_TICKS(5));
+    vTaskDelayUntil(&nextFrame, period);
   }
 }
 
@@ -1402,6 +1525,27 @@ void signalUsbWifiExitCue() {
   usbWifiExitCueStartedAt = millis();
 }
 
+// Undoes gamma32(), which is what every pattern's colour goes through on its
+// way to the strand.
+//
+// That correction exists because a WS2812 emits light roughly in proportion to
+// its duty cycle while an eye does not, so the driver is handed a pre-bent
+// value: the colour #FF6275 reaches the LED as duty (255, 21, 34). Reporting
+// that duty to the portal was the bug. A monitor applies its own sRGB curve to
+// whatever it is given, so the page was bending an already-bent number a second
+// time -- and the darker the pattern, the worse it got. Prism at its nominal
+// level lands on duty 45, which a browser paints as very nearly black, which is
+// exactly what the preview was showing.
+//
+// So the endpoint answers "what colour is this pixel", not "what is the driver
+// being told". Doing it here rather than in the page keeps it true for every
+// pattern at once, and for anything else that reads the endpoint later.
+uint8_t ungamma(uint8_t duty) {
+  if (duty == 0) return 0;
+  return static_cast<uint8_t>(
+      roundf(powf(duty / 255.0f, 1.0f / 2.6f) * 255.0f));
+}
+
 String getLedPixelsJson() {
   String hex;
   hex.reserve(LED_COUNT * 6 + 16);
@@ -1409,9 +1553,9 @@ String getLedPixelsJson() {
     const uint32_t colour = strip.getPixelColor(i);
     char chunk[7];
     snprintf(chunk, sizeof(chunk), "%02X%02X%02X",
-             static_cast<unsigned>((colour >> 16) & 0xFF),
-             static_cast<unsigned>((colour >> 8) & 0xFF),
-             static_cast<unsigned>(colour & 0xFF));
+             static_cast<unsigned>(ungamma((colour >> 16) & 0xFF)),
+             static_cast<unsigned>(ungamma((colour >> 8) & 0xFF)),
+             static_cast<unsigned>(ungamma(colour & 0xFF)));
     hex += chunk;
   }
 
@@ -1671,9 +1815,11 @@ void setup() {
   // That keeps the S3's limited endpoint budget from making NCM enumerate as
   // an incomplete configuration on hosts.
   usbHidConfigure(usbProfile == UsbDeviceProfile::DRIVE);
+  usbBadUSBConfigure(usbProfile == UsbDeviceProfile::DRIVE);
   usbNetworkConfigure(usbProfile == UsbDeviceProfile::NETWORK);
   usbDriveConfigure(usbProfile == UsbDeviceProfile::DRIVE);
   usbHidBegin();
+  usbBadUSBBegin();
   // Must precede begin(): the descriptor is built there, and the constructor
   // has already taken the variant's default.
   if (!USB.PID(usbProfile == UsbDeviceProfile::NETWORK ? BADGE_USB_PID_NETWORK
@@ -1753,12 +1899,17 @@ void setup() {
 }
 
 void loop() {
+  // Only when the dedicated render task could not be created. Without this the
+  // warning in setupLEDs() described a fallback that did not exist, and a
+  // badge that failed to spawn the task would simply have stayed dark.
+  if (!ledRenderTaskRunning) updateLEDs();
   serviceBootButton();
   updateWebServer();
   serviceNfcCapture();
   serviceNfcPersistence();
   usbTuiService();
   usbHidService();
+  usbBadUSBService();
   usbNetworkService();
   serviceLedSettingsPersistence();
   delay(1);

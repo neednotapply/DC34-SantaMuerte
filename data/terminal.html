@@ -1,7 +1,12 @@
 <!DOCTYPE html>
-<html lang="es-MX">
+<html lang="es-MX" translate="no">
 <head>
   <meta charset="UTF-8">
+  <!-- The portal carries its own ES/EN layer, so a browser translating on top
+       of it corrupts the page: it rewrites text locale.js is also rewriting,
+       and its language detector has mistaken the decorated headings for CJK
+       and spelled the animation indices out as words. -->
+  <meta name="google" content="notranslate">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#151615">
   <title>Santa Muerte // Terminal</title>
