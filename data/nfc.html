@@ -7,7 +7,7 @@
   <title>Santa Muerte // NFC Tools</title>
   <link rel="stylesheet" href="theme.css?v=30">
   <link rel="icon" type="image/png" href="assets/logo-candle.png">
-  <script src="locale.js?v=24"></script>
+  <script src="locale.js?v=25"></script>
   <style>
     :root{
       --bg:#151615;--panel:#1e1f1c;--panel2:#282823;--line:#504d44;
@@ -140,10 +140,10 @@
         <nav class="nav-menu-list" aria-label="Navegación del badge">
           <a href="/notes">Field Notes</a>
           <a href="/led">LED Tools</a>
+          <a href="/nfc-log">Registro NFC</a>
           <a href="/usb">Herramientas USB</a>
           <a href="/scripting">Scripts</a>
           <a href="/terminal">Terminal</a>
-          <a href="/nfc-board">Tablero NFC</a>
           <a href="/network">Red</a>
         </nav>
       </details>
@@ -157,10 +157,10 @@
         <nav class="nav-menu-list" aria-label="Navegación del badge">
           <a href="/notes">Field Notes</a>
           <a href="/led">LED Tools</a>
+          <a href="/nfc-log">Registro NFC</a>
           <a href="/usb">Herramientas USB</a>
           <a href="/scripting">Scripts</a>
           <a href="/terminal">Terminal</a>
-          <a href="/nfc-board">Tablero NFC</a>
           <a href="/network">Red</a>
         </nav>
       </details>
@@ -169,10 +169,10 @@
       <section class="card pad capture-card">
         <div class="card-head">
           <div><div class="eyebrow">Modos NFC</div><h2>Usa un modo de radio a la vez</h2></div>
-          <div id="capturePill" class="reader-pill"><i></i><span>Notas NFC apagadas</span></div>
+          <div id="capturePill" class="reader-pill"><i></i><span>Escaneo automático apagado</span></div>
         </div>
         <div class="mode-actions">
-          <button id="captureStartButton" class="btn btn-secondary">Notas NFC</button>
+          <button id="captureStartButton" class="btn btn-secondary">Escaneo automático</button>
           <button id="emulationWifiButton" class="btn btn-secondary">Wi-Fi por NFC</button>
           <button id="emulationStartButton" class="btn btn-secondary">Emular tag</button>
           <button id="emulationStopButton" class="btn btn-secondary" disabled>Parar</button>
@@ -318,7 +318,7 @@
     payload:'https://example.com/device/setup',
     raw:'D1 01 19 55 04 65 78 61 6D 70 6C 65 2E 63 6F 6D 2F 64 65 76 69 63 65 2F 73 65 74 75 70',
     capacity:144,captureEnabled:false,captureCount:0,
-    captureMessage:'Notas NFC apagadas.',
+    captureMessage:'Escaneo automático apagado.',
     tagEmulationEnabled:false,emulationReaderConnected:false,
     emulatedRecordType:'',emulatedPayload:'',emulationMessage:'La emulación está parada.',
     tagScans:0,lastTagScanAt:0,updatedAt:12345
@@ -398,7 +398,7 @@
 
     const wifiOnboarding=!!state.wifiOnboardingActive;
     const capturePill=$('#capturePill');
-    const modeLabel=!state.readerReady?'PN532 fuera':capturing?'Notas NFC encendidas':wifiOnboarding?'Wi-Fi por NFC activo':emulating?'Emulación de tag activa':'Modo NFC parado';
+    const modeLabel=!state.readerReady?'PN532 fuera':capturing?'Escaneo automático encendido':wifiOnboarding?'Wi-Fi por NFC activo':emulating?'Emulación de tag activa':'Modo NFC parado';
     capturePill.classList.toggle('ready',state.readerReady&&(capturing||emulating));
     capturePill.classList.toggle('offline',!state.readerReady);
     capturePill.querySelector('span').textContent=t(modeLabel);
@@ -432,7 +432,7 @@
       // hiccup; only three consecutive failures mean the controller is gone.
       connectionFailures++;
       if(connectionFailures>=3){
-        applyState({readerReady:false,busy:false,status:'offline',message:'La página no llega al NFC del ESP32.',captureEnabled:false,captureCount:0,captureMessage:'Notas NFC apagadas.',tagEmulationEnabled:false,emulationReaderConnected:false,emulationMessage:'Controlador fuera.'});
+        applyState({readerReady:false,busy:false,status:'offline',message:'La página no llega al NFC del ESP32.',captureEnabled:false,captureCount:0,captureMessage:'Escaneo automático apagado.',tagEmulationEnabled:false,emulationReaderConnected:false,emulationMessage:'Controlador fuera.'});
       }
     }finally{requestActive=false}
   }

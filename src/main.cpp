@@ -1685,8 +1685,10 @@ void setup() {
     usbNetworkBegin();
   } else {
     const UsbDriveState drive = getUsbDriveState();
-    Serial.printf("[USB] Field Notes Drive %s // 2 MiB read-only MSC\r\n",
-                  drive.available ? "ready" : "unavailable");
+    // Registered, not yet mountable: the medium goes in at usbDriveRefresh(),
+    // once there is a filesystem to take a snapshot of.
+    Serial.printf("[USB] Badge Drive interface %s // 2 MiB read-only MSC\r\n",
+                  drive.available ? "registered" : "unavailable");
   }
   delay(1500);
   Serial.println("===== START =====");
@@ -1723,10 +1725,10 @@ void setup() {
   }
 
   if (setupNfcLog()) {
-    Serial.printf("[MAIN] NFC board ready: %u of %u tags stored\r\n",
+    Serial.printf("[MAIN] NFC log ready: %u of %u tags stored\r\n",
                   nfcLogStoredCount(), nfcLogCapacity());
   } else {
-    Serial.println("[MAIN] WARNING: NFC board storage is unavailable");
+    Serial.println("[MAIN] WARNING: NFC log storage is unavailable");
   }
   usbDriveRefresh();
 

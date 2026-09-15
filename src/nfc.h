@@ -21,7 +21,7 @@ struct NfcTuiState {
 
 // One tag the reader met in capture mode, handed from the reader task to the
 // loop task (the only task that may write LittleFS) to be recorded on the
-// unified NFC board. Carries identity and content together: raw UID bytes, the
+// unified NFC log. Carries identity and content together: raw UID bytes, the
 // card type, and any decoded record.
 struct NfcCapturedTag {
   uint8_t uid[10];
@@ -68,7 +68,7 @@ bool setNfcCaptureEnabled(bool enabled);
 bool isNfcCaptureEnabled();
 
 // Pops one captured tag. Returns false when nothing is waiting. The loop task
-// drains these and records them on the NFC board.
+// drains these and records them on the NFC log.
 bool takeNfcCapture(NfcCapturedTag &tag);
 
 // Called by the capture drain once a post has been stored, so the page can

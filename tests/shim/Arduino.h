@@ -18,6 +18,9 @@ class String {
   String() = default;
   String(const char *value) : value_(value ? value : "") {}
   String(const std::string &value) : value_(value) {}
+  explicit String(int value) : value_(std::to_string(value)) {}
+  explicit String(unsigned value) : value_(std::to_string(value)) {}
+  explicit String(unsigned long value) : value_(std::to_string(value)) {}
 
   size_t length() const { return value_.size(); }
   const char *c_str() const { return value_.c_str(); }
@@ -70,6 +73,12 @@ class String {
   bool startsWith(const char *prefix) const {
     return value_.rfind(prefix, 0) == 0;
   }
+  bool endsWith(const char *suffix) const {
+    const size_t length = std::strlen(suffix);
+    return value_.size() >= length &&
+           value_.compare(value_.size() - length, length, suffix) == 0;
+  }
+  bool isEmpty() const { return value_.empty(); }
 
   int indexOf(const String &needle) const {
     const size_t at = value_.find(needle.value_);
@@ -112,5 +121,16 @@ class SerialShim {
 
 inline SerialShim Serial;
 
+// usb_console.h renames Serial to this one; a host build needs something for
+// the firmware's extern to bind to.
+inline SerialShim UsbConsole;
+
 using std::max;
 using std::min;
+
+// The drive stamps read activity with millis(); nothing under test reads the
+// clock for timing, so a counter that only moves forward is enough.
+inline uint32_t millis() {
+  static uint32_t ticks = 0;
+  return ++ticks;
+}

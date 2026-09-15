@@ -1476,7 +1476,7 @@ void handleNfcCaptureSet() {
 
   if (!server.hasArg("enabled")) {
     server.send(400, "application/json",
-                F("{\"ok\":false,\"message\":\"Falta el ajuste de Notas NFC.\"}"));
+                F("{\"ok\":false,\"message\":\"Falta el ajuste del escaneo automático.\"}"));
     return;
   }
 
@@ -1502,11 +1502,11 @@ void handleBoardClear() {
               boardStateJson(true, "Se borraron todas las ofrendas."));
 }
 
-void handleNfcBoardPage() {
-  serveLittleFsFile("/nfcboard.html", "text/html; charset=utf-8");
+void handleNfcLogPage() {
+  serveLittleFsFile("/nfclog.html", "text/html; charset=utf-8");
 }
 
-// Streams the unified NFC board newest-first, the same chunked way the Field
+// Streams the unified NFC log newest-first, the same chunked way the Field
 // Notes board does, so a long list never has to fit in one String.
 void handleNfcBoard() {
   const uint32_t requestedBefore =
@@ -1556,11 +1556,11 @@ void handleNfcBoardClear() {
   addNoCacheHeaders();
   if (!clearNfcLog()) {
     server.send(500, "application/json",
-                F("{\"ok\":false,\"message\":\"No se pudo limpiar el tablero NFC.\"}"));
+                F("{\"ok\":false,\"message\":\"No se pudo limpiar el registro NFC.\"}"));
     return;
   }
   server.send(200, "application/json",
-              F("{\"ok\":true,\"message\":\"Tablero NFC borrado.\"}"));
+              F("{\"ok\":true,\"message\":\"Registro NFC borrado.\"}"));
 }
 
 // -----------------------------------------------------------------------------
@@ -1652,10 +1652,14 @@ void appendUsbProfileStatus(String &json) {
   json += getPersistentUsbDeviceProfile() == UsbDeviceProfile::DRIVE ? F("drive") : F("network");
   json += F("\",\"drive\":{\"available\":");
   json += drive.available ? F("true") : F("false");
+  json += F(",\"media\":");
+  json += drive.mediaPresent ? F("true") : F("false");
   json += F(",\"notes\":");
   json += String(drive.noteCount);
   json += F(",\"scripts\":");
   json += String(drive.scriptCount);
+  json += F(",\"tags\":");
+  json += String(drive.tagCount);
   json += F("}");
 }
 
@@ -1961,8 +1965,13 @@ void setupWebServer() {
   server.on("/api/terminal/key", HTTP_POST, handleTerminalKey);
   server.on("/nfc", HTTP_GET, handleNfcPage);
   server.on("/nfc.html", HTTP_GET, handleNfcPage);
-  server.on("/nfc-board", HTTP_GET, handleNfcBoardPage);
-  server.on("/nfcboard.html", HTTP_GET, handleNfcBoardPage);
+  // /nfc-log is the page's address. The two /nfc-board spellings stay
+  // answerable so a bookmark or a cached menu from the old name still lands on
+  // it rather than on the captive-portal catch-all.
+  server.on("/nfc-log", HTTP_GET, handleNfcLogPage);
+  server.on("/nfclog.html", HTTP_GET, handleNfcLogPage);
+  server.on("/nfc-board", HTTP_GET, handleNfcLogPage);
+  server.on("/nfcboard.html", HTTP_GET, handleNfcLogPage);
   server.on("/notes", HTTP_GET, handleBoardPage);
   server.on("/board", HTTP_GET, redirectLegacyBoardPage);
   server.on("/board.html", HTTP_GET, redirectLegacyBoardPage);
@@ -2068,7 +2077,7 @@ void serviceNfcCapture() {
 
   noteNfcCapturePosted();
   signalTagCue(true);
-  Serial.printf("[NFCLOG] Recorded %s on the NFC board\r\n",
+  Serial.printf("[NFCLOG] Recorded %s on the NFC log\r\n",
                 uidToStringForLog(tag.uid, tag.uidLength).c_str());
 }
 
@@ -2171,8 +2180,8 @@ void setupWiFiAccessPoint() {
                   LittleFS.exists("/board.html") ? "ready" : "missing");
     Serial.printf("[WIFI] /terminal.html: %s\r\n",
                   LittleFS.exists("/terminal.html") ? "ready" : "missing");
-    Serial.printf("[WIFI] /nfcboard.html: %s\r\n",
-                  LittleFS.exists("/nfcboard.html") ? "ready" : "missing");
+    Serial.printf("[WIFI] /nfclog.html: %s\r\n",
+                  LittleFS.exists("/nfclog.html") ? "ready" : "missing");
   }
 
   // Resolve and verify the persistent password before starting Wi-Fi.

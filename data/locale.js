@@ -72,6 +72,7 @@
     'Modo USB: Unidad Field Notes': 'USB mode: Field Notes Drive',
     'Solo lectura: ': 'Read-only: ', 'notas': 'notes', 'scripts': 'scripts',
     'Elige Unidad Field Notes para montar la unidad de solo lectura.': 'Choose Field Notes Drive to mount the read-only drive.',
+    'Armando la instantánea; la unidad aparece en unos segundos.': 'Building the snapshot; the drive turns up in a few seconds.',
     'Usar modo Red Wi-Fi': 'Use Wi-Fi Network mode',
     'Usar modo Unidad Field Notes': 'Use Field Notes Drive mode',
     'Cambiar el modo USB reiniciará el badge. ¿Continuar?': 'Changing USB mode will reboot the badge. Continue?',
@@ -387,16 +388,28 @@
     'Edita el registro que emula el badge': 'Edit the record the badge emulates',
     'Guarda este registro al tocar Emular tag guardado arriba. Con emulación activa, el PN532 no lee ni escribe tags externos.': 'Save this record by selecting Emulate saved tag above. While emulation is active, the PN532 cannot read or write external tags.',
     'Guarda este registro al tocar Emular tag arriba. Con emulación activa, el PN532 no lee ni escribe tags externos.': 'Save this record by selecting Emulate tag above. While emulation is active, the PN532 cannot read or write external tags.',
-    'Notas NFC': 'NFC Notes',
-    'Notas NFC apagadas': 'NFC Notes off',
-    'Notas NFC encendidas': 'NFC Notes on',
-    'Notas NFC apagadas.': 'NFC Notes are off.',
-    'Notas NFC encendidas. Cada tag que se lea va a Field Notes.': 'NFC Notes on. Every tag read goes to Field Notes.',
-    'Tags en notas': 'Tags in Notes',
-    'Las notas NFC se apagaron para emular.': 'NFC Notes switched off for emulation.',
+    // The capture mode was called NFC Notes back when a read became an offering
+    // on the Field Notes wall. Reads land in the NFC Log now and nothing about
+    // it writes a note, so it is auto-scan. The old strings stay: they are what
+    // an older cached page, or a badge on older firmware, still says.
+    'Notas NFC': 'Auto-scan',
+    'Notas NFC apagadas': 'Auto-scan off',
+    'Notas NFC encendidas': 'Auto-scan on',
+    'Notas NFC apagadas.': 'Auto-scan is off.',
+    'Notas NFC encendidas. Cada tag que se lea va a Field Notes.': 'Auto-scan on. Every tag read goes to Field Notes.',
+    'Notas NFC encendidas. Cada tag que se lea va al registro NFC.': 'Auto-scan on. Every tag read goes to the NFC log.',
+    'Tags en notas': 'Tags seen',
+    'Las notas NFC se apagaron para emular.': 'Auto-scan switched off for emulation.',
     'Tag guardado en Field Notes.': 'Tag saved in Field Notes.',
     'Tag sin datos. Su UID se guardó en Field Notes.': 'Tag had no data. Its UID was saved in Field Notes.',
-    'Falta el ajuste de Notas NFC.': 'The NFC Notes setting is missing.',
+    'Falta el ajuste de Notas NFC.': 'The auto-scan setting is missing.',
+    'Escaneo automático': 'Auto-scan',
+    'Escaneo automático apagado': 'Auto-scan off',
+    'Escaneo automático encendido': 'Auto-scan on',
+    'Escaneo automático apagado.': 'Auto-scan is off.',
+    'Escaneo automático encendido. Cada tag que se lea va al registro NFC.': 'Auto-scan on. Every tag read goes to the NFC log.',
+    'El escaneo automático se apagó para emular.': 'Auto-scan switched off for emulation.',
+    'Falta el ajuste del escaneo automático.': 'The auto-scan setting is missing.',
     'PN532 emulando': 'PN532 emulating',
     'Esperando lector NFC': 'Waiting for NFC reader',
     'Controlador fuera.': 'Controller offline.',
@@ -448,15 +461,33 @@
     // the bold words could never match one. Each fragment is its own entry.
     // Wi-Fi scan-and-pick.
     'Buscar redes': 'Scan networks',
-    // NFC board page.
-    'Tablero NFC': 'NFC Board',
-    'Santa Muerte // Tablero NFC': 'Santa Muerte // NFC Board',
+    // NFC log page. The board was renamed to a log; the old "tablero" strings
+    // stay so a browser holding an older cached document still shows the
+    // current name, and so the reverse table -- which keeps the last key for a
+    // repeated English value -- answers "NFC Log" with "Registro NFC".
+    'Tablero NFC': 'NFC Log',
+    'Santa Muerte // Tablero NFC': 'Santa Muerte // NFC Log',
+    'Borrar tablero': 'Clear log',
+    '¿Borrar todos los tags del tablero NFC?': 'Clear every tag from the NFC log?',
+    'Registro NFC': 'NFC Log',
+    'Santa Muerte // Registro NFC': 'Santa Muerte // NFC Log',
     'Encuentros NFC': 'NFC Encounters',
     'Cada tag que el lector conoció': 'Every tag the reader met',
     'Actualizar': 'Refresh',
-    'Borrar tablero': 'Clear board',
+    'Borrar registro': 'Clear log',
     'Solo UID — sin contenido legible': 'UID only — no readable content',
-    '¿Borrar todos los tags del tablero NFC?': 'Clear every tag from the NFC board?',
+    'Los tags leídos ya no van a Field Notes; llegan aquí, con su UID, su tipo y lo que se pudo leer. Volver a ver el mismo tag suma a su cuenta en vez de repetirlo.': 'Tags the reader meets no longer go to Field Notes; they land here, with their UID, their type and whatever could be read. Meeting the same tag again adds to its count instead of repeating it.',
+    '¿Borrar todos los tags del registro NFC?': 'Clear every tag from the NFC log?',
+    // The empty state wraps "Escaneo automático" in <b>, which splits the
+    // sentence into separate text nodes; translation walks one at a time, so
+    // each half around the bold words has to be its own entry.
+    'Todavía no hay tags. Enciende': 'No tags yet. Turn on',
+    'en Herramientas NFC y acerca una tarjeta: su identidad y su contenido aparecerán aquí.': 'in NFC Tools and present a card: its identity and its content will show up here.',
+    // Reader status lines the firmware sends, which name where a tag landed.
+    'Tag guardado en el registro NFC.': 'Tag saved to the NFC log.',
+    'Tag sin datos; su UID quedó en el registro NFC.': 'Tag had no data; its UID stayed in the NFC log.',
+    'Registro NFC borrado.': 'NFC log cleared.',
+    'No se pudo limpiar el registro NFC.': 'Could not clear the NFC log.',
     'Consola USB': 'USB Console',
     'La misma sesión que ve el cable': 'The same session the cable sees',
     'Conectando': 'Connecting', 'En vivo': 'Live', 'Sin conexión': 'Offline',

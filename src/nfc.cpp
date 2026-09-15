@@ -174,7 +174,7 @@ struct NfcState {
 
   bool captureEnabled = false;
   uint32_t captureCount = 0;
-  String captureMessage = "Notas NFC apagadas.";
+  String captureMessage = "Escaneo automático apagado.";
 
   // Internal published-state field used by the Wi-Fi settings workflow.
   bool wifiOnboardingActive = false;
@@ -494,7 +494,7 @@ bool beginOperation(NfcOperation operation, const String &message) {
   }
 
   // Target/card-emulation mode and aborted commands can leave the PN532 in a
-  // state where a new passive scan does not start cleanly. Reassert normal SAM
+  // state where a new auto-scan does not start cleanly. Reassert normal SAM
   // reader mode before every web-requested external-tag operation.
   if (!configurePassiveReader("starting external-tag operation")) return false;
 
@@ -2054,7 +2054,7 @@ bool executeQueueNfcWrite(const NfcCommand &command) {
 void releaseCaptureForEmulation() {
   if (!state.captureEnabled) return;
   state.captureEnabled = false;
-  state.captureMessage = "Las notas NFC se apagaron para emular.";
+  state.captureMessage = "El escaneo automático se apagó para emular.";
   lastCaptureUid = String();
   lastCaptureAt = 0;
   captureMisses = 0;
@@ -2202,10 +2202,10 @@ bool executeSetCapture(const NfcCommand &command) {
 
   if (command.flag) {
     state.captureMessage =
-        "Notas NFC encendidas. Cada tag que se lea va a Field Notes.";
+        "Escaneo automático encendido. Cada tag que se lea va al registro NFC.";
     state.message = state.captureMessage;
   } else {
-    state.captureMessage = "Notas NFC apagadas.";
+    state.captureMessage = "Escaneo automático apagado.";
     state.message = "Lector listo. Elige una acción y acerca un tag.";
   }
   state.status = "idle";
@@ -2253,7 +2253,7 @@ void captureDetectedTag(uint8_t *uid, uint8_t uidLength) {
   lastCaptureUid = seenUid;
   lastCaptureAt = millis();
 
-  // Every meeting goes to the unified NFC board, identity and content together.
+  // Every meeting goes to the unified NFC log, identity and content together.
   // Decoded records (Text, URL, an NDEF message off a Classic card) carry their
   // payload as content; a card that only gave up its UID is still worth a row --
   // its UID and type stand on their own, with empty content.
@@ -2266,8 +2266,8 @@ void captureDetectedTag(uint8_t *uid, uint8_t uidLength) {
   stageCapturedTag(uid, uidLength, state.tagType, content);
   ++state.captureCount;
   state.captureMessage = hasContent
-                             ? "Tag guardado en el tablero NFC."
-                             : "Tag sin datos; su UID quedó en el tablero NFC.";
+                             ? "Tag guardado en el registro NFC."
+                             : "Tag sin datos; su UID quedó en el registro NFC.";
   state.updatedAt = millis();
 }
 
@@ -2651,7 +2651,7 @@ void noteNfcCapturePosted() {
   // The worker owns state.captureMessage and overwrites publishedState on its
   // next publish, so this only brightens the page between two polls. That is
   // enough: the count itself is authoritative on the worker side.
-  publishedState.captureMessage = "Tag guardado en Field Notes.";
+  publishedState.captureMessage = "Tag guardado en el registro NFC.";
   publishedState.updatedAt = millis();
   xSemaphoreGive(nfcStateMutex);
 }

@@ -288,11 +288,18 @@ window, while photo-picking depends on the browser providing a file picker.
 
 The badge has no clock. A post's time is whatever the posting browser claimed.
 
-Run the board's tests on any machine with a C++ compiler:
+Run the host-side tests on any machine with a C++ compiler:
 
 ```
 g++ -std=gnu++17 -I tests/shim -I src tests/board_test.cpp src/board.cpp -o /tmp/board_test && /tmp/board_test
 ```
+
+```
+g++ -std=gnu++17 -DARDUINO_USB_MODE=0 -DSM_USB_DRIVE=1 -I tests/shim -I src tests/usb_drive_test.cpp src/usb_drive.cpp -o /tmp/usb_drive_test && /tmp/usb_drive_test
+```
+
+The drive test also writes the rendered FAT12 image to `/tmp/smdrive.img`, so a
+real checker can be pointed at the same bytes: `fsck.fat -n /tmp/smdrive.img`.
 
 # Flashing Instructions:
 1) Extract repo zip file or pull down repo to local folder

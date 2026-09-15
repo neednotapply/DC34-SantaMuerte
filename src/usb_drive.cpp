@@ -7,6 +7,7 @@
 #include <new>
 
 #include "board.h"
+#include "nfc_log.h"
 #include "usb_hid.h"
 
 namespace {
@@ -18,20 +19,30 @@ constexpr uint16_t ROOT_ENTRIES = 16;
 constexpr uint16_t ROOT_LBA = 1 + FAT_SECTORS;
 constexpr uint16_t DATA_LBA = ROOT_LBA + 1;
 constexpr uint16_t END_OF_CHAIN = 0x0FFF;
-constexpr uint16_t MAX_FILES = 640;
+// One entry per Field Note, per retained drawing, per saved script and per
+// logged tag, plus the readme and the three folders. The board rings are 512
+// notes and 76 drawings, the log ring is 128 tags, and scripts cap at 16.
+constexpr uint16_t MAX_FILES = 768;
 constexpr uint32_t READ_ACTIVITY_MS = 280;
 
 constexpr char README[] =
-    "SANTA MUERTE // FIELD NOTES DRIVE\r\n\r\n"
+    "SANTA MUERTE // BADGE DRIVE\r\n\r\n"
     "This virtual disk is read-only; the badge remains the only writer.\r\n"
-    "NOTES contains one text file per Field Note and matching JPEG artifacts.\r\n"
-    "SCRIPTS contains one text file per saved USB script.\r\n"
-    "Use http://santamuerte.local/notes or /scripting to create and edit.\r\n";
+    "Each folder is one page of the portal:\r\n\r\n"
+    "  Field Notes  /notes      one text file per note, with its JPEG\r\n"
+    "  Scripting    /scripting  one text file per saved USB script\r\n"
+    "  NFC Log      /nfc-log    one text file per tag the reader met\r\n\r\n"
+    "Open http://santamuerte.local to write notes and scripts; the log\r\n"
+    "fills itself whenever Auto-scan is on.\r\n";
 
-enum class FileKind : uint8_t { README, DIRECTORY, NOTE, IMAGE, SCRIPT };
-enum class Directory : uint8_t { ROOT, NOTES, SCRIPTS };
+enum class FileKind : uint8_t { README, DIRECTORY, NOTE, IMAGE, SCRIPT, TAG };
+enum class Directory : uint8_t { ROOT, NOTES, SCRIPTS, NFCLOG };
 struct DriveFile {
   char name[11];
+  // The folders carry the page's own name. It does not fit 8.3, so each one is
+  // also written as a VFAT long name; `name` stays the short alias a reader
+  // without long-name support falls back to. Empty for everything else.
+  const char *longName;
   FileKind kind;
   Directory parent;
   uint32_t sourceId;
@@ -42,7 +53,9 @@ struct DriveFile {
 
 DriveFile files[MAX_FILES] = {};
 uint16_t fileCount = 0;
-bool snapshotReady = false;
+// Read from the TinyUSB task, written by the Arduino task that builds the
+// snapshot.
+volatile bool snapshotReady = false;
 uint8_t imageCache[BOARD_MAX_IMAGE_BYTES] = {};
 uint32_t cachedImageId = 0;
 size_t cachedImageLength = 0;
@@ -68,8 +81,16 @@ void write32(uint8_t *to, uint32_t value) {
   to[0] = value; to[1] = value >> 8; to[2] = value >> 16; to[3] = value >> 24;
 }
 
+// An 8.3 name field is space-padded, never NUL-padded: copying a short stem
+// straight in left its terminator sitting in the name, which a host reads as
+// part of the filename. Stems shorter than eight characters are padded here so
+// callers can hand over a plain "TAG0001".
 void writeName(char to[11], const char stem[8], const char extension[3]) {
-  memcpy(to, stem, 8); memcpy(to + 8, extension, 3);
+  memset(to, ' ', 8);
+  uint8_t length = 0;
+  while (length < 8 && stem[length]) ++length;
+  memcpy(to, stem, length);
+  memcpy(to + 8, extension, 3);
 }
 void writeNoteName(char to[11], uint32_t id, const char extension[3]) {
   char stem[11] = {};
@@ -140,11 +161,39 @@ void renderScript(DriveFile &file, Slice &slice) {
   emit(slice, "\r\n\r\n"); emit(slice, script);
   if (!script.endsWith("\n")) emit(slice, "\r\n");
 }
+// sourceId is the tag's position in the newest-first walk, the same way a
+// script file is addressed by its index: the log has no stable per-tag id a
+// filename could carry, and the drive is a snapshot taken at refresh anyway.
+bool findTag(uint32_t index, NfcLogEntry &found) {
+  uint32_t cursor = 0; NfcLogEntry entry;
+  for (uint32_t seen = 0; nfcLogReadNext(cursor, entry); ++seen) {
+    if (seen == index) { found = entry; return true; }
+  }
+  return false;
+}
+void renderTag(DriveFile &file, Slice &slice) {
+  NfcLogEntry entry;
+  if (!findTag(file.sourceId, entry)) {
+    emit(slice, "This tag is no longer in the NFC Log.\r\n"); return;
+  }
+  emit(slice, "SANTA MUERTE // NFC LOG // "); emit(slice, entry.uid);
+  emit(slice, "\r\nTYPE: "); emit(slice, entry.tagType.length() ? entry.tagType : String("ISO14443A"));
+  emit(slice, "\r\nSEEN: "); emit(slice, String(entry.hitCount));
+  emit(slice, entry.hitCount == 1 ? " time" : " times");
+  emit(slice, "\r\n\r\n");
+  if (entry.content.length()) {
+    emit(slice, entry.content);
+    if (!entry.content.endsWith("\n")) emit(slice, "\r\n");
+  } else {
+    emit(slice, "[UID only -- no readable content]\r\n");
+  }
+}
 uint32_t renderedSize(DriveFile &file) {
   Slice slice = {0, 0, nullptr, 0};
   if (file.kind == FileKind::README) emit(slice, README, sizeof(README) - 1);
   else if (file.kind == FileKind::NOTE) renderNote(file, slice);
   else if (file.kind == FileKind::SCRIPT) renderScript(file, slice);
+  else if (file.kind == FileKind::TAG) renderTag(file, slice);
   return slice.position;
 }
 uint16_t directoryEntries(Directory directory) {
@@ -168,14 +217,21 @@ void allocateClusters() {
     next += file.clusters;
   }
 }
+// One folder per portal page that keeps anything, named the way the page is.
+DriveFile *appendFolder(Directory directory, const char stem[8], const char *pageName) {
+  DriveFile *folder = append(FileKind::DIRECTORY, Directory::ROOT, 0, stem, "   ");
+  if (!folder) return nullptr;
+  folder->sourceId = static_cast<uint32_t>(directory);
+  folder->longName = pageName;
+  return folder;
+}
 void refreshFiles() {
   fileCount = 0; snapshotReady = false; cachedImageId = cachedImageLength = 0;
   DriveFile *readme = append(FileKind::README, Directory::ROOT, 0, "README  ", "TXT");
-  DriveFile *notes = append(FileKind::DIRECTORY, Directory::ROOT, 0, "NOTES   ", "   ");
-  DriveFile *scripts = append(FileKind::DIRECTORY, Directory::ROOT, 0, "SCRIPTS ", "   ");
-  if (!readme || !notes || !scripts) return;
-  notes->sourceId = static_cast<uint32_t>(Directory::NOTES);
-  scripts->sourceId = static_cast<uint32_t>(Directory::SCRIPTS);
+  DriveFile *notes = appendFolder(Directory::NOTES, "FIELDNTS", "Field Notes");
+  DriveFile *scripts = appendFolder(Directory::SCRIPTS, "SCRIPTNG", "Scripting");
+  DriveFile *tags = appendFolder(Directory::NFCLOG, "NFCLOG  ", "NFC Log");
+  if (!readme || !notes || !scripts || !tags) return;
   uint32_t cursor = 0; BoardPost post;
   while (readNextBoardPost(cursor, post)) {
     if (!appendNote(FileKind::NOTE, post.id)) break;
@@ -190,13 +246,22 @@ void refreshFiles() {
     snprintf(stem, sizeof(stem), "SCRIPT%02u", static_cast<unsigned>(i + 1));
     if (!append(FileKind::SCRIPT, Directory::SCRIPTS, i, stem, "TXT")) break;
   }
+  uint32_t tagCursor = 0, tagIndex = 0; NfcLogEntry entry;
+  while (nfcLogReadNext(tagCursor, entry)) {
+    char stem[9] = {};
+    snprintf(stem, sizeof(stem), "TAG%04lu", static_cast<unsigned long>(tagIndex + 1));
+    if (!append(FileKind::TAG, Directory::NFCLOG, tagIndex, stem, "TXT")) break;
+    ++tagIndex;
+  }
   readme->size = renderedSize(*readme);
   for (uint16_t i = 0; i < fileCount; ++i) {
-    if (files[i].kind == FileKind::NOTE || files[i].kind == FileKind::SCRIPT)
+    if (files[i].kind == FileKind::NOTE || files[i].kind == FileKind::SCRIPT ||
+        files[i].kind == FileKind::TAG)
       files[i].size = renderedSize(files[i]);
   }
   notes->size = static_cast<uint32_t>(directoryEntries(Directory::NOTES)) * 32;
   scripts->size = static_cast<uint32_t>(directoryEntries(Directory::SCRIPTS)) * 32;
+  tags->size = static_cast<uint32_t>(directoryEntries(Directory::NFCLOG)) * 32;
   allocateClusters(); snapshotReady = true;
 }
 
@@ -208,7 +273,10 @@ void renderBoot(uint8_t *sector) {
   sector[21] = 0xF8; write16(sector + 22, FAT_SECTORS);
   write16(sector + 24, 1); write16(sector + 26, 1);
   sector[36] = 0x00; sector[38] = 0x29; write32(sector + 39, 0x534D3334);
-  memcpy(sector + 43, "SANTA MUERTE", 11); memcpy(sector + 54, "FAT12   ", 8);
+  // Eleven bytes, and it has to be the same string the root directory's label
+  // entry carries -- "SANTA MUERTE" truncates to "SANTA MUERT" here and then
+  // disagrees with the root, which fsck.fat reports as a damaged label.
+  memcpy(sector + 43, "SANTAMUERTE", 11); memcpy(sector + 54, "FAT12   ", 8);
   sector[510] = 0x55; sector[511] = 0xAA;
 }
 void fatByte(uint8_t *sector, uint32_t base, uint32_t offset, uint8_t value, bool high = false) {
@@ -234,13 +302,68 @@ void renderFat(uint32_t lba, uint8_t *sector) {
   }
 }
 void renderEntry(uint8_t *entry, const DriveFile &file) {
-  memcpy(entry, file.name, sizeof(file.name)); entry[11] = file.kind == FileKind::DIRECTORY ? 0x10 : 0x21;
-  write16(entry + 26, file.firstCluster); write32(entry + 28, file.size);
+  const bool directory = file.kind == FileKind::DIRECTORY;
+  memcpy(entry, file.name, sizeof(file.name)); entry[11] = directory ? 0x10 : 0x21;
+  write16(entry + 26, file.firstCluster);
+  // A directory's length is its cluster chain, and the spec says its size field
+  // reads zero. The folders' own `size` is still what sizes that chain; writing
+  // it here as well is what made fsck.fat offer to repair every folder.
+  write32(entry + 28, directory ? 0 : file.size);
+}
+
+// VFAT long names. A long name is carried by the run of 0x0F entries sitting
+// immediately BEFORE its 8.3 entry, thirteen UTF-16 characters each, numbered
+// from 1 and stored last chunk first, with 0x40 marking the one that is last in
+// the name and therefore first on disk. Every chunk repeats a checksum of the
+// 8.3 alias, which is how a reader knows the run belongs to the entry that
+// follows it -- and how it detects an editor that renamed the alias behind a
+// long name it did not understand.
+constexpr uint8_t LONG_NAME_CHARS = 13;
+uint8_t longNameEntries(const DriveFile &file) {
+  if (!file.longName) return 0;
+  const size_t length = strlen(file.longName);
+  return static_cast<uint8_t>((length + LONG_NAME_CHARS - 1) / LONG_NAME_CHARS);
+}
+uint8_t shortNameChecksum(const char name[11]) {
+  uint8_t sum = 0;
+  for (uint8_t i = 0; i < 11; ++i)
+    sum = static_cast<uint8_t>(((sum & 1) << 7) + (sum >> 1) + static_cast<uint8_t>(name[i]));
+  return sum;
+}
+// Writes chunk `sequence` (1-based) of the name into one 32-byte entry.
+void renderLongNameEntry(uint8_t *entry, const DriveFile &file, uint8_t sequence) {
+  // The 13 characters are split across three runs inside the entry, around the
+  // fields a pre-VFAT reader expects to find in an 8.3 entry.
+  static constexpr uint8_t offsets[LONG_NAME_CHARS] = {1,  3,  5,  7,  9,  14, 16,
+                                                       18, 20, 22, 24, 28, 30};
+  const size_t length = strlen(file.longName);
+  const size_t first = static_cast<size_t>(sequence - 1) * LONG_NAME_CHARS;
+  memset(entry, 0, 32);
+  entry[0] = sequence;
+  if (sequence == longNameEntries(file)) entry[0] |= 0x40;
+  entry[11] = 0x0F;
+  entry[13] = shortNameChecksum(file.name);
+  for (uint8_t i = 0; i < LONG_NAME_CHARS; ++i) {
+    const size_t index = first + i;
+    // One NUL terminates the name; anything past it is padding.
+    const uint16_t value = index < length ? static_cast<uint8_t>(file.longName[index])
+                                          : (index == length ? 0x0000 : 0xFFFF);
+    write16(entry + offsets[i], value);
+  }
+}
+// Entries this file occupies in a directory: its own, plus its long name's.
+uint8_t entrySlots(const DriveFile &file) {
+  return static_cast<uint8_t>(1 + longNameEntries(file));
 }
 void renderRoot(uint8_t *sector) {
   memcpy(sector, "SANTAMUERTE", 11); sector[11] = 0x08; uint8_t out = 1;
-  for (uint16_t i = 0; i < fileCount && out < ROOT_ENTRIES; ++i) {
-    if (files[i].parent == Directory::ROOT) renderEntry(sector + out++ * 32, files[i]);
+  for (uint16_t i = 0; i < fileCount; ++i) {
+    const DriveFile &file = files[i];
+    if (file.parent != Directory::ROOT) continue;
+    if (out + entrySlots(file) > ROOT_ENTRIES) break;
+    for (uint8_t sequence = longNameEntries(file); sequence >= 1; --sequence)
+      renderLongNameEntry(sector + out++ * 32, file, sequence);
+    renderEntry(sector + out++ * 32, file);
   }
 }
 void renderDot(uint8_t *entry, bool parent, uint16_t cluster) {
@@ -269,6 +392,7 @@ void renderFile(DriveFile &file, uint32_t offset, uint8_t *sector) {
     case FileKind::NOTE: renderNote(file, slice); break;
     case FileKind::IMAGE: if (loadImage(file.sourceId)) emit(slice, reinterpret_cast<const char *>(imageCache), cachedImageLength); break;
     case FileKind::SCRIPT: renderScript(file, slice); break;
+    case FileKind::TAG: renderTag(file, slice); break;
   }
 }
 void renderSector(uint32_t lba, uint8_t *sector) {
@@ -304,17 +428,41 @@ alignas(USBMSC) uint8_t mscStorage[sizeof(USBMSC)]; USBMSC *msc = nullptr; bool 
 
 void usbDriveConfigure(bool enabled) {
   if (!enabled || configured) return;
-  msc = new (mscStorage) USBMSC(); msc->vendorID("SANTAMRT"); msc->productID("Field Notes"); msc->productRevision("1.1");
-  msc->onRead(readDrive); msc->onWrite(rejectWrite); msc->onStartStop(startStop); msc->isWritable(false); msc->mediaPresent(true);
+  msc = new (mscStorage) USBMSC(); msc->vendorID("SANTAMRT"); msc->productID("Badge Drive"); msc->productRevision("1.1");
+  msc->onRead(readDrive); msc->onWrite(rejectWrite); msc->onStartStop(startStop); msc->isWritable(false);
+  // Deliberately no mediaPresent(true) here. The snapshot cannot be built until
+  // setup() has mounted LittleFS and walked the board and log rings, seconds
+  // after the controller enumerates -- and claiming a medium that early made
+  // every read in between fail, because readDrive has nothing to answer with.
+  // A host that gets an I/O error reading LBA 0 abandons the device instead of
+  // retrying, which is why the drive only turned up when something (a profile
+  // switch, with its unfamiliar product id and a fresh driver bind) happened to
+  // delay that first read past the snapshot. An absent medium is a state hosts
+  // do poll out of, so the drive now admits it has nothing until it has
+  // something. usbDriveRefresh puts the medium in.
   configured = msc->begin(SECTOR_COUNT, SECTOR_BYTES);
 }
-void usbDriveRefresh() { refreshFiles(); }
+void usbDriveRefresh() {
+  refreshFiles();
+  if (!configured || !msc) return;
+  msc->mediaPresent(snapshotReady);
+  if (snapshotReady) {
+    Serial.printf("[USBMSC] Medium ready: %u files // %u notes // %u scripts // %u tags\r\n",
+                  fileCount, boardStoredCount(), usbHidPayloadCount(),
+                  nfcLogStoredCount());
+  } else {
+    Serial.println("[USBMSC] WARNING: snapshot unavailable; the drive stays empty");
+  }
+}
 bool usbDriveReadActive() { return configured && static_cast<uint32_t>(millis() - lastReadAt) < READ_ACTIVITY_MS; }
-UsbDriveState getUsbDriveState() { return {configured, boardStoredCount(), usbHidPayloadCount()}; }
+UsbDriveState getUsbDriveState() {
+  return {configured, snapshotReady, boardStoredCount(), usbHidPayloadCount(),
+          nfcLogStoredCount()};
+}
 
 #else
 void usbDriveConfigure(bool) {}
 void usbDriveRefresh() {}
 bool usbDriveReadActive() { return false; }
-UsbDriveState getUsbDriveState() { return {false, 0, 0}; }
+UsbDriveState getUsbDriveState() { return {false, false, 0, 0, 0}; }
 #endif

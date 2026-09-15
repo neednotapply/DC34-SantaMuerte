@@ -2,11 +2,11 @@
 
 #include <Arduino.h>
 
-// The unified NFC board: one place that records every tag the reader meets --
+// The unified NFC log: one place that records every tag the reader meets --
 // its identity (UID and card type) together with whatever content came off it.
 // This is where NFC reads land now; they no longer post to the Field Notes
 // board, which is for people again. Re-seeing the same UID does not add a row,
-// it bumps that tag's hit count and freshens what was read, so the board reads
+// it bumps that tag's hit count and freshens what was read, so the log reads
 // as an encounter journal rather than a scroll of duplicates.
 //
 // Storage mirrors board.cpp: a fixed, preallocated LittleFS ring so it never

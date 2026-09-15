@@ -11,6 +11,7 @@
 #include "badge_wifi.h"
 #include "board.h"
 #include "nfc.h"
+#include "nfc_log.h"
 #include "usb_hid.h"
 #include "usb_network.h"
 #include "usb_drive.h"
@@ -34,6 +35,7 @@ enum class Screen : uint8_t {
   NFC_MODE,
   NFC_WRITE,
   NFC_EMULATE,
+  NFC_LOG,
   OFFERINGS,
   OFFERING_DETAIL,
   SYSTEM,
@@ -49,7 +51,7 @@ enum class Screen : uint8_t {
   HELP
 };
 enum class Prompt : uint8_t { NONE, AP_SSID, AP_PASSWORD, HOME_SSID, HOME_PASSWORD, LED_HEX, LED_BRIGHTNESS, LED_SPEED, NFC_TEXT, NFC_URL, EMU_TEXT, EMU_URL, OFFERING };
-enum class Action : uint8_t { NONE, SWITCH_AP, SWITCH_HOME, SAVE_AP, TOGGLE_AP_HIDDEN, SAVE_HOME, NFC_WRITE_TEXT, NFC_WRITE_URL, EMU_TEXT, EMU_URL, NFC_WIFI, CLEAR_BOARD, REBOOT, POST_OFFERING, RUN_PAYLOAD, USB_POWER_OFF };
+enum class Action : uint8_t { NONE, SWITCH_AP, SWITCH_HOME, SAVE_AP, TOGGLE_AP_HIDDEN, SAVE_HOME, NFC_WRITE_TEXT, NFC_WRITE_URL, EMU_TEXT, EMU_URL, NFC_WIFI, CLEAR_BOARD, CLEAR_NFC_LOG, REBOOT, POST_OFFERING, RUN_PAYLOAD, USB_POWER_OFF };
 
 struct LogLine { char module[12]; char text[LOG_LINE_LENGTH]; uint32_t at; };
 LogLine logs[LOG_CAPACITY] = {};
@@ -102,6 +104,7 @@ const char *screenName(Screen value) {
     case Screen::NFC_MODE: return tr("NFC // MODO", "NFC // MODE");
     case Screen::NFC_WRITE: return tr("NFC // ESCRIBIR", "NFC // WRITE");
     case Screen::NFC_EMULATE: return tr("NFC // EMULAR", "NFC // EMULATE");
+    case Screen::NFC_LOG: return tr("NFC // REGISTRO", "NFC // LOG");
     case Screen::OFFERINGS: return "FIELD NOTES";
     case Screen::OFFERING_DETAIL: return "FIELD NOTE";
     case Screen::SYSTEM: return tr("SISTEMA // SYSTEM", "SYSTEM");
@@ -391,10 +394,11 @@ const Phrase phrases[] = {
     {"Emulación parada", "Emulation stopped"},
     {"Ofrenda NFC encendida. Cada tag que se lea se va a las ofrendas.", "NFC Offering on. Every tag read joins the offerings."},
     {"Ofrenda NFC apagada.", "NFC Offering off."},
-    {"Notas NFC encendidas. Cada tag que se lea va a Field Notes.", "NFC Notes on. Every tag read goes to Field Notes."},
-    {"Notas NFC apagadas.", "NFC Notes off."},
-    {"Tag guardado en Field Notes.", "Tag saved to Field Notes."},
-    {"Tag sin datos. Su UID se guardó en Field Notes.", "Tag had no data. Its UID was saved to Field Notes."},
+    {"Escaneo automático encendido. Cada tag que se lea va al registro NFC.", "Auto-scan on. Every tag read goes to the NFC log."},
+    {"Escaneo automático apagado.", "Auto-scan off."},
+    {"El escaneo automático se apagó para emular.", "Auto-scan switched off for emulation."},
+    {"Tag guardado en el registro NFC.", "Tag saved to the NFC log."},
+    {"Tag sin datos; su UID quedó en el registro NFC.", "Tag had no data; its UID stayed in the NFC log."},
     {"El PN532 no ha iniciado.", "The PN532 has not started."},
     {"El lector PN532 no está disponible.", "The PN532 reader is unavailable."},
     {"El PN532 no volvió al modo lector.", "The PN532 did not return to reader mode."},
@@ -547,6 +551,8 @@ void renderDashboard() {
   tuiPrintf("%-9s %u / %u %s // %u %s\n", "NOTES", boardStoredCount(),
             boardCapacity(), tr("textos", "texts"), boardImageCapacity(),
             tr("dibujos", "drawings"));
+  tuiPrintf("%-9s %u / %u %s\n", "NFC LOG", nfcLogStoredCount(),
+            nfcLogCapacity(), tr("tags vistos", "tags seen"));
   tuiPrintf("%-9s %u KB %s // %u KB // %lus\n", tr("MEMORIA", "MEMORY"), ESP.getFreeHeap() / 1024, tr("libres", "free"), ESP.getMaxAllocHeap() / 1024, millis() / 1000);
   tuiPrintf("%-9s %s\n", "HID", usbHidStatusLine().c_str());
   out.println();
@@ -686,7 +692,7 @@ void renderLedSpeed() {
 void renderNfc() {
   const NfcTuiState nfc = getNfcTuiState();
   const char *mode = nfc.captureEnabled
-                         ? tr("Notas NFC", "NFC Notes")
+                         ? tr("Escaneo automático", "Auto-scan")
                          : nfc.wifiOnboarding
                                ? tr("Wi-Fi por NFC", "Wi-Fi over NFC")
                                : nfc.emulating ? tr("Emulando tag", "Emulating tag")
@@ -699,12 +705,14 @@ void renderNfc() {
   tuiLine(tr("2 Leer tag", "2 Read Tag"));
   tuiLine(tr("3 Escribir tag", "3 Write Tag"));
   tuiLine(tr("4 Emular tag", "4 Emulate Tag"));
+  tuiPrintf("%s  //  %u / %u\n", tr("5 Registro NFC", "5 NFC Log"),
+            nfcLogStoredCount(), nfcLogCapacity());
 }
 
 void renderNfcMode() {
   const NfcTuiState nfc = getNfcTuiState();
   String current = nfc.captureEnabled
-                       ? tr("Notas NFC", "NFC Notes")
+                       ? tr("Escaneo automático", "Auto-scan")
                        : nfc.wifiOnboarding
                              ? tr("Wi-Fi por NFC", "Wi-Fi over NFC")
                              : nfc.emulating
@@ -716,10 +724,43 @@ void renderNfcMode() {
   tuiPrintf("%s: %s\n", tr("MODO ACTUAL", "CURRENT MODE"), current.c_str());
   tuiPrintf("%s: %s\n\n", tr("PN532", "PN532"),
             nfc.readerReady ? tr("listo", "ready") : tr("fuera", "offline"));
-  tuiLine(tr("1 Notas NFC", "1 NFC Notes"));
+  tuiLine(tr("1 Escaneo automático", "1 Auto-scan"));
   tuiLine(tr("2 Wi-Fi por NFC", "2 Wi-Fi over NFC"));
   tuiLine(tr("3 Emular tag recordado", "3 Emulate remembered tag"));
   tuiLine(tr("4 Parar", "4 Stop"));
+}
+
+// The same encounter journal the portal shows, newest first. Identity on one
+// line and whatever came off the tag beneath it: a UID and a card type do not
+// leave room for the content on a single 80-column row, and the content is the
+// half worth reading.
+void renderNfcLog() {
+  tuiPrintf("%u / %u %s\n\n", nfcLogStoredCount(), nfcLogCapacity(),
+            tr("tags guardados", "stored tags"));
+  uint32_t cursor = 0;
+  NfcLogEntry entry;
+  uint8_t shown = 0;
+  while (shown < 6 && nfcLogReadNext(cursor, entry)) {
+    String seen;
+    if (entry.hitCount > 1) { seen = " x"; seen += entry.hitCount; }
+    tuiPrintf("%-24s %s%s\n", clipped(entry.uid, 24).c_str(),
+              clipped(entry.tagType.length() ? entry.tagType : String("ISO14443A"),
+                      34).c_str(),
+              seen.c_str());
+    muted(String("  ") + (entry.content.length()
+                              ? clipped(entry.content, 60)
+                              : String(tr("[solo UID]", "[UID only]"))));
+    ++shown;
+  }
+  if (!shown) {
+    muted(tr("El registro está vacío. Enciende el escaneo automático en NFC // MODO.",
+             "The log is empty. Turn on auto-scan in NFC // MODE."));
+  } else if (nfcLogStoredCount() > shown) {
+    muted(String(tr("El portal muestra el resto: ", "The portal shows the rest: ")) +
+          "http://santamuerte.local/nfc-log");
+  }
+  out.println();
+  tuiLine(tr("1 Borrar el registro", "1 Clear the log"));
 }
 
 void renderNfcWrite() {
@@ -881,8 +922,15 @@ void renderUsbProfile() {
   tuiLine(tr("1 WiFi Tethering: Serial + NCM", "1 WiFi Tethering: Serial + NCM"));
   tuiLine(tr("2 Unidad: Serial + HID + almacenamiento solo lectura", "2 Drive: Serial + HID + read-only storage"));
   if (profile == UsbDeviceProfile::DRIVE) {
-    tuiPrintf("%-9s %u %s // %u %s\n", "UNIDAD", drive.noteCount,
-              tr("notas", "notes"), drive.scriptCount, tr("scripts", "scripts"));
+    tuiPrintf("%-9s %u %s // %u %s // %u tags\n", "UNIDAD", drive.noteCount,
+              tr("notas", "notes"), drive.scriptCount, tr("scripts", "scripts"),
+              drive.tagCount);
+    // Worth saying out loud: for the first seconds of a boot the interface is
+    // up with nothing in it, and a host will show no drive until it is.
+    if (!drive.mediaPresent) {
+      muted(tr("Sin medio todavía; el badge sigue armando la instantánea.",
+               "No medium yet; the badge is still building the snapshot."));
+    }
   }
   out.println();
   muted(tr("Cambiar el modo guarda la opción y reinicia el badge. Serial sigue disponible.",
@@ -988,6 +1036,7 @@ void render() {
     case Screen::NFC_MODE: renderNfcMode(); break;
     case Screen::NFC_WRITE: renderNfcWrite(); break;
     case Screen::NFC_EMULATE: renderNfcEmulate(); break;
+    case Screen::NFC_LOG: renderNfcLog(); break;
     case Screen::OFFERINGS: renderOfferings(); break;
     case Screen::OFFERING_DETAIL: renderOfferingDetail(); break;
     case Screen::SYSTEM: renderSystem(); break;
@@ -1047,6 +1096,7 @@ void performAction(Action action) {
   bool ok = false;
   switch (action) {
     case Action::CLEAR_BOARD:
+    case Action::CLEAR_NFC_LOG:
     case Action::RUN_PAYLOAD:
     case Action::USB_POWER_OFF:
       if (portalMayNot("Esa accion es solo por cable.",
@@ -1087,6 +1137,7 @@ void performAction(Action action) {
       uint8_t mac[6] = {}; ok = startNfcWifiOnboarding(getBadgeWifiSsid(), getBadgeWifiPassword(), getBadgeWifiApMac(mac) ? mac : nullptr); break;
     }
     case Action::CLEAR_BOARD: ok = clearBoard(); break;
+    case Action::CLEAR_NFC_LOG: ok = clearNfcLog(); break;
     case Action::POST_OFFERING:
       ok = addBoardPost(stagedA, 0, nullptr, 0, error, USB_CONSOLE_AUTHOR_ID);
       break;
@@ -1199,6 +1250,9 @@ void handleScreenKey(char key) {
     else if (key == '6') beginPrompt(Prompt::EMU_URL, tr("URL para emular", "URL to emulate"));
     else if (key == '7') performAction(Action::NFC_WIFI);
     else if (key == '8') setNotice(stopNfcTagEmulation() ? tr("Parando emulación.", "Stopping emulation.") : tr("No se pudo parar.", "Could not stop."), false);
+  } else if (screen == Screen::NFC_LOG) {
+    if (key == '1') beginConfirm(Action::CLEAR_NFC_LOG,
+                                 tr("Borrar el registro NFC", "Clear the NFC Log"));
   } else if (screen == Screen::OFFERINGS) {
     if (key == '1') beginPrompt(Prompt::OFFERING,
                                  tr("Texto de la nota", "Field Note text"));
@@ -1321,6 +1375,19 @@ void handleScreenSelection(int selection) {
       screen = Screen::NFC_WRITE;
     } else if (selection == 4) {
       screen = Screen::NFC_EMULATE;
+    } else if (selection == 5) {
+      screen = Screen::NFC_LOG;
+    } else {
+      setNotice(tr("Selección inválida.", "Invalid selection."), true);
+    }
+    needsRedraw = true;
+    return;
+  }
+
+  if (screen == Screen::NFC_LOG) {
+    if (selection == 1) {
+      beginConfirm(Action::CLEAR_NFC_LOG,
+                   tr("Borrar el registro NFC", "Clear the NFC Log"));
     } else {
       setNotice(tr("Selección inválida.", "Invalid selection."), true);
     }
@@ -1332,9 +1399,9 @@ void handleScreenSelection(int selection) {
     const NfcTuiState nfc = getNfcTuiState();
     if (selection == 1) {
       const bool started = setNfcCaptureEnabled(true);
-      setNotice(started ? tr("Notas NFC activadas.", "NFC Notes enabled.")
-                        : tr("No se pudieron activar las Notas NFC.",
-                             "Could not enable NFC Notes."),
+      setNotice(started ? tr("Escaneo automático encendido.", "Auto-scan on.")
+                        : tr("No se pudo encender el escaneo automático.",
+                             "Could not turn on auto-scan."),
                 !started);
     } else if (selection == 2) {
       performAction(Action::NFC_WIFI);
