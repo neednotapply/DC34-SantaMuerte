@@ -1742,12 +1742,6 @@ void handleBadUSBPage() {
   serveLittleFsFile("/badusb.html", "text/html; charset=utf-8");
 }
 
-// `/usb` and `/scripting` deliberately share the small offline document. The
-// route is still distinct: the document reads the path before paint and shows
-// either the host-control workspace or the dedicated script-builder workspace.
-void handleScriptingPage() {
-  serveLittleFsFile("/usb.html", "text/html; charset=utf-8");
-}
 
 void handlePayloadsList() {
   addNoCacheHeaders();
@@ -2096,8 +2090,6 @@ void setupWebServer() {
   server.on("/ducky.html", HTTP_GET, handleDuckyscriptPage);
   server.on("/badusb", HTTP_GET, handleBadUSBPage);
   server.on("/badusb.html", HTTP_GET, handleBadUSBPage);
-  server.on("/scripting", HTTP_GET, handleScriptingPage);
-  server.on("/scripting.html", HTTP_GET, handleScriptingPage);
   server.on("/api/payloads/list", HTTP_GET, handlePayloadsList);
   server.on("/api/payloads/status", HTTP_GET, handlePayloadStatus);
   server.on("/api/payloads/get", HTTP_GET, handlePayloadGet);
