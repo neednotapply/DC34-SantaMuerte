@@ -13,6 +13,7 @@
 #include "nfc.h"
 #include "nfc_log.h"
 #include "usb_hid.h"
+#include "usb_badusb.h"
 #include "usb_network.h"
 #include "usb_drive.h"
 #include "usb_console.h"
@@ -47,11 +48,12 @@ enum class Screen : uint8_t {
   USB_PROFILE,
   USB_NETWORK,
   PAYLOADS,
+  BADUSB,
   LOGS,
   HELP
 };
 enum class Prompt : uint8_t { NONE, AP_SSID, AP_PASSWORD, HOME_SSID, HOME_PASSWORD, LED_HEX, LED_BRIGHTNESS, LED_SPEED, NFC_TEXT, NFC_URL, EMU_TEXT, EMU_URL, OFFERING };
-enum class Action : uint8_t { NONE, SWITCH_AP, SWITCH_HOME, SAVE_AP, TOGGLE_AP_HIDDEN, SAVE_HOME, NFC_WRITE_TEXT, NFC_WRITE_URL, EMU_TEXT, EMU_URL, NFC_WIFI, CLEAR_BOARD, CLEAR_NFC_LOG, REBOOT, POST_OFFERING, RUN_PAYLOAD, USB_POWER_OFF };
+enum class Action : uint8_t { NONE, SWITCH_AP, SWITCH_HOME, SAVE_AP, TOGGLE_AP_HIDDEN, SAVE_HOME, NFC_WRITE_TEXT, NFC_WRITE_URL, EMU_TEXT, EMU_URL, NFC_WIFI, CLEAR_BOARD, CLEAR_NFC_LOG, REBOOT, POST_OFFERING, RUN_PAYLOAD, RUN_BADUSB_PAYLOAD, USB_POWER_OFF };
 
 struct LogLine { char module[12]; char text[LOG_LINE_LENGTH]; uint32_t at; };
 LogLine logs[LOG_CAPACITY] = {};
@@ -115,7 +117,8 @@ const char *screenName(Screen value) {
     case Screen::USB_BUTTON_LONG: return tr("USB // MANTENER", "USB // LONG PRESS");
     case Screen::USB_PROFILE: return tr("USB // MODO", "USB // MODE");
     case Screen::USB_NETWORK: return tr("USB // RED WI-FI", "USB // WI-FI NETWORK");
-    case Screen::PAYLOADS: return tr("USB // SCRIPTS", "USB // SCRIPTS");
+    case Screen::PAYLOADS: return tr("USB // DUCKYSCRIPT", "USB // DUCKYSCRIPT");
+    case Screen::BADUSB: return tr("USB // BADUSB", "USB // BADUSB");
     case Screen::LOGS: return tr("DIAGNOSTICOS // LOGS", "DIAGNOSTICS // LOGS");
     case Screen::HELP: return tr("AYUDA // HELP", "HELP");
   }
@@ -906,10 +909,11 @@ void renderUsbTools() {
   tuiPrintf("%-9s %s\n\n", "SERIAL", tr("activo (CDC)", "available (CDC)"));
   tuiLine(tr("1 Control del host", "1 Host controls"));
   tuiLine(tr("2 Botón del badge", "2 Badge button"));
-  tuiLine(tr("3 Scripts", "3 Scripting"));
-  tuiLine(tr("4 Modo USB", "4 USB mode"));
+  tuiLine(tr("3 DuckyScript", "3 DuckyScript"));
+  tuiLine(tr("4 BadUSB", "4 BadUSB"));
+  tuiLine(tr("5 Modo USB", "5 USB mode"));
   if (getPersistentUsbDeviceProfile() == UsbDeviceProfile::NETWORK) {
-    tuiLine(tr("5 WiFi Tethering", "5 WiFi Tethering"));
+    tuiLine(tr("6 WiFi Tethering", "6 WiFi Tethering"));
   }
 }
 
@@ -922,8 +926,8 @@ void renderUsbProfile() {
   tuiLine(tr("1 WiFi Tethering: Serial + NCM", "1 WiFi Tethering: Serial + NCM"));
   tuiLine(tr("2 Unidad: Serial + HID + almacenamiento solo lectura", "2 Drive: Serial + HID + read-only storage"));
   if (profile == UsbDeviceProfile::DRIVE) {
-    tuiPrintf("%-9s %u %s // %u %s // %u tags\n", "UNIDAD", drive.noteCount,
-              tr("notas", "notes"), drive.scriptCount, tr("scripts", "scripts"),
+    tuiPrintf("%-9s %u %s // %u ducky // %u badusb // %u tags\n", "UNIDAD", drive.noteCount,
+              tr("notas", "notes"), drive.scriptCount, drive.badusbScriptCount,
               drive.tagCount);
     // Worth saying out loud: for the first seconds of a boot the interface is
     // up with nothing in it, and a host will show no drive until it is.
@@ -1020,6 +1024,32 @@ void renderPayloads() {
             "This TYPES into the attached computer. Use it only on your own."));
 }
 
+void renderBadUsb() {
+  tuiPrintf("%-9s %s\n", tr("ESTADO", "STATUS"), usbBadUSBStatusLine().c_str());
+  tuiPrintf("%-9s %s\n", "HOST", usbBadUSBHostSeen() ? tr("visto", "seen") : tr("sin señal", "no signal"));
+  const uint8_t leds = usbBadUSBHostLeds();
+  String locks;
+  if (leds & USB_BADUSB_LED_CAPSLOCK) locks += "CAPS ";
+  if (leds & USB_BADUSB_LED_NUMLOCK) locks += "NUM ";
+  if (leds & USB_BADUSB_LED_SCROLLLOCK) locks += "SCROLL ";
+  if (locks.isEmpty()) locks = tr("ninguno", "none");
+  tuiPrintf("%-9s %s\n\n", tr("CANDADOS", "LOCKS"), locks.c_str());
+
+  const uint8_t count = usbBadUSBPayloadCount();
+  if (count == 0) {
+    muted(tr("Sin scripts. Créales en el portal: http://10.69.4.20/badusb",
+             "No scripts. Author them in the portal: http://10.69.4.20/badusb"));
+  } else {
+    for (uint8_t i = 0; i < count && i < 16; ++i) {
+      tuiPrintf("%u %s\n", i + 1, usbBadUSBPayloadNameAt(i).c_str());
+    }
+  }
+  out.println();
+  muted(tr("17 detiene una carga en curso.", "17 stops a running payload."));
+  danger(tr("TECLEA en la computadora conectada. Úsalo solo en la tuya.",
+            "This TYPES into the attached computer. Use it only on your own."));
+}
+
 void render() {
   if (rawStream) return;
   clearTerminal();
@@ -1048,6 +1078,7 @@ void render() {
     case Screen::USB_NETWORK: renderUsbNetwork(); break;
     case Screen::USB_PROFILE: renderUsbProfile(); break;
     case Screen::PAYLOADS: renderPayloads(); break;
+    case Screen::BADUSB: renderBadUsb(); break;
     case Screen::LOGS: renderLogs(); break;
     case Screen::HELP: renderHelp(); break;
   }
@@ -1142,6 +1173,7 @@ void performAction(Action action) {
       ok = addBoardPost(stagedA, 0, nullptr, 0, error, USB_CONSOLE_AUTHOR_ID);
       break;
     case Action::RUN_PAYLOAD: ok = usbHidRunPayload(stagedA, error); break;
+    case Action::RUN_BADUSB_PAYLOAD: ok = usbBadUSBRunPayload(stagedA, error); break;
     case Action::USB_POWER_OFF:
       ok = usbHidRunControl(UsbControlAction::SYSTEM_POWER_OFF, error);
       break;
@@ -1273,6 +1305,17 @@ void handleScreenKey(char key) {
       if (index >= 0 && index < static_cast<int>(usbHidPayloadCount())) {
         stagedA = usbHidPayloadNameAt(static_cast<uint8_t>(index));
         performAction(Action::RUN_PAYLOAD);
+      }
+    }
+  } else if (screen == Screen::BADUSB) {
+    if (key == 's' || key == 'S') { usbBadUSBStop(); setNotice(tr("Detenido.", "Stopped.")); }
+    else {
+      int index = -1;
+      if (key >= '1' && key <= '9') index = key - '1';
+      else if (key >= 'a' && key <= 'g') index = 9 + (key - 'a');
+      if (index >= 0 && index < static_cast<int>(usbBadUSBPayloadCount())) {
+        stagedA = usbBadUSBPayloadNameAt(static_cast<uint8_t>(index));
+        performAction(Action::RUN_BADUSB_PAYLOAD);
       }
     }
   }
@@ -1476,8 +1519,9 @@ void handleScreenSelection(int selection) {
     if (selection == 1) screen = Screen::USB_CONTROLS;
     else if (selection == 2) screen = Screen::USB_BUTTON;
     else if (selection == 3) screen = Screen::PAYLOADS;
-    else if (selection == 4) screen = Screen::USB_PROFILE;
-    else if (selection == 5 && getPersistentUsbDeviceProfile() == UsbDeviceProfile::NETWORK) screen = Screen::USB_NETWORK;
+    else if (selection == 4) screen = Screen::BADUSB;
+    else if (selection == 5) screen = Screen::USB_PROFILE;
+    else if (selection == 6 && getPersistentUsbDeviceProfile() == UsbDeviceProfile::NETWORK) screen = Screen::USB_NETWORK;
     else {
       setNotice(tr("Selección inválida.", "Invalid selection."), true);
     }
@@ -1595,6 +1639,21 @@ void handleScreenSelection(int selection) {
     return;
   }
 
+  if (screen == Screen::BADUSB) {
+    if (selection == 17) {
+      usbBadUSBStop();
+      setNotice(tr("Detenido.", "Stopped."));
+    } else if (selection >= 1 &&
+               selection <= static_cast<int>(usbBadUSBPayloadCount())) {
+      stagedA = usbBadUSBPayloadNameAt(static_cast<uint8_t>(selection - 1));
+      performAction(Action::RUN_BADUSB_PAYLOAD);
+    } else {
+      setNotice(tr("Selección inválida.", "Invalid selection."), true);
+    }
+    needsRedraw = true;
+    return;
+  }
+
   if (screen == Screen::NETWORK && selection == 6) {
     revealPasswords();
   } else if (selection >= 1 && selection <= 9) {
@@ -1664,7 +1723,7 @@ void handleCommand(const String &value) {
     } else if (screen == Screen::USB_CONTROLS ||
                screen == Screen::USB_BUTTON || screen == Screen::USB_PROFILE ||
                screen == Screen::USB_NETWORK ||
-               screen == Screen::PAYLOADS) {
+               screen == Screen::PAYLOADS || screen == Screen::BADUSB) {
       screen = Screen::USB;
     } else {
       screen = Screen::DASHBOARD;

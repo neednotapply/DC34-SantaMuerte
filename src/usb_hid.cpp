@@ -203,6 +203,10 @@ void usbHidBegin() {
   usbHidBeginStorage();
   usbTuiLog("HID", "USB HID needs OTG mode; not available in this build");
 }
+void *usbHidKeyboardHandle() { return nullptr; }
+void *usbHidMouseHandle() { return nullptr; }
+void *usbHidConsumerControlHandle() { return nullptr; }
+void *usbHidSystemControlHandle() { return nullptr; }
 void usbHidService() {}
 bool usbHidBusy() { return false; }
 bool usbHidRunPayload(const String &, String &error) {
@@ -556,6 +560,14 @@ void usbHidConfigure(bool enabled) {
   consumer = new USBHIDConsumerControl();
   systemControl = new USBHIDSystemControl();
 }
+
+// usb_badusb.cpp's independent script interpreter drives these same objects
+// rather than constructing its own -- see the comment on the declarations in
+// usb_hid.h for why a second HID device is never registered.
+void *usbHidKeyboardHandle() { return keyboard; }
+void *usbHidMouseHandle() { return mouse; }
+void *usbHidConsumerControlHandle() { return consumer; }
+void *usbHidSystemControlHandle() { return systemControl; }
 
 void usbHidBegin() {
   usbHidBeginStorage();

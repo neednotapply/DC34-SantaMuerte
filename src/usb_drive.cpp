@@ -9,6 +9,7 @@
 #include "board.h"
 #include "nfc_log.h"
 #include "usb_hid.h"
+#include "usb_badusb.h"
 
 namespace {
 constexpr uint16_t SECTOR_BYTES = 512;
@@ -19,9 +20,10 @@ constexpr uint16_t ROOT_ENTRIES = 16;
 constexpr uint16_t ROOT_LBA = 1 + FAT_SECTORS;
 constexpr uint16_t DATA_LBA = ROOT_LBA + 1;
 constexpr uint16_t END_OF_CHAIN = 0x0FFF;
-// One entry per Field Note, per retained drawing, per saved script and per
-// logged tag, plus the readme and the three folders. The board rings are 512
-// notes and 76 drawings, the log ring is 128 tags, and scripts cap at 16.
+// One entry per Field Note, per retained drawing, per saved DuckyScript, per
+// saved BadUSB script and per logged tag, plus the readme and the four
+// folders. The board rings are 512 notes and 76 drawings, the log ring is
+// 128 tags, and each script format caps at 16.
 constexpr uint16_t MAX_FILES = 768;
 constexpr uint32_t READ_ACTIVITY_MS = 280;
 
@@ -30,14 +32,14 @@ constexpr char README[] =
     "This virtual disk is read-only; the badge remains the only writer.\r\n"
     "Each folder is one page of the portal:\r\n\r\n"
     "  Field Notes  /notes      one text file per note, with its JPEG\r\n"
-    "  Scripting    /ducky      one text file per saved DuckyScript\r\n"
+    "  DuckyScript  /ducky      one text file per saved DuckyScript\r\n"
+    "  BadUSB       /badusb     one text file per saved BadUSB script\r\n"
     "  NFC Log      /nfc-log    one text file per tag the reader met\r\n\r\n"
     "Open http://santamuerte.local to write notes and scripts; the log\r\n"
-    "fills itself whenever Auto-scan is on. BadUSB scripts live on the\r\n"
-    "portal's /badusb page and are not yet mirrored to this drive.\r\n";
+    "fills itself whenever Auto-scan is on.\r\n";
 
 enum class FileKind : uint8_t { README, DIRECTORY, NOTE, IMAGE, SCRIPT, TAG };
-enum class Directory : uint8_t { ROOT, NOTES, SCRIPTS, NFCLOG };
+enum class Directory : uint8_t { ROOT, NOTES, SCRIPTS, BADUSB, NFCLOG };
 struct DriveFile {
   char name[11];
   // The folders carry the page's own name. It does not fit 8.3, so each one is
@@ -153,12 +155,17 @@ bool loadImage(uint32_t postId) {
   return true;
 }
 void renderScript(DriveFile &file, Slice &slice) {
-  const String name = usbHidPayloadNameAt(static_cast<uint8_t>(file.sourceId));
+  const bool isBadUsb = file.parent == Directory::BADUSB;
+  const String name = isBadUsb ? usbBadUSBPayloadNameAt(static_cast<uint8_t>(file.sourceId))
+                                : usbHidPayloadNameAt(static_cast<uint8_t>(file.sourceId));
   String script;
-  if (name.isEmpty() || !usbHidReadPayload(name, script)) {
+  const bool found = !name.isEmpty() &&
+                      (isBadUsb ? usbBadUSBReadPayload(name, script) : usbHidReadPayload(name, script));
+  if (!found) {
     emit(slice, "This USB script is no longer retained by the badge.\r\n"); return;
   }
-  emit(slice, "SANTA MUERTE // USB SCRIPT // "); emit(slice, name);
+  emit(slice, isBadUsb ? "SANTA MUERTE // BADUSB SCRIPT // " : "SANTA MUERTE // DUCKYSCRIPT // ");
+  emit(slice, name);
   emit(slice, "\r\n\r\n"); emit(slice, script);
   if (!script.endsWith("\n")) emit(slice, "\r\n");
 }
@@ -230,9 +237,10 @@ void refreshFiles() {
   fileCount = 0; snapshotReady = false; cachedImageId = cachedImageLength = 0;
   DriveFile *readme = append(FileKind::README, Directory::ROOT, 0, "README  ", "TXT");
   DriveFile *notes = appendFolder(Directory::NOTES, "FIELDNTS", "Field Notes");
-  DriveFile *scripts = appendFolder(Directory::SCRIPTS, "SCRIPTNG", "Scripting");
+  DriveFile *scripts = appendFolder(Directory::SCRIPTS, "SCRIPTNG", "DuckyScript");
+  DriveFile *badusb = appendFolder(Directory::BADUSB, "BADUSB  ", "BadUSB");
   DriveFile *tags = appendFolder(Directory::NFCLOG, "NFCLOG  ", "NFC Log");
-  if (!readme || !notes || !scripts || !tags) return;
+  if (!readme || !notes || !scripts || !badusb || !tags) return;
   uint32_t cursor = 0; BoardPost post;
   while (readNextBoardPost(cursor, post)) {
     if (!appendNote(FileKind::NOTE, post.id)) break;
@@ -246,6 +254,11 @@ void refreshFiles() {
     char stem[9] = {};
     snprintf(stem, sizeof(stem), "SCRIPT%02u", static_cast<unsigned>(i + 1));
     if (!append(FileKind::SCRIPT, Directory::SCRIPTS, i, stem, "TXT")) break;
+  }
+  for (uint8_t i = 0; i < usbBadUSBPayloadCount(); ++i) {
+    char stem[9] = {};
+    snprintf(stem, sizeof(stem), "BADUSB%02u", static_cast<unsigned>(i + 1));
+    if (!append(FileKind::SCRIPT, Directory::BADUSB, i, stem, "TXT")) break;
   }
   uint32_t tagCursor = 0, tagIndex = 0; NfcLogEntry entry;
   while (nfcLogReadNext(tagCursor, entry)) {
@@ -262,6 +275,7 @@ void refreshFiles() {
   }
   notes->size = static_cast<uint32_t>(directoryEntries(Directory::NOTES)) * 32;
   scripts->size = static_cast<uint32_t>(directoryEntries(Directory::SCRIPTS)) * 32;
+  badusb->size = static_cast<uint32_t>(directoryEntries(Directory::BADUSB)) * 32;
   tags->size = static_cast<uint32_t>(directoryEntries(Directory::NFCLOG)) * 32;
   allocateClusters(); snapshotReady = true;
 }
@@ -448,9 +462,9 @@ void usbDriveRefresh() {
   if (!configured || !msc) return;
   msc->mediaPresent(snapshotReady);
   if (snapshotReady) {
-    Serial.printf("[USBMSC] Medium ready: %u files // %u notes // %u scripts // %u tags\r\n",
+    Serial.printf("[USBMSC] Medium ready: %u files // %u notes // %u ducky // %u badusb // %u tags\r\n",
                   fileCount, boardStoredCount(), usbHidPayloadCount(),
-                  nfcLogStoredCount());
+                  usbBadUSBPayloadCount(), nfcLogStoredCount());
   } else {
     Serial.println("[USBMSC] WARNING: snapshot unavailable; the drive stays empty");
   }
@@ -458,12 +472,12 @@ void usbDriveRefresh() {
 bool usbDriveReadActive() { return configured && static_cast<uint32_t>(millis() - lastReadAt) < READ_ACTIVITY_MS; }
 UsbDriveState getUsbDriveState() {
   return {configured, snapshotReady, boardStoredCount(), usbHidPayloadCount(),
-          nfcLogStoredCount()};
+          usbBadUSBPayloadCount(), nfcLogStoredCount()};
 }
 
 #else
 void usbDriveConfigure(bool) {}
 void usbDriveRefresh() {}
 bool usbDriveReadActive() { return false; }
-UsbDriveState getUsbDriveState() { return {false, false, 0, 0, 0}; }
+UsbDriveState getUsbDriveState() { return {false, false, 0, 0, 0, 0}; }
 #endif

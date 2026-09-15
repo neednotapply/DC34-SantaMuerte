@@ -688,7 +688,7 @@
       ? T('Elige Unidad Field Notes para montar la unidad de solo lectura.')
       : drive.media===false
         ? T('Armando la instantánea; la unidad aparece en unos segundos.')
-        : T('Solo lectura: ')+(drive.notes||0)+' '+T('notas')+' // '+(drive.scripts||0)+' '+T('scripts')+' // '+(drive.tags||0)+' tags';
+        : T('Solo lectura: ')+(drive.notes||0)+' '+T('notas')+' // '+(drive.scripts||0)+' DuckyScript // '+(drive.badusbScripts||0)+' BadUSB // '+(drive.tags||0)+' tags';
     $('#selectNetworkProfile').disabled=!isDrive;
     $('#selectDriveProfile').disabled=isDrive;
     $('#selectNetworkProfile').classList.toggle('active',!isDrive);

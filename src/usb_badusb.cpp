@@ -3,6 +3,7 @@
 #include <LittleFS.h>
 
 #include "usb_tui.h"
+#include "usb_hid.h"
 #include "ducky_map.h"
 #include "usb_console.h"
 
@@ -591,12 +592,6 @@ bool startRun(const String &newScript, const String &name, String &error) {
 
 void usbBadUSBConfigure(bool enabled) {
   badusb_configured = enabled;
-  if (!enabled) return;
-
-  keyboard = new USBHIDKeyboard();
-  mouse = new USBHIDMouse();
-  consumer = new USBHIDConsumerControl();
-  systemControl = new USBHIDSystemControl();
 }
 
 void usbBadUSBBegin() {
@@ -607,13 +602,25 @@ void usbBadUSBBegin() {
     return;
   }
 
-  keyboard->begin();
-  mouse->begin();
-  consumer->begin();
-  systemControl->begin();
+  // Drives usb_hid.cpp's composite keyboard/mouse/consumer/systemControl
+  // rather than constructing a second set -- see usb_hid.h's
+  // usbHidKeyboardHandle() comment. usbHidConfigure()+usbHidBegin() run
+  // before this in main.cpp's setup(), so the objects already exist and are
+  // already begun by the time these handles are fetched.
+  keyboard = static_cast<USBHIDKeyboard *>(usbHidKeyboardHandle());
+  mouse = static_cast<USBHIDMouse *>(usbHidMouseHandle());
+  consumer = static_cast<USBHIDConsumerControl *>(usbHidConsumerControlHandle());
+  systemControl = static_cast<USBHIDSystemControl *>(usbHidSystemControlHandle());
+  if (!keyboard || !mouse || !consumer || !systemControl) {
+    usbTuiLog("BadUSB", "shared HID objects unavailable");
+    return;
+  }
+  // A second listener on the same keyboard's LED event -- ESP-IDF's event
+  // loop calls every registered handler, so this and usb_hid.cpp's own
+  // onKeyboardLed both fire and each interpreter keeps its own hostLeds.
   keyboard->onEvent(ARDUINO_USB_HID_KEYBOARD_LED_EVENT, onKeyboardLed);
 
-  usbTuiLog("BadUSB", "CDC + keyboard/mouse/consumer prepared");
+  usbTuiLog("BadUSB", "sharing DuckyScript's keyboard/mouse/consumer");
 }
 
 void usbBadUSBService() {

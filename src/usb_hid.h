@@ -23,6 +23,22 @@ void usbHidConfigure(bool enabled);
 // path. Must be called from setup() before USB.begin().
 void usbHidBegin();
 
+// Opaque handles onto the same composite USBHIDKeyboard/Mouse/ConsumerControl/
+// SystemControl objects, typed void* so this header stays free of a
+// USBHIDKeyboard.h dependency. usb_badusb.cpp's independent BadUSB
+// interpreter static_casts these back and drives them directly instead of
+// constructing its own -- the ESP32 core's HID stack concatenates every
+// registered device's report descriptor into one interface keyed by report
+// ID (see USBHID.cpp), so a second USBHIDKeyboard would define the same
+// report ID twice and, worse, would never receive the host's LED (Caps/Num/
+// Scroll Lock) reports: those route to whichever registered device claimed
+// the report ID first, which would always be this one. Valid only once
+// usbHidConfigure(true) has run; nullptr before that and in the JTAG build.
+void *usbHidKeyboardHandle();
+void *usbHidMouseHandle();
+void *usbHidConsumerControlHandle();
+void *usbHidSystemControlHandle();
+
 // Advances a running payload one atomic step. Never blocks; call every loop().
 void usbHidService();
 

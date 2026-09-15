@@ -11,6 +11,7 @@ struct UsbDriveState {
   bool mediaPresent;
   uint16_t noteCount;
   uint8_t scriptCount;
+  uint8_t badusbScriptCount;
   uint16_t tagCount;
 };
 

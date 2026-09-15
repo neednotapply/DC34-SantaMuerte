@@ -1659,6 +1659,8 @@ void appendUsbProfileStatus(String &json) {
   json += String(drive.noteCount);
   json += F(",\"scripts\":");
   json += String(drive.scriptCount);
+  json += F(",\"badusbScripts\":");
+  json += String(drive.badusbScriptCount);
   json += F(",\"tags\":");
   json += String(drive.tagCount);
   json += F("}");
