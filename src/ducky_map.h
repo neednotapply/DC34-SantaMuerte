@@ -32,6 +32,8 @@ constexpr uint8_t K_RIGHT = 0xD7;
 constexpr uint8_t K_LEFT = 0xD8;
 constexpr uint8_t K_DOWN = 0xD9;
 constexpr uint8_t K_UP = 0xDA;
+constexpr uint8_t K_PRINT_SCREEN = 0xCE;
+constexpr uint8_t K_MENU = 0xED;
 
 // Consumer-control usage codes (mirror of Arduino CONSUMER_CONTROL_*).
 constexpr uint16_t C_PLAY_PAUSE = 0x00CD;
@@ -87,6 +89,8 @@ inline bool keyFor(const String &token, uint8_t &code) {
   if (u == "LEFT" || u == "LEFTARROW") { code = K_LEFT; return true; }
   if (u == "RIGHT" || u == "RIGHTARROW") { code = K_RIGHT; return true; }
   if (u == "CAPSLOCK") { code = K_CAPS_LOCK; return true; }
+  if (u == "PRINTSCREEN" || u == "PRTSC" || u == "PRTSCR") { code = K_PRINT_SCREEN; return true; }
+  if (u == "MENU" || u == "APP" || u == "APPLICATION") { code = K_MENU; return true; }
   if (u.length() >= 2 && u[0] == 'F') {
     const int n = u.substring(1).toInt();
     if (n >= 1 && n <= 12) {

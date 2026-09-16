@@ -319,6 +319,8 @@ static_assert(ducky::K_INSERT == KEY_INSERT && ducky::K_HOME == KEY_HOME &&
 static_assert(ducky::K_RIGHT == KEY_RIGHT_ARROW && ducky::K_LEFT == KEY_LEFT_ARROW &&
                   ducky::K_DOWN == KEY_DOWN_ARROW && ducky::K_UP == KEY_UP_ARROW,
               "arrow key codes drifted from USBHIDKeyboard");
+static_assert(ducky::K_PRINT_SCREEN == KEY_PRINT_SCREEN && ducky::K_MENU == KEY_MENU,
+              "print screen / menu key codes drifted from USBHIDKeyboard");
 static_assert(ducky::C_PLAY_PAUSE == CONSUMER_CONTROL_PLAY_PAUSE &&
                   ducky::C_NEXT == CONSUMER_CONTROL_SCAN_NEXT &&
                   ducky::C_PREV == CONSUMER_CONTROL_SCAN_PREVIOUS &&

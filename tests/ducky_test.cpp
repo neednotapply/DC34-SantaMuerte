@@ -70,6 +70,10 @@ void testNamedKeys() {
   check(key("LEFT") == ducky::K_LEFT, "LEFT");
   check(key("RIGHT") == ducky::K_RIGHT, "RIGHT");
   check(key("CAPSLOCK") == ducky::K_CAPS_LOCK, "CAPSLOCK");
+  check(key("PRINTSCREEN") == ducky::K_PRINT_SCREEN, "PRINTSCREEN");
+  check(key("PRTSC") == ducky::K_PRINT_SCREEN, "PRTSC alias");
+  check(key("MENU") == ducky::K_MENU, "MENU");
+  check(key("APP") == ducky::K_MENU, "APP alias");
 }
 
 void testCaseInsensitive() {

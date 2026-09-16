@@ -12,7 +12,7 @@
   <title>Santa Muerte // DuckyScript</title>
   <link rel="stylesheet" href="theme.css?v=30">
   <link rel="icon" type="image/png" href="assets/logo-candle.png">
-  <script src="locale.js?v=26"></script>
+  <script src="locale.js?v=27"></script>
   <script>document.documentElement.classList.toggle('scripting-page', /^\/ducky(?:\.html)?$/.test(location.pathname));</script>
   <style>
     :root{
@@ -202,6 +202,9 @@
     .system-actions[open] summary{margin-bottom:10px;color:var(--text)}
     .system-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
     .remote-btn.danger{color:#edbbb4;border-color:rgba(184,90,77,.55)}
+    .shortcut-category{width:100%;min-height:42px;padding:0 12px;border:1px solid var(--line);border-radius:9px;background:var(--panel2);color:var(--text);font:700 .74rem var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace)}
+    .shortcut-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:13px}
+    @media(max-width:600px){.shortcut-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
     .button-status{display:flex;align-items:flex-start;gap:9px;margin:0 0 15px;padding:10px 0;border-bottom:1px solid var(--line);color:var(--muted);font-size:.69rem;line-height:1.45}
     .button-status b{display:block;color:var(--text);font:700 .68rem var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);letter-spacing:.08em;text-transform:uppercase}
     .button-bindings{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -317,6 +320,13 @@
               <button class="remote-btn danger" type="button" data-usb-action="power-off">Apagar equipo</button>
             </div>
           </details>
+        </section>
+
+        <section class="card pad wide-card usb-tools-only" aria-label="Atajos de teclado">
+          <div class="card-head"><div><div class="eyebrow">Atajos</div><h2>Atajos de teclado</h2></div></div>
+          <p class="control-copy">Envía una combinación de teclas al equipo conectado con un toque. Elige la categoría según el sistema o la app que estés usando.</p>
+          <select id="shortcutCategory" class="shortcut-category" aria-label="Categoría de atajos"></select>
+          <div id="shortcutGrid" class="shortcut-grid" aria-label="Atajos disponibles"></div>
         </section>
 
         <section class="card pad">
@@ -734,6 +744,143 @@
       applyControls(state); $('#buttonNote').textContent='';
     }).catch(error=>{ $('#buttonNote').textContent=T(error.message||'No cargaron los controles USB.'); });
   }
+  const SHORTCUT_CATEGORIES=[
+    {cat:'Teclas básicas', items:[
+      {label:'Enter', script:'ENTER'},
+      {label:'Tab', script:'TAB'},
+      {label:'Esc', script:'ESC'},
+      {label:'Retroceso', script:'BACKSPACE'},
+      {label:'Suprimir', script:'DELETE'},
+      {label:'Espacio', script:'SPACE'},
+      {label:'Tecla de menú', script:'MENU'},
+    ]},
+    {cat:'Navegación', items:[
+      {label:'Arriba', script:'UP'},
+      {label:'Abajo', script:'DOWN'},
+      {label:'Izquierda', script:'LEFT'},
+      {label:'Derecha', script:'RIGHT'},
+      {label:'Inicio', script:'HOME'},
+      {label:'Fin', script:'END'},
+      {label:'Re Pág', script:'PAGEUP'},
+      {label:'Av Pág', script:'PAGEDOWN'},
+    ]},
+    {cat:'Edición', items:[
+      {label:'Copiar (Ctrl+C)', script:'CTRL c'},
+      {label:'Pegar (Ctrl+V)', script:'CTRL v'},
+      {label:'Cortar (Ctrl+X)', script:'CTRL x'},
+      {label:'Deshacer (Ctrl+Z)', script:'CTRL z'},
+      {label:'Rehacer (Ctrl+Y)', script:'CTRL y'},
+      {label:'Seleccionar todo (Ctrl+A)', script:'CTRL a'},
+      {label:'Buscar (Ctrl+F)', script:'CTRL f'},
+      {label:'Nuevo (Ctrl+N)', script:'CTRL n'},
+      {label:'Abrir (Ctrl+O)', script:'CTRL o'},
+      {label:'Guardar (Ctrl+S)', script:'CTRL s'},
+      {label:'Imprimir (Ctrl+P)', script:'CTRL p'},
+      {label:'Pegar sin formato (Ctrl+Shift+V)', script:'CTRL SHIFT v'},
+    ]},
+    {cat:'Windows', items:[
+      {label:'Ejecutar (Win+R)', script:'GUI r'},
+      {label:'Explorador (Win+E)', script:'GUI e'},
+      {label:'Mostrar escritorio (Win+D)', script:'GUI d'},
+      {label:'Bloquear (Win+L)', script:'GUI l'},
+      {label:'Buscar (Win+S)', script:'GUI s'},
+      {label:'Configuración (Win+I)', script:'GUI i'},
+      {label:'Menú avanzado (Win+X)', script:'GUI x'},
+      {label:'Portapapeles (Win+V)', script:'GUI v'},
+      {label:'Panel de emojis (Win+.)', script:'GUI .'},
+      {label:'Proyectar pantalla (Win+P)', script:'GUI p'},
+      {label:'Cambiar tarea (Alt+Tab)', script:'ALT TAB'},
+      {label:'Vista de tareas (Win+Tab)', script:'GUI TAB'},
+      {label:'Administrador de tareas (Ctrl+Shift+Esc)', script:'CTRL SHIFT ESC'},
+      {label:'Cerrar app (Alt+F4)', script:'ALT F4'},
+      {label:'Ctrl+Alt+Supr', script:'CTRL ALT DELETE'},
+      {label:'Recorte (Win+Shift+S)', script:'GUI SHIFT s'},
+      {label:'Imprimir pantalla', script:'PRINTSCREEN'},
+      {label:'Captura de ventana (Alt+ImpPant)', script:'ALT PRINTSCREEN'},
+      {label:'Reiniciar gráficos (Win+Ctrl+Shift+B)', script:'GUI CTRL SHIFT b'},
+    ]},
+    {cat:'Linux', items:[
+      {label:'Terminal (Ctrl+Alt+T)', script:'CTRL ALT t'},
+      {label:'Bloquear (Ctrl+Alt+L)', script:'CTRL ALT l'},
+    ]},
+    {cat:'Mac', items:[
+      {label:'Spotlight (Cmd+Espacio)', script:'GUI SPACE'},
+      {label:'Cambiar app (Cmd+Tab)', script:'GUI TAB'},
+      {label:'Forzar cierre (Cmd+Opt+Esc)', script:'GUI ALT ESC'},
+      {label:'Ocultar app (Cmd+H)', script:'GUI h'},
+      {label:'Cerrar app (Cmd+Q)', script:'GUI q'},
+    ]},
+    {cat:'Navegador', items:[
+      {label:'Barra de direcciones (Ctrl+L)', script:'CTRL l'},
+      {label:'Nueva pestaña (Ctrl+T)', script:'CTRL t'},
+      {label:'Cerrar pestaña (Ctrl+W)', script:'CTRL w'},
+      {label:'Reabrir pestaña (Ctrl+Shift+T)', script:'CTRL SHIFT t'},
+      {label:'Ventana privada (Ctrl+Shift+N)', script:'CTRL SHIFT n'},
+      {label:'Recargar (Ctrl+R)', script:'CTRL r'},
+      {label:'Pantalla completa (F11)', script:'F11'},
+      {label:'Atrás (Alt+Izquierda)', script:'ALT LEFT'},
+      {label:'Adelante (Alt+Derecha)', script:'ALT RIGHT'},
+      {label:'Pestaña siguiente (Ctrl+Tab)', script:'CTRL TAB'},
+      {label:'Pestaña anterior (Ctrl+Shift+Tab)', script:'CTRL SHIFT TAB'},
+      {label:'Acercar (Ctrl+=)', script:'CTRL ='},
+      {label:'Alejar (Ctrl+-)', script:'CTRL -'},
+      {label:'Restablecer zoom (Ctrl+0)', script:'CTRL 0'},
+      {label:'Herramientas de desarrollo (Ctrl+Shift+I)', script:'CTRL SHIFT i'},
+    ]},
+    {cat:'Medios / YouTube', items:[
+      {label:'Reproducir/Pausar (Espacio)', script:'SPACE'},
+      {label:'YouTube Reproducir/Pausar (K)', script:'k'},
+      {label:'YouTube Silenciar (M)', script:'m'},
+      {label:'YouTube Pantalla completa (F)', script:'f'},
+      {label:'YouTube Subtítulos (C)', script:'c'},
+      {label:'YouTube Subir volumen (Arriba)', script:'UP'},
+      {label:'YouTube Bajar volumen (Abajo)', script:'DOWN'},
+      {label:'YouTube Retroceder 10s (J)', script:'j'},
+      {label:'YouTube Avanzar 10s (L)', script:'l'},
+      {label:'YouTube Anterior (Shift+P)', script:'SHIFT p'},
+      {label:'YouTube Siguiente (Shift+N)', script:'SHIFT n'},
+    ]},
+    {cat:'Presentación', items:[
+      {label:'Iniciar (F5)', script:'F5'},
+      {label:'Diapositiva actual (Shift+F5)', script:'SHIFT F5'},
+      {label:'Siguiente', script:'RIGHT'},
+      {label:'Anterior', script:'LEFT'},
+      {label:'Pantalla negra (B)', script:'b'},
+    ]},
+    {cat:'Teclas de función', items:[
+      {label:'F1 Ayuda', script:'F1'},
+      {label:'F2 Renombrar', script:'F2'},
+      {label:'F5 Recargar', script:'F5'},
+      {label:'F12 Herramientas de desarrollo', script:'F12'},
+    ]},
+  ];
+  let shortcutCategoryIndex=0;
+  function renderShortcutCategories(){
+    const sel=$('#shortcutCategory'); if(!sel) return;
+    sel.innerHTML='';
+    SHORTCUT_CATEGORIES.forEach((c,i)=>{ const opt=document.createElement('option'); opt.value=i; opt.textContent=T(c.cat); sel.appendChild(opt); });
+    sel.value=shortcutCategoryIndex;
+  }
+  function renderShortcutGrid(){
+    const grid=$('#shortcutGrid'); if(!grid) return;
+    grid.innerHTML='';
+    const category=SHORTCUT_CATEGORIES[shortcutCategoryIndex]; if(!category) return;
+    category.items.forEach(item=>{
+      const btn=document.createElement('button'); btn.type='button'; btn.className='remote-btn shortcut-btn';
+      btn.textContent=T(item.label); btn.addEventListener('click',()=>runShortcut(item.script));
+      grid.appendChild(btn);
+    });
+  }
+  function runShortcut(script){
+    document.querySelectorAll('.shortcut-btn').forEach(button=>button.disabled=true);
+    post('/api/payloads/run',{script}).then(({ok,j})=>{
+      if(!ok||!(j&&j.ok)){ toast((j&&j.error)||'No se pudo enviar el atajo.'); return; }
+      toast('Atajo enviado');
+    }).catch(()=>toast('No se pudo enviar el atajo.')).finally(()=>{
+      document.querySelectorAll('.shortcut-btn').forEach(button=>button.disabled=false);
+    });
+  }
+
   function runControl(action){
     if(action==='power-off'&&!window.confirm(T('¿Seguro que quieres apagar el equipo conectado?'))) return;
     const body={action}; if(action==='power-off') body.confirm='power-off';
@@ -878,9 +1025,11 @@
 
   window.addEventListener('focus',refreshList);
   document.addEventListener('visibilitychange',()=>{ if(!document.hidden) refreshList(); });
-  document.addEventListener('portal-locale-change',()=>{ renderPalette(); renderStack(); renderButtonOptions(); updateOut(); pollStatus(); });
+  document.addEventListener('portal-locale-change',()=>{ renderPalette(); renderStack(); renderButtonOptions(); updateOut(); pollStatus(); renderShortcutCategories(); renderShortcutGrid(); });
 
   renderPalette(); renderStack(); renderButtonOptions(); updateOut(); loadControls(); loadIdentity();
+  renderShortcutCategories(); renderShortcutGrid();
+  const shortcutCategorySel=$('#shortcutCategory'); if(shortcutCategorySel) shortcutCategorySel.addEventListener('change',()=>{ shortcutCategoryIndex=parseInt(shortcutCategorySel.value,10)||0; renderShortcutGrid(); });
   setConn('checking'); refreshList(); setInterval(pollStatus,3000);
 })();
 </script>
