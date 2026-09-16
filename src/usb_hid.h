@@ -14,10 +14,16 @@
 // author and store payloads but can never fire one -- keystroke injection stays
 // a local, physical-admin act, the same trust boundary the console already has.
 
-// Chooses whether this boot reserves a HID interface. It must run before
-// USB.begin(): the Wi-Fi adapter profile intentionally leaves HID out so the
-// S3 has endpoints available for CDC serial + NCM.
-void usbHidConfigure(bool enabled);
+// Which of the composite HID bundle's devices this boot registers. A reduced
+// set is a deliberate fingerprint reduction (a plain keyboard has no mouse or
+// consumer-control interface either) and mirrors StoredUsbIdentitySettings::
+// hidReportSet in badge_settings.h. FULL is the badge's long-standing default.
+enum class UsbHidReportSet : uint8_t { FULL = 0, KEYBOARD_ONLY = 1 };
+
+// Chooses whether this boot reserves a HID interface, and how much of it.
+// Must run before USB.begin(): the Wi-Fi adapter profile intentionally leaves
+// HID out so the S3 has endpoints available for CDC serial + NCM.
+void usbHidConfigure(bool enabled, UsbHidReportSet reportSet = UsbHidReportSet::FULL);
 
 // Registers the keyboard/mouse/consumer devices and wires up their report
 // path. Must be called from setup() before USB.begin().

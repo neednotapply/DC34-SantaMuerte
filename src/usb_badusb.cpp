@@ -323,10 +323,12 @@ void pressChord(const String &line) {
   }
 }
 
-void tapConsumer(uint16_t code) {
+bool tapConsumer(uint16_t code) {
+  if (!consumer) return false;
   consumer->press(code);
   delay(6);
   consumer->release();
+  return true;
 }
 
 // Types one character via its Windows numpad Alt code: holds Alt, taps each
@@ -348,8 +350,8 @@ void sendAltCode(uint32_t code) {
 
 void finish(const char *why) {
   keyboard->releaseAll();
-  mouse->release(MOUSE_ALL);
-  consumer->release();
+  if (mouse) mouse->release(MOUSE_ALL);
+  if (consumer) consumer->release();
   heldModifiers = 0;
   heldKeyCount = 0;
   runState = RunState::IDLE;
@@ -542,6 +544,7 @@ void executeNextLine() {
   }
 
   if (cmd == "MOUSEMOVE") {
+    if (!mouse) { finish("no mouse (keyboard-only USB identity)"); return; }
     String t[3];
     uint8_t n = 0;
     size_t i = 0;
@@ -561,6 +564,7 @@ void executeNextLine() {
   }
 
   if (cmd == "MOUSESCROLL") {
+    if (!mouse) { finish("no mouse (keyboard-only USB identity)"); return; }
     mouse->move(0, 0, ducky::clampInt8(rest.toInt()), 0);
     prevLine = line;
     schedule(defaultDelayMs);
@@ -568,6 +572,7 @@ void executeNextLine() {
   }
 
   if (cmd == "MOUSECLICK") {
+    if (!mouse) { finish("no mouse (keyboard-only USB identity)"); return; }
     String b = rest;
     b.toUpperCase();
     const uint8_t button = b.startsWith("RIGHT")    ? MOUSE_RIGHT
@@ -582,7 +587,7 @@ void executeNextLine() {
   if (cmd == "MEDIA") {
     const uint16_t cons = ducky::consumerFor(rest);
     if (cons) {
-      tapConsumer(cons);
+      if (!tapConsumer(cons)) { finish("no consumer control (keyboard-only USB identity)"); return; }
       prevLine = line;
       schedule(defaultDelayMs);
       return;
@@ -650,8 +655,12 @@ void usbBadUSBBegin() {
   mouse = static_cast<USBHIDMouse *>(usbHidMouseHandle());
   consumer = static_cast<USBHIDConsumerControl *>(usbHidConsumerControlHandle());
   systemControl = static_cast<USBHIDSystemControl *>(usbHidSystemControlHandle());
-  if (!keyboard || !mouse || !consumer || !systemControl) {
-    usbTuiLog("BadUSB", "shared HID objects unavailable");
+  // Keyboard is the only one every USB identity guarantees -- a keyboard-only
+  // report set leaves mouse/consumer/systemControl null, and the commands
+  // that need them fail individually at the point of use instead of BadUSB
+  // refusing to start at all.
+  if (!keyboard) {
+    usbTuiLog("BadUSB", "shared HID keyboard unavailable");
     return;
   }
   // A second listener on the same keyboard's LED event -- ESP-IDF's event
@@ -659,7 +668,8 @@ void usbBadUSBBegin() {
   // onKeyboardLed both fire and each interpreter keeps its own hostLeds.
   keyboard->onEvent(ARDUINO_USB_HID_KEYBOARD_LED_EVENT, onKeyboardLed);
 
-  usbTuiLog("BadUSB", "sharing DuckyScript's keyboard/mouse/consumer");
+  usbTuiLog("BadUSB", mouse ? "sharing DuckyScript's keyboard/mouse/consumer"
+                            : "sharing DuckyScript's keyboard (keyboard-only USB identity)");
 }
 
 void usbBadUSBService() {

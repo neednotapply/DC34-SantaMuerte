@@ -1967,6 +1967,88 @@ void handleUsbProfileSet() {
   ESP.restart();
 }
 
+// VID/PID are written and read as bare hex (an optional leading "0x" is
+// tolerated), matching how every USB database and lsusb itself prints them.
+uint16_t parseHexUint16(const String &value) {
+  String trimmed = value;
+  trimmed.trim();
+  if (trimmed.startsWith("0x") || trimmed.startsWith("0X")) trimmed.remove(0, 2);
+  return static_cast<uint16_t>(strtoul(trimmed.c_str(), nullptr, 16));
+}
+
+String hexUint16(uint16_t value) {
+  char buffer[5];
+  snprintf(buffer, sizeof(buffer), "%04x", value);
+  return String(buffer);
+}
+
+String usbIdentityJson(bool ok, const String &error) {
+  StoredUsbIdentitySettings identity = {};
+  loadUsbIdentitySettings(identity);
+  String json;
+  json.reserve(320);
+  json += "{\"ok\":";
+  json += ok ? "true" : "false";
+  json += ",\"error\":\"";
+  json += jsonEscape(error);
+  json += "\",\"enabled\":";
+  json += identity.enabled ? "true" : "false";
+  json += ",\"vid\":\"";
+  json += hexUint16(identity.vid);
+  json += "\",\"pid\":\"";
+  json += hexUint16(identity.pid);
+  json += "\",\"manufacturer\":\"";
+  json += jsonEscape(identity.manufacturer);
+  json += "\",\"product\":\"";
+  json += jsonEscape(identity.product);
+  json += "\",\"serial\":\"";
+  json += jsonEscape(identity.serial);
+  json += "\",\"hidReportSet\":\"";
+  json += identity.hidReportSet == static_cast<uint8_t>(UsbHidReportSet::KEYBOARD_ONLY)
+              ? "keyboard"
+              : "full";
+  json += "\",\"defaultManufacturer\":\"";
+  json += jsonEscape(F(USB_MANUFACTURER));
+  json += "\",\"defaultProduct\":\"";
+  json += jsonEscape(F(USB_PRODUCT));
+  json += "\"}";
+  return json;
+}
+
+void handleUsbIdentityGet() {
+  addNoCacheHeaders();
+  server.send(200, "application/json", usbIdentityJson(true, String()));
+}
+
+// Saving here always reboots on success: a new identity only takes effect at
+// the next USB.begin(), the same as switching USB profile already requires.
+void handleUsbIdentitySet() {
+  addNoCacheHeaders();
+  StoredUsbIdentitySettings identity = {};
+  identity.enabled = server.hasArg("enabled") && server.arg("enabled") == "true";
+  identity.vid = parseHexUint16(server.hasArg("vid") ? server.arg("vid") : String());
+  identity.pid = parseHexUint16(server.hasArg("pid") ? server.arg("pid") : String());
+  identity.hidReportSet =
+      server.hasArg("hidReportSet") && server.arg("hidReportSet") == "keyboard"
+          ? static_cast<uint8_t>(UsbHidReportSet::KEYBOARD_ONLY)
+          : static_cast<uint8_t>(UsbHidReportSet::FULL);
+  const String manufacturer = server.hasArg("manufacturer") ? server.arg("manufacturer") : String();
+  const String product = server.hasArg("product") ? server.arg("product") : String();
+  const String serial = server.hasArg("serial") ? server.arg("serial") : String();
+  strncpy(identity.manufacturer, manufacturer.c_str(), sizeof(identity.manufacturer) - 1);
+  strncpy(identity.product, product.c_str(), sizeof(identity.product) - 1);
+  strncpy(identity.serial, serial.c_str(), sizeof(identity.serial) - 1);
+
+  String error;
+  if (!saveUsbIdentitySettings(identity, error)) {
+    server.send(400, "application/json", usbIdentityJson(false, error));
+    return;
+  }
+  server.send(200, "application/json", usbIdentityJson(true, String()));
+  delay(150);
+  ESP.restart();
+}
+
 // The Terminal page mirrors the USB console byte for byte, so this transport
 // only ever carries bytes: what the console has printed since the page last
 // asked, and whatever has been typed into the page. Base64 is what makes that
@@ -2107,6 +2189,8 @@ void setupWebServer() {
   server.on("/api/usb/control", HTTP_POST, handleUsbControlRun);
   server.on("/api/usb/button", HTTP_POST, handleUsbButtonSet);
   server.on("/api/usb/profile", HTTP_POST, handleUsbProfileSet);
+  server.on("/api/usb/identity", HTTP_GET, handleUsbIdentityGet);
+  server.on("/api/usb/identity", HTTP_POST, handleUsbIdentitySet);
 
   server.on("/api/nfc/state", HTTP_GET, handleNfcState);
   server.on("/api/nfc/read", HTTP_POST, handleNfcRead);

@@ -129,3 +129,33 @@ bool saveUsbButtonSettings(const StoredUsbButtonSettings &settings);
 enum class UsbDeviceProfile : uint8_t { NETWORK = 0, DRIVE = 1 };
 UsbDeviceProfile getPersistentUsbDeviceProfile();
 bool setPersistentUsbDeviceProfile(UsbDeviceProfile profile, String &error);
+
+// Optional USB identity override, applied in place of the badge's own VID/
+// PID/manufacturer/product/serial (see USB_PRODUCT/USB_MANUFACTURER in
+// platformio.ini) and of how much of the composite HID bundle a boot
+// registers. Confirmed on hardware that USB.VID()/PID()/productName()/
+// manufacturerName()/serialNumber() all take effect when called from setup()
+// before USB.begin(), the same way the per-profile PID already does -- so
+// enabling this needs a reboot (which changing it already triggers) but never
+// a reflash. hidReportSet mirrors UsbHidReportSet in usb_hid.h; kept as a
+// byte here to avoid a dependency from persistent settings onto the USB
+// subsystem, the same reasoning StoredUsbButtonSettings above already uses.
+// When disabled, the badge's own defaults apply and every other field here is
+// ignored.
+struct StoredUsbIdentitySettings {
+  bool enabled;
+  uint16_t vid;
+  uint16_t pid;
+  char manufacturer[32];
+  char product[32];
+  char serial[32];
+  uint8_t hidReportSet;
+};
+
+bool loadUsbIdentitySettings(StoredUsbIdentitySettings &settings);
+
+// Validates before storing: vid/pid must be nonzero, and
+// manufacturer/product/serial must each be 0-31 printable ASCII bytes (a
+// serial may be empty -- many real devices omit one). Rejects and leaves the
+// previous settings in place on any failure.
+bool saveUsbIdentitySettings(const StoredUsbIdentitySettings &settings, String &error);

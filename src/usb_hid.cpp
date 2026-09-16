@@ -198,7 +198,7 @@ bool usbHidDeletePayload(const String &name, String &error) {
 // ===========================================================================
 #if ARDUINO_USB_MODE  // 1 == Hardware CDC + JTAG: no HID peripheral available.
 
-void usbHidConfigure(bool) {}
+void usbHidConfigure(bool, UsbHidReportSet) {}
 void usbHidBegin() {
   usbHidBeginStorage();
   usbTuiLog("HID", "USB HID needs OTG mode; not available in this build");
@@ -369,13 +369,16 @@ void pressChord(const String &line) {
   }
 }
 
-void tapConsumer(uint16_t code) {
+bool tapConsumer(uint16_t code) {
+  if (!consumer) return false;
   consumer->press(code);
   delay(6);
   consumer->release();
+  return true;
 }
 
 bool tapSystem(uint8_t code) {
+  if (!systemControl) return false;
   if (systemControl->press(code) == 0) return false;
   delay(6);
   return systemControl->release() != 0;
@@ -383,8 +386,8 @@ bool tapSystem(uint8_t code) {
 
 void finish(const char *why) {
   keyboard->releaseAll();
-  mouse->release(MOUSE_ALL);
-  consumer->release();
+  if (mouse) mouse->release(MOUSE_ALL);
+  if (consumer) consumer->release();
   runState = RunState::IDLE;
   typing = false;
   repeatLeft = 0;
@@ -478,6 +481,7 @@ void executeNextLine() {
     return;
   }
   if (cmd == "MOUSEMOVE") {
+    if (!mouse) { finish("no mouse (keyboard-only USB identity)"); return; }
     String t[3];
     const uint8_t n = tokenize(rest, t, 3);
     const int8_t dx = ducky::clampInt8(n > 0 ? t[0].toInt() : 0);
@@ -488,12 +492,14 @@ void executeNextLine() {
     return;
   }
   if (cmd == "MOUSESCROLL") {
+    if (!mouse) { finish("no mouse (keyboard-only USB identity)"); return; }
     mouse->move(0, 0, ducky::clampInt8(rest.toInt()), 0);
     prevLine = line;
     schedule(defaultDelayMs);
     return;
   }
   if (cmd == "MOUSECLICK") {
+    if (!mouse) { finish("no mouse (keyboard-only USB identity)"); return; }
     String b = rest;
     b.toUpperCase();
     const uint8_t button = b.startsWith("RIGHT")    ? MOUSE_RIGHT
@@ -504,9 +510,9 @@ void executeNextLine() {
     schedule(defaultDelayMs);
     return;
   }
-  const uint16_t consumer = ducky::consumerFor(cmd);
-  if (consumer && rest.isEmpty()) {
-    tapConsumer(consumer);
+  const uint16_t consumerUsage = ducky::consumerFor(cmd);
+  if (consumerUsage && rest.isEmpty()) {
+    if (!tapConsumer(consumerUsage)) { finish("no consumer control (keyboard-only USB identity)"); return; }
     prevLine = line;
     schedule(defaultDelayMs);
     return;
@@ -549,16 +555,21 @@ bool startRun(const String &newScript, const String &name, String &error) {
 
 }  // namespace
 
-void usbHidConfigure(bool enabled) {
+void usbHidConfigure(bool enabled, UsbHidReportSet reportSet) {
   hidConfigured = enabled;
   if (!enabled) return;
 
   // USB has not started yet. These constructors reserve their report types so
   // the subsequent USB.begin() emits the Drive profile's HID interface.
+  // KEYBOARD_ONLY skips the rest: a smaller composite descriptor, and a host
+  // sees a device with no mouse or consumer-control usage at all -- the same
+  // fingerprint-reduction reasoning as a custom USB identity.
   keyboard = new USBHIDKeyboard();
-  mouse = new USBHIDMouse();
-  consumer = new USBHIDConsumerControl();
-  systemControl = new USBHIDSystemControl();
+  if (reportSet == UsbHidReportSet::FULL) {
+    mouse = new USBHIDMouse();
+    consumer = new USBHIDConsumerControl();
+    systemControl = new USBHIDSystemControl();
+  }
 }
 
 // usb_badusb.cpp's independent script interpreter drives these same objects
@@ -578,12 +589,13 @@ void usbHidBegin() {
   }
 
   keyboard->begin();
-  mouse->begin();
-  consumer->begin();
-  systemControl->begin();
+  if (mouse) mouse->begin();
+  if (consumer) consumer->begin();
+  if (systemControl) systemControl->begin();
   keyboard->onEvent(ARDUINO_USB_HID_KEYBOARD_LED_EVENT, onKeyboardLed);
 
-  usbTuiLog("HID", "CDC + keyboard/mouse/consumer prepared");
+  usbTuiLog("HID", mouse ? "CDC + keyboard/mouse/consumer prepared"
+                         : "CDC + keyboard prepared (keyboard-only USB identity)");
 }
 
 void usbHidService() {
@@ -673,17 +685,17 @@ bool usbHidRunControl(UsbControlAction action, String &error) {
   bool sent = false;
   switch (action) {
     case UsbControlAction::PLAY_PAUSE:
-      tapConsumer(CONSUMER_CONTROL_PLAY_PAUSE); sent = true; break;
+      sent = tapConsumer(CONSUMER_CONTROL_PLAY_PAUSE); break;
     case UsbControlAction::MUTE:
-      tapConsumer(CONSUMER_CONTROL_MUTE); sent = true; break;
+      sent = tapConsumer(CONSUMER_CONTROL_MUTE); break;
     case UsbControlAction::VOLUME_UP:
-      tapConsumer(CONSUMER_CONTROL_VOLUME_INCREMENT); sent = true; break;
+      sent = tapConsumer(CONSUMER_CONTROL_VOLUME_INCREMENT); break;
     case UsbControlAction::VOLUME_DOWN:
-      tapConsumer(CONSUMER_CONTROL_VOLUME_DECREMENT); sent = true; break;
+      sent = tapConsumer(CONSUMER_CONTROL_VOLUME_DECREMENT); break;
     case UsbControlAction::NEXT_TRACK:
-      tapConsumer(CONSUMER_CONTROL_SCAN_NEXT); sent = true; break;
+      sent = tapConsumer(CONSUMER_CONTROL_SCAN_NEXT); break;
     case UsbControlAction::PREVIOUS_TRACK:
-      tapConsumer(CONSUMER_CONTROL_SCAN_PREVIOUS); sent = true; break;
+      sent = tapConsumer(CONSUMER_CONTROL_SCAN_PREVIOUS); break;
     case UsbControlAction::PRESENT_NEXT:
       sent = keyboard->write(KEY_RIGHT_ARROW) == 1; break;
     case UsbControlAction::PRESENT_PREVIOUS:

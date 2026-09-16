@@ -1810,20 +1810,41 @@ void setup() {
   const UsbDeviceProfile usbProfile = settingsReady
                                           ? getPersistentUsbDeviceProfile()
                                           : UsbDeviceProfile::NETWORK;
+  // An optional saved identity overrides VID/PID/manufacturer/product/serial
+  // outright, and can also shrink the HID bundle to keyboard-only -- see
+  // StoredUsbIdentitySettings in badge_settings.h for why both are safe to
+  // apply at runtime here rather than needing a rebuild.
+  StoredUsbIdentitySettings usbIdentity = {};
+  const bool hasCustomUsbIdentity =
+      loadUsbIdentitySettings(usbIdentity) && usbIdentity.enabled;
+  const UsbHidReportSet hidReportSet =
+      hasCustomUsbIdentity ? static_cast<UsbHidReportSet>(usbIdentity.hidReportSet)
+                           : UsbHidReportSet::FULL;
+
   // Select every USB function before beginning the controller. The Network
   // profile is deliberately CDC + NCM only; Drive keeps CDC + HID + storage.
   // That keeps the S3's limited endpoint budget from making NCM enumerate as
   // an incomplete configuration on hosts.
-  usbHidConfigure(usbProfile == UsbDeviceProfile::DRIVE);
+  usbHidConfigure(usbProfile == UsbDeviceProfile::DRIVE, hidReportSet);
   usbBadUSBConfigure(usbProfile == UsbDeviceProfile::DRIVE);
   usbNetworkConfigure(usbProfile == UsbDeviceProfile::NETWORK);
   usbDriveConfigure(usbProfile == UsbDeviceProfile::DRIVE);
   usbHidBegin();
   usbBadUSBBegin();
   // Must precede begin(): the descriptor is built there, and the constructor
-  // has already taken the variant's default.
-  if (!USB.PID(usbProfile == UsbDeviceProfile::NETWORK ? BADGE_USB_PID_NETWORK
-                                                       : BADGE_USB_PID_DRIVE)) {
+  // has already taken the variant's default. A saved identity replaces the
+  // badge's own VID/PID/manufacturer/product/serial outright; the per-profile
+  // PID below exists only to keep Windows' remembered driver state separate
+  // between profiles and is not something a deliberately spoofed identity
+  // needs.
+  if (hasCustomUsbIdentity) {
+    USB.VID(usbIdentity.vid);
+    USB.PID(usbIdentity.pid);
+    USB.manufacturerName(usbIdentity.manufacturer);
+    USB.productName(usbIdentity.product);
+    if (usbIdentity.serial[0]) USB.serialNumber(usbIdentity.serial);
+  } else if (!USB.PID(usbProfile == UsbDeviceProfile::NETWORK ? BADGE_USB_PID_NETWORK
+                                                              : BADGE_USB_PID_DRIVE)) {
     Serial.println("[USB] WARNING: Could not set the badge product id");
   }
   USB.begin();

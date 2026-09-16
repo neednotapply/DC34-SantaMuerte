@@ -22,6 +22,7 @@ constexpr char KEY_NFC_SETTINGS[] = "nfc_state";
 constexpr char KEY_BOARD_NEXT_ID[] = "board_id";
 constexpr char KEY_USB_BUTTON_SETTINGS[] = "usb_button";
 constexpr char KEY_USB_DEVICE_PROFILE[] = "usb_profile";
+constexpr char KEY_USB_IDENTITY_SETTINGS[] = "usb_identity";
 
 // WPA2 accepts an 8 to 63 character printable-ASCII passphrase. Both limits
 // are enforced on generated and user-supplied passwords alike.
@@ -145,6 +146,25 @@ struct __attribute__((packed)) StoredUsbButtonRecord {
 
 static_assert(sizeof(StoredUsbButtonRecord) == 11,
               "Unexpected StoredUsbButtonRecord packing");
+
+constexpr uint32_t USB_IDENTITY_SETTINGS_MAGIC = 0x55534944UL;  // "USID"
+constexpr uint8_t USB_IDENTITY_SETTINGS_VERSION = 1;
+
+struct __attribute__((packed)) StoredUsbIdentityRecord {
+  uint32_t magic;
+  uint8_t version;
+  uint8_t enabled;
+  uint16_t vid;
+  uint16_t pid;
+  uint8_t hidReportSet;
+  char manufacturer[32];
+  char product[32];
+  char serial[32];
+  uint32_t checksum;
+};
+
+static_assert(sizeof(StoredUsbIdentityRecord) == 111,
+              "Unexpected StoredUsbIdentityRecord packing");
 
 char cachedWifiPassword[WIFI_PASSWORD_MAX_LENGTH + 1] = {};
 bool settingsInitialized = false;
@@ -470,6 +490,24 @@ uint32_t usbButtonRecordChecksum(const StoredUsbButtonRecord &record) {
   return updateFnv1a(2166136261UL,
                      reinterpret_cast<const uint8_t *>(&record),
                      offsetof(StoredUsbButtonRecord, checksum));
+}
+
+uint32_t usbIdentityRecordChecksum(const StoredUsbIdentityRecord &record) {
+  return updateFnv1a(2166136261UL,
+                     reinterpret_cast<const uint8_t *>(&record),
+                     offsetof(StoredUsbIdentityRecord, checksum));
+}
+
+// 0-31 printable ASCII bytes (no control characters), matching how the
+// codebase already validates other USB-descriptor-bound strings.
+bool isValidUsbIdentityString(const char *value, size_t maxLength) {
+  const size_t length = strnlen(value, maxLength + 1);
+  if (length > maxLength) return false;
+  for (size_t i = 0; i < length; ++i) {
+    const unsigned char c = static_cast<unsigned char>(value[i]);
+    if (c < 0x20 || c > 0x7E) return false;
+  }
+  return true;
 }
 
 }  // namespace
@@ -1077,4 +1115,80 @@ bool setPersistentUsbDeviceProfile(UsbDeviceProfile profile, String &error) {
   preferences.end();
   if (!saved) error = "Could not save the USB profile.";
   return saved;
+}
+
+bool loadUsbIdentitySettings(StoredUsbIdentitySettings &settings) {
+  Preferences preferences;
+  if (!preferences.begin(SETTINGS_NAMESPACE, true)) {
+    Serial.println(
+        "[SETTINGS] WARNING: Could not open NVS to restore the USB identity");
+    return false;
+  }
+
+  StoredUsbIdentityRecord record = {};
+  const bool sizeMatches =
+      preferences.isKey(KEY_USB_IDENTITY_SETTINGS) &&
+      preferences.getBytesLength(KEY_USB_IDENTITY_SETTINGS) == sizeof(record);
+  const bool readComplete =
+      sizeMatches && preferences.getBytes(KEY_USB_IDENTITY_SETTINGS, &record,
+                                          sizeof(record)) == sizeof(record);
+  preferences.end();
+
+  if (!readComplete || record.magic != USB_IDENTITY_SETTINGS_MAGIC ||
+      record.version != USB_IDENTITY_SETTINGS_VERSION ||
+      record.checksum != usbIdentityRecordChecksum(record)) {
+    return false;
+  }
+
+  settings.enabled = record.enabled != 0;
+  settings.vid = record.vid;
+  settings.pid = record.pid;
+  settings.hidReportSet = record.hidReportSet;
+  memcpy(settings.manufacturer, record.manufacturer, sizeof(settings.manufacturer));
+  memcpy(settings.product, record.product, sizeof(settings.product));
+  memcpy(settings.serial, record.serial, sizeof(settings.serial));
+  settings.manufacturer[sizeof(settings.manufacturer) - 1] = '\0';
+  settings.product[sizeof(settings.product) - 1] = '\0';
+  settings.serial[sizeof(settings.serial) - 1] = '\0';
+  return true;
+}
+
+bool saveUsbIdentitySettings(const StoredUsbIdentitySettings &settings, String &error) {
+  error = String();
+  if (settings.enabled && (settings.vid == 0 || settings.pid == 0)) {
+    error = "VID and PID must both be nonzero.";
+    return false;
+  }
+  if (!isValidUsbIdentityString(settings.manufacturer, sizeof(settings.manufacturer) - 1) ||
+      !isValidUsbIdentityString(settings.product, sizeof(settings.product) - 1) ||
+      !isValidUsbIdentityString(settings.serial, sizeof(settings.serial) - 1)) {
+    error = "Manufacturer, product, and serial must be plain printable text.";
+    return false;
+  }
+
+  StoredUsbIdentityRecord record = {};
+  record.magic = USB_IDENTITY_SETTINGS_MAGIC;
+  record.version = USB_IDENTITY_SETTINGS_VERSION;
+  record.enabled = settings.enabled ? 1 : 0;
+  record.vid = settings.vid;
+  record.pid = settings.pid;
+  record.hidReportSet = settings.hidReportSet;
+  strncpy(record.manufacturer, settings.manufacturer, sizeof(record.manufacturer) - 1);
+  strncpy(record.product, settings.product, sizeof(record.product) - 1);
+  strncpy(record.serial, settings.serial, sizeof(record.serial) - 1);
+  record.checksum = usbIdentityRecordChecksum(record);
+
+  Preferences preferences;
+  if (!preferences.begin(SETTINGS_NAMESPACE, false)) {
+    error = "Could not open settings for the USB identity.";
+    return false;
+  }
+  const size_t written = preferences.putBytes(KEY_USB_IDENTITY_SETTINGS, &record,
+                                              sizeof(record));
+  preferences.end();
+  if (written != sizeof(record)) {
+    error = "Could not save the USB identity.";
+    return false;
+  }
+  return true;
 }
