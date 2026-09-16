@@ -230,7 +230,7 @@ void onKeyboardLed(void *, esp_event_base_t, int32_t, void *eventData) {
   sawHostReport = true;
 }
 
-enum class RunState : uint8_t { IDLE, RUNNING };
+enum class RunState : uint8_t { IDLE, RUNNING, WAIT_LED };
 
 constexpr uint16_t TYPE_CHAR_MS = 4;
 constexpr uint16_t DEFAULT_DELAY_MS = 5;
@@ -242,6 +242,9 @@ size_t cursor = 0;
 uint32_t nextAt = 0;
 uint16_t defaultDelayMs = DEFAULT_DELAY_MS;
 uint16_t defaultStringDelayMs = TYPE_CHAR_MS;
+// One-shot override from a standalone STRING_DELAY line, consumed by the
+// very next STRING/STRINGLN; -1 means none is pending and the default rules.
+int32_t pendingStringDelayMs = -1;
 String runName;
 
 String prevLine;
@@ -261,6 +264,9 @@ uint16_t linesDone = 0;
 uint8_t heldModifiers = 0;
 uint8_t heldKeys[6] = {0, 0, 0, 0, 0, 0};
 uint8_t heldKeyCount = 0;
+
+uint8_t ledWaitMask = 0;
+uint8_t ledWaitBaseline = 0;
 
 void schedule(uint32_t inMs) { nextAt = millis() + inMs; }
 
@@ -291,25 +297,29 @@ void pressChord(const String &line) {
     tokens[n++] = line.substring(start, i);
   }
 
-  bool pressedAny = false;
+  uint8_t pressed[8] = {0};
+  uint8_t pressedCount = 0;
   for (uint8_t j = 0; j < n; ++j) {
     String u = tokens[j];
     u.toUpperCase();
     const uint8_t mod = ducky::modifierFor(u);
     if (mod) {
       keyboard->press(mod);
-      pressedAny = true;
+      if (pressedCount < 8) pressed[pressedCount++] = mod;
       continue;
     }
     uint8_t code = 0;
     if (ducky::keyFor(tokens[j], code)) {
       keyboard->press(code);
-      pressedAny = true;
+      if (pressedCount < 8) pressed[pressedCount++] = code;
     }
   }
-  if (pressedAny) {
+  if (pressedCount) {
     delay(6);
-    keyboard->releaseAll();
+    // Release only what this chord pressed -- never releaseAll(), which would
+    // also drop a modifier a HOLD command is deliberately sustaining across
+    // several lines (HOLD ALT / TAB / TAB / RELEASE ALT).
+    for (uint8_t k = 0; k < pressedCount; ++k) keyboard->release(pressed[k]);
   }
 }
 
@@ -317,6 +327,23 @@ void tapConsumer(uint16_t code) {
   consumer->press(code);
   delay(6);
   consumer->release();
+}
+
+// Types one character via its Windows numpad Alt code: holds Alt, taps each
+// decimal digit, then releases Alt. Releases only the digit each iteration
+// (never releaseAll()), since that would also drop Alt after the first digit
+// and turn every code past a single digit into plain, un-alted keystrokes.
+void sendAltCode(uint32_t code) {
+  keyboard->press(KEY_LEFT_ALT);
+  delay(2);
+  const String digits = String(code);
+  for (size_t i = 0; i < digits.length(); ++i) {
+    keyboard->press(digits[i]);
+    delay(10);
+    keyboard->release(digits[i]);
+    delay(5);
+  }
+  keyboard->release(KEY_LEFT_ALT);
 }
 
 void finish(const char *why) {
@@ -372,7 +399,8 @@ void executeNextLine() {
     typeText = rest;
     typeIdx = 0;
     typeTrailingEnter = false;
-    stringDelayMs = defaultStringDelayMs;
+    stringDelayMs = pendingStringDelayMs >= 0 ? static_cast<uint16_t>(pendingStringDelayMs) : defaultStringDelayMs;
+    pendingStringDelayMs = -1;
     typing = true;
     prevLine = line;
     schedule(0);
@@ -383,7 +411,8 @@ void executeNextLine() {
     typeText = rest;
     typeIdx = 0;
     typeTrailingEnter = true;
-    stringDelayMs = defaultStringDelayMs;
+    stringDelayMs = pendingStringDelayMs >= 0 ? static_cast<uint16_t>(pendingStringDelayMs) : defaultStringDelayMs;
+    pendingStringDelayMs = -1;
     typing = true;
     prevLine = line;
     schedule(0);
@@ -402,7 +431,7 @@ void executeNextLine() {
   }
 
   if (cmd == "STRINGDELAY" || cmd == "STRING_DELAY") {
-    stringDelayMs = static_cast<uint16_t>(rest.toInt());
+    pendingStringDelayMs = rest.toInt();
     schedule(0);
     return;
   }
@@ -419,6 +448,19 @@ void executeNextLine() {
     if (n > MAX_REPEAT) n = MAX_REPEAT;
     repeatLine = prevLine;
     repeatLeft = static_cast<uint16_t>(n);
+    schedule(0);
+    return;
+  }
+
+  if (cmd == "LEDWAIT") {
+    String which = rest;
+    which.toUpperCase();
+    ledWaitMask = which.startsWith("NUM")    ? USB_BADUSB_LED_NUMLOCK
+                  : which.startsWith("SCROLL") ? USB_BADUSB_LED_SCROLLLOCK
+                                               : USB_BADUSB_LED_CAPSLOCK;
+    ledWaitBaseline = hostLeds;
+    prevLine = line;
+    runState = RunState::WAIT_LED;
     schedule(0);
     return;
   }
@@ -470,34 +512,30 @@ void executeNextLine() {
   }
 
   if (cmd == "ALTCHAR") {
-    uint16_t code = rest.toInt();
-    if (code > 0) {
-      keyboard->press(KEY_LEFT_ALT);
-      delay(2);
-      String numStr = String(code);
-      for (size_t i = 0; i < numStr.length(); ++i) {
-        keyboard->press(numStr[i]);
-        delay(10);
-        keyboard->releaseAll();
-        delay(5);
-      }
-      keyboard->release(KEY_LEFT_ALT);
-    }
+    const long code = rest.toInt();
+    if (code > 0) sendAltCode(static_cast<uint32_t>(code));
     prevLine = line;
     schedule(defaultDelayMs);
     return;
   }
 
   if (cmd == "ALTSTRING" || cmd == "ALTCODE") {
-    keyboard->press(KEY_LEFT_ALT);
-    delay(2);
-    for (size_t i = 0; i < rest.length(); ++i) {
-      keyboard->press(rest[i]);
-      delay(10);
-      keyboard->releaseAll();
-      delay(5);
+    // Space-separated alt-codes, e.g. "ALTSTRING 3 9829" types two
+    // characters. A single number behaves the same as ALTCHAR.
+    String t[16];
+    uint8_t n = 0;
+    size_t i = 0;
+    while (i < rest.length() && n < 16) {
+      while (i < rest.length() && rest[i] == ' ') ++i;
+      if (i >= rest.length()) break;
+      size_t start = i;
+      while (i < rest.length() && rest[i] != ' ') ++i;
+      t[n++] = rest.substring(start, i);
     }
-    keyboard->release(KEY_LEFT_ALT);
+    for (uint8_t k = 0; k < n; ++k) {
+      const long code = t[k].toInt();
+      if (code > 0) sendAltCode(static_cast<uint32_t>(code));
+    }
     prevLine = line;
     schedule(defaultDelayMs);
     return;
@@ -569,6 +607,7 @@ bool startRun(const String &newScript, const String &name, String &error) {
   cursor = 0;
   defaultDelayMs = DEFAULT_DELAY_MS;
   defaultStringDelayMs = TYPE_CHAR_MS;
+  pendingStringDelayMs = -1;
   typing = false;
   typeTrailingEnter = false;
   repeatLeft = 0;
@@ -628,6 +667,16 @@ void usbBadUSBService() {
   if (runState == RunState::IDLE) return;
   if (static_cast<int32_t>(millis() - nextAt) < 0) return;
 
+  if (runState == RunState::WAIT_LED) {
+    if (((hostLeds ^ ledWaitBaseline) & ledWaitMask) == 0) {
+      schedule(20);  // no toggle yet; re-poll shortly
+      return;
+    }
+    runState = RunState::RUNNING;
+    schedule(defaultDelayMs);
+    return;
+  }
+
   if (typing) {
     if (typeIdx < typeText.length()) {
       keyboard->write(static_cast<uint8_t>(typeText[typeIdx++]));
@@ -680,6 +729,7 @@ bool usbBadUSBHostSeen() { return sawHostReport || static_cast<bool>(Serial); }
 
 String usbBadUSBStatusLine() {
   if (!badusb_configured) return "off (WiFi Tethering profile)";
+  if (runState == RunState::WAIT_LED) return "waiting on host LED (" + runName + ")";
   if (runState == RunState::RUNNING) {
     return "running " + runName + " " + String(linesDone) + "/" + String(linesTotal);
   }

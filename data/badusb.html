@@ -125,7 +125,7 @@
     @media(max-width:600px){.wrap{padding:15px 12px 34px}header{align-items:flex-start}.header-actions{flex-direction:column-reverse;align-items:flex-end}.nav-link,.status{height:34px;padding:0 11px;font-size:.68rem}.pad{padding:17px}.details{grid-template-columns:1fr}.actions,.emulation-actions{grid-template-columns:1fr}.emulation-stats{grid-template-columns:1fr}}
   </style>
   <style>
-    /* USB Tools -- visual DuckyScript builder */
+    /* USB Tools -- visual BadUSB builder */
     .stackcol{display:flex;flex-direction:column;gap:18px}
     /* The command picker deliberately floats over the editor instead of
        stretching the card. Keep this one card from clipping the popover. */
@@ -362,7 +362,7 @@
             </details>
           </div>
         </div>
-        <label class="lbl">DuckyScript generado</label>
+        <label class="lbl">BadUSB generado</label>
         <pre class="out payload" id="out"></pre>
         <div class="row">
           <input id="payloadName" type="text" maxlength="32" placeholder="nombre para subir" autocomplete="off" spellcheck="false">
@@ -397,7 +397,7 @@
     'HOME','END','PAGEUP','PAGEDOWN','CAPSLOCK','F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12'];
 
   // Block definitions. Labels/help/placeholders are Spanish (the page default);
-  // locale.js translates them. compile() returns one DuckyScript line.
+  // locale.js translates them. compile() returns one BadUSB line.
   const DEFS = {
     type: {cat:'Texto', label:'Teclear texto',
       fields:[{k:'text',t:'text',ph:'texto a teclear'},{k:'enter',t:'bool',label:'pulsar Enter al final'}],
@@ -445,7 +445,32 @@
       fields:[{k:'m',t:'select',opts:['MUTE','VOLUP','VOLDOWN','PLAY','NEXT','PREV','STOP']}],
       help:'Envía una tecla de medios (volumen, reproducción…).',
       make:()=>({type:'media',m:'PLAY'}),
-      compile:b=>b.m||'PLAY'},
+      compile:b=>'MEDIA '+(b.m||'PLAY')},
+    hold: {cat:'BadUSB', label:'Mantener tecla',
+      fields:[{k:'key',t:'text',ph:'ALT, CTRL, SHIFT, GUI o una tecla'}],
+      help:'Mantiene presionada una tecla o modificador durante los bloques siguientes, hasta un Soltar. Solo en BadUSB.',
+      make:()=>({type:'hold',key:'ALT'}),
+      compile:b=>'HOLD '+(b.key||'ALT')},
+    release: {cat:'BadUSB', label:'Soltar tecla',
+      fields:[{k:'key',t:'text',ph:'la misma tecla que en Mantener'}],
+      help:'Suelta una tecla o modificador que un Mantener anterior dejó presionado.',
+      make:()=>({type:'release',key:'ALT'}),
+      compile:b=>'RELEASE '+(b.key||'ALT')},
+    altchar: {cat:'BadUSB', label:'Código Alt',
+      fields:[{k:'code',t:'num',ph:'código, ej. 3'}],
+      help:'Teclea un carácter por su código numérico de Windows (Alt+número). Alt+3 escribe ♥. Solo en BadUSB.',
+      make:()=>({type:'altchar',code:3}),
+      compile:b=>'ALTCHAR '+(b.code|0)},
+    altstring: {cat:'BadUSB', label:'Varios códigos Alt',
+      fields:[{k:'codes',t:'text',ph:'códigos separados por espacio, ej. 3 9829'}],
+      help:'Teclea una secuencia de caracteres por sus códigos Alt, uno tras otro.',
+      make:()=>({type:'altstring',codes:'3'}),
+      compile:b=>'ALTSTRING '+(b.codes||'3')},
+    stringdelay: {cat:'Tiempo', label:'Pausa entre teclas (una vez)',
+      fields:[{k:'ms',t:'num',ph:'ms'}],
+      help:'Fija la pausa entre cada tecla solo para el siguiente bloque de texto (útil con hosts lentos: KVMs, BIOS). Solo en BadUSB.',
+      make:()=>({type:'stringdelay',ms:60}),
+      compile:b=>'STRING_DELAY '+(b.ms|0)},
     repeat: {cat:'Control', label:'Repetir anterior',
       fields:[{k:'n',t:'num',ph:'veces'}],
       help:'Repite el bloque inmediatamente anterior n veces más.',
@@ -463,12 +488,12 @@
       compile:b=>'REM '+(b.text||'')},
     raw: {cat:null, label:'Línea literal',
       fields:[{k:'text',t:'text',ph:'BadUSB'}],
-      help:'Una línea DuckyScript escrita a mano (para comandos no listados).',
+      help:'Una línea BadUSB escrita a mano (para comandos no listados).',
       make:()=>({type:'raw',text:''}),
       compile:b=>b.text||''},
   };
-  const PALETTE = ['type','key','combo','delay','defaultdelay','mousemove','mouseclick','mousescroll','media','repeat','ledwait','rem'];
-  const CATS = ['Texto','Teclas','Tiempo','Ratón','Multimedia','Control','Nota'];
+  const PALETTE = ['type','key','combo','delay','defaultdelay','stringdelay','mousemove','mouseclick','mousescroll','media','hold','release','altchar','altstring','repeat','ledwait','rem'];
+  const CATS = ['Texto','Teclas','Tiempo','Ratón','Multimedia','BadUSB','Control','Nota'];
   const COMMON_COMBOS = [
     {label:'Seleccionar todo', shortcut:'CTRL + A', values:{gui:false,ctrl:true,alt:false,shift:false,key:'a'}},
     {label:'Copiar', shortcut:'CTRL + C', values:{gui:false,ctrl:true,alt:false,shift:false,key:'c'}},
