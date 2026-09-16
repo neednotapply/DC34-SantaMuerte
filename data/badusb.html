@@ -203,8 +203,8 @@
     .system-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
     .remote-btn.danger{color:#edbbb4;border-color:rgba(184,90,77,.55)}
     .shortcut-category{width:100%;min-height:42px;padding:0 12px;border:1px solid var(--line);border-radius:9px;background:var(--panel2);color:var(--text);font:700 .74rem var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace)}
-    .shortcut-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:13px}
-    @media(max-width:600px){.shortcut-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    .shortcut-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:13px}
+    @media(max-width:420px){.shortcut-grid{grid-template-columns:repeat(1,minmax(0,1fr))}}
     .button-status{display:flex;align-items:flex-start;gap:9px;margin:0 0 15px;padding:10px 0;border-bottom:1px solid var(--line);color:var(--muted);font-size:.69rem;line-height:1.45}
     .button-status b{display:block;color:var(--text);font:700 .68rem var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);letter-spacing:.08em;text-transform:uppercase}
     .button-bindings{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -322,7 +322,7 @@
           </details>
         </section>
 
-        <section class="card pad wide-card usb-tools-only" aria-label="Atajos de teclado">
+        <section class="card pad usb-tools-only" aria-label="Atajos de teclado">
           <div class="card-head"><div><div class="eyebrow">Atajos</div><h2>Atajos de teclado</h2></div></div>
           <p class="control-copy">Envía una combinación de teclas al equipo conectado con un toque. Elige la categoría según el sistema o la app que estés usando.</p>
           <select id="shortcutCategory" class="shortcut-category" aria-label="Categoría de atajos"></select>
