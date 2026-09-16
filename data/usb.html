@@ -212,7 +212,7 @@
     .binding select{width:100%;min-height:40px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--panel2);color:var(--text);font-size:.72rem}
     .button-save{width:100%;margin-top:11px;min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:7px;background:transparent;color:var(--text);font:700 .67rem var(--sm-mono,ui-monospace,SFMono-Regular,Menlo,Consolas,monospace);letter-spacing:.07em;cursor:pointer;text-transform:uppercase}
     .button-save:hover:not(:disabled),.button-save:focus-visible{border-color:var(--amber);background:rgba(164,123,54,.12)}
-    .usb-mode-actions{display:grid;grid-template-columns:1fr;gap:8px;margin-top:14px}
+    .usb-mode-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}
     .usb-mode-actions .button-save{width:100%;margin-top:0;text-align:left;justify-content:flex-start;padding-left:13px}
     .usb-mode-actions .button-save.active{border-color:var(--amber);background:var(--sm-maroon-dark);color:var(--sm-paper-hi)}
     .button-note{min-height:18px;margin-top:8px;color:var(--muted);font-size:.67rem;line-height:1.45}
@@ -299,6 +299,25 @@
 
     <main class="stackcol">
       <section class="usb-control-grid usb-tools-only" aria-label="Controles USB">
+        <section class="card pad wide-card" aria-label="WiFi Tethering">
+          <div class="card-head"><div><div class="eyebrow">Modos USB</div><h2>Usa un modo USB a la vez</h2></div></div>
+          <div class="button-status"><div><b id="usbProfile">Modo USB: revisando…</b><span id="usbDriveStatus"></span></div></div>
+          <div class="usb-mode-actions" aria-label="Modos USB">
+            <button id="selectNetworkProfile" class="button-save" type="button">Modo WiFi Tethering</button>
+            <button id="selectDriveProfile" class="button-save" type="button">Unidad Field Notes</button>
+          </div>
+          <div id="usbNetworkPanel">
+          <div class="card-head" style="margin-top:18px"><div><div class="eyebrow">WiFi Tethering</div><h2>WiFi Tethering</h2></div></div>
+          <p class="control-copy">Comparte el Wi-Fi guardado con el equipo conectado mediante NCM. USB Serial sigue disponible.</p>
+          <div class="details">
+            <div class="detail"><span>NCM</span><strong id="usbNetworkNcm">Revisando…</strong></div>
+            <div class="detail"><span>Enlace</span><strong id="usbNetworkLink">—</strong></div>
+            <div class="detail"><span>Tráfico</span><strong id="usbNetworkTraffic">—</strong></div>
+          </div>
+          <div id="usbNetworkNote" class="button-note" role="status" aria-live="polite">El puente sigue al Wi-Fi guardado: empieza solo al conectarse y no hay nada que iniciar. Sin Wi-Fi guardado el badge sale de este modo y vuelve a la Unidad Field Notes.</div>
+          </div>
+        </section>
+
         <section class="card pad">
           <div class="card-head"><div><div class="eyebrow">Control del host</div><h2>Control remoto USB</h2></div></div>
           <p class="control-copy">Envía controles estándar al equipo conectado. Serial USB sigue disponible mientras usas estos controles.</p>
@@ -366,28 +385,7 @@
         <button id="saveIdentity" class="button-save" type="button">Guardar identidad USB</button>
         <div id="identityNote" class="button-note" role="status" aria-live="polite"></div>
       </section>
-
-        <section class="card pad wide-card" aria-label="WiFi Tethering">
-          <div class="card-head"><div><div class="eyebrow">Modos USB</div><h2>Usa un modo USB a la vez</h2></div></div>
-          <div class="button-status"><div><b id="usbProfile">Modo USB: revisando…</b><span id="usbDriveStatus"></span></div></div>
-          <div class="usb-mode-actions" aria-label="Modos USB">
-            <button id="selectNetworkProfile" class="button-save" type="button">Modo WiFi Tethering</button>
-            <button id="selectDriveProfile" class="button-save" type="button">Unidad Field Notes</button>
-          </div>
-          <div id="usbNetworkPanel">
-          <div class="card-head" style="margin-top:18px"><div><div class="eyebrow">WiFi Tethering</div><h2>WiFi Tethering</h2></div></div>
-          <p class="control-copy">Comparte el Wi-Fi guardado con el equipo conectado mediante NCM. USB Serial sigue disponible.</p>
-          <div class="details">
-            <div class="detail"><span>NCM</span><strong id="usbNetworkNcm">Revisando…</strong></div>
-            <div class="detail"><span>Enlace</span><strong id="usbNetworkLink">—</strong></div>
-            <div class="detail"><span>Tráfico</span><strong id="usbNetworkTraffic">—</strong></div>
-          </div>
-          <div id="usbNetworkNote" class="button-note" role="status" aria-live="polite">El puente sigue al Wi-Fi guardado: empieza solo al conectarse y no hay nada que iniciar. Sin Wi-Fi guardado el badge sale de este modo y vuelve a la Unidad Field Notes.</div>
-          </div>
-        </section>
       </section>
-
-      
 
       <section class="payload-shelf scripting-only" aria-label="Cargas subidas">
         <div id="payloadList" class="feed"></div>
