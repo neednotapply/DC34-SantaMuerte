@@ -12,7 +12,7 @@
   <title>Santa Muerte // BadUSB</title>
   <link rel="stylesheet" href="theme.css?v=30">
   <link rel="icon" type="image/png" href="assets/logo-candle.png">
-  <script src="locale.js?v=25"></script>
+  <script src="locale.js?v=26"></script>
   <script>document.documentElement.classList.toggle('scripting-page', /^\/badusb(?:\.html)?$/.test(location.pathname));</script>
   <style>
     :root{
@@ -741,7 +741,7 @@
       ? T('Elige Unidad Field Notes para montar la unidad de solo lectura.')
       : drive.media===false
         ? T('Armando la instantánea; la unidad aparece en unos segundos.')
-        : T('Solo lectura: ')+(drive.notes||0)+' '+T('notas')+' // '+(drive.scripts||0)+' DuckyScript // '+(drive.badusbScripts||0)+' BadUSB // '+(drive.tags||0)+' tags';
+        : T('Solo lectura:')+' '+(drive.notes||0)+' '+T('notas')+' // '+(drive.scripts||0)+' DuckyScript // '+(drive.badusbScripts||0)+' BadUSB // '+(drive.tags||0)+' tags';
     $('#selectNetworkProfile').disabled=!isDrive;
     $('#selectDriveProfile').disabled=isDrive;
     $('#selectNetworkProfile').classList.toggle('active',!isDrive);
