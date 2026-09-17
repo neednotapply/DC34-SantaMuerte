@@ -56,7 +56,7 @@ masked credentials.
 Network mode is deliberately exclusive: choose **Santa Muerte AP** or saved
 **saved Wi-Fi**, never both. Choosing an action carries it out: the menu
 selection is the instruction, so nothing asks a second time. The exceptions are
-the three that cost work nobody can get back — erasing the offering ring,
+the three that cost work nobody can get back — erasing the field note ring,
 rebooting the badge, and powering off the attached computer — which still want
 a `y` or `n` answer followed by Enter.
 
@@ -84,8 +84,8 @@ carrying an SSID but a blank password was one stray click away from rewriting a
 WPA network as an open one.
 
 The USB menu includes live LED controls and identify frames; NFC reading,
-writing, offering capture, and emulation; and recent text offerings, creating
-text-only offerings, and clearing the ring. Drawings, photo uploads, and
+writing, auto-scan, and emulation; and recent text notes, creating
+text-only notes, and clearing the ring. Drawings, photo uploads, and
 firmware flashing remain web/host workflows rather than USB TUI features.
 
 ### Field Note image previews
@@ -99,14 +99,14 @@ installation step.
 
 ### Menu map
 
-- **Dashboard** — active network/IP/hostname, LED and NFC state, offering-ring
+- **Dashboard** — active network/IP/hostname, LED and NFC state, field-note-ring
   use, heap, uptime, and the last TUI notices.
 - **Network** — choose the exclusive AP/home mode, change the AP password,
   save a home SSID/password (empty for an open network), toggle the AP hidden
   setting, and inspect the connection state.
 - **LED Tools** — choose any of the sixteen patterns, set `#RRGGBB`,
   brightness, speed, and step through physical LED identify frames.
-- **NFC Tools** — queue a read or text/URL write, turn NFC Offering on/off,
+- **NFC Tools** — queue a read or text/URL write, turn auto-scan on/off,
   emulate text, URL, or the badge's Wi-Fi record, and stop emulation.
 - **Field Notes** — browse recent IDs, enter a four-digit ID to inspect one
   note (including multiline text), add a text note, or erase the board, which
@@ -156,7 +156,7 @@ straight away; or from the Wi-Fi portal at **`/scripting`**, a
 visual **DuckyScript builder**: drag or tap command blocks (each explained, with
 editable fields) into a stack that compiles to DuckyScript live, then **Send to
 device**. The portal also uploads, loads and deletes stored payloads — shown in a
-feed like the offerings board, and **Load** reopens one back in the builder. Note that portal firing means anyone joined to the badge's AP
+feed like the field notes board, and **Load** reopens one back in the builder. Note that portal firing means anyone joined to the badge's AP
 can inject keystrokes into the attached machine — treat the AP as trusted.
 
 Payloads are small text files on LittleFS (`/payloads`, up to sixteen), written
@@ -250,14 +250,14 @@ keeps those rules where they belong.
   floods the halo, **Aureola** opens from the hands out to the crown, and
   **Encuentro** sends two heads up opposite sides of the ring to meet there.
   Everything is saved automatically.
-- `/nfc` — read and write tags, emulate one, or turn on **NFC Offering**:
-  while it is on the reader polls by itself and every tag it reads posts its
-  text to the board, credited to the reader rather than to a phone.
+- `/nfc` — read and write tags, emulate one, or turn on **auto-scan**:
+  while it is on the reader polls by itself and every tag it reads lands in
+  the NFC log.
 - `/network` — the badge's Wi-Fi credentials and hidden-SSID switch. The
   former `/settings` address remains as a compatibility alias.
 
 `/` is the board: joining the badge and following the sign-in notification
-lands on the offerings, not on a setup form.
+lands on the field notes, not on a setup form.
 
 ## No installable app
 

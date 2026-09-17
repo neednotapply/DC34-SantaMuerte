@@ -283,6 +283,27 @@ bool nfcLogReadNext(uint32_t &beforeId, NfcLogEntry &entry) {
   return true;
 }
 
+bool deleteNfcLogEntry(uint32_t lastSeenId) {
+  if (!logReady || lastSeenId == 0 || storedCount == 0) return false;
+
+  for (uint16_t slot = 0; slot < NFC_LOG_SLOT_COUNT; ++slot) {
+    NfcLogRecord record = {};
+    if (!readRecord(slot, record)) continue;
+    if (!validRecord(record) || record.lastSeenId != lastSeenId) continue;
+
+    // Zeroing retires the slot: every reader tests the magic and the checksum,
+    // and a new sighting of this UID will simply take a slot of its own.
+    const NfcLogRecord empty = {};
+    if (!writeRecord(slot, empty)) return false;
+    if (storedCount > 0) --storedCount;
+    Serial.printf("[NFCLOG] Entry #%lu deleted from slot %u\r\n",
+                  static_cast<unsigned long>(lastSeenId),
+                  static_cast<unsigned>(slot));
+    return true;
+  }
+  return false;
+}
+
 bool clearNfcLog() {
   if (!logReady) return false;
   if (logFile) logFile.close();

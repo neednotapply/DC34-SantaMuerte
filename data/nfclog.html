@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es-MX" translate="no">
+<html lang="en-US" translate="no">
 <head>
   <meta charset="UTF-8">
   <!-- The portal carries its own ES/EN layer, so a browser translating on top
@@ -9,10 +9,11 @@
   <meta name="google" content="notranslate">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#151615">
-  <title>Santa Muerte // Registro NFC</title>
-  <link rel="stylesheet" href="theme.css?v=30">
+  <title>Santa Muerte // NFC Log</title>
+  <link rel="stylesheet" href="theme.css?v=46">
   <link rel="icon" type="image/png" href="assets/logo-candle.png">
-  <script src="locale.js?v=27"></script>
+  <script src="locale.js?v=35"></script>
+  <script src="tape.js?v=3"></script>
   <style>
     :root{
       --bg:#151615;--panel:#1e1f1c;--panel2:#282823;--line:#504d44;
@@ -25,9 +26,9 @@
     body{margin:0;min-height:100vh;background:linear-gradient(90deg,#101110,var(--bg) 52%,#101110);
       color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
     button,a{-webkit-tap-highlight-color:transparent}
-    /* The width of the offerings wall, not of a tool page: these are notes to
+    /* The width of the field notes wall, not of a tool page: these are notes to
        read, and 1180px stretched each one into a banner. */
-    .wrap{width:min(720px,100%);margin:auto;padding:24px 20px 44px}
+    .wrap{margin:auto;padding:24px 20px 44px}
     main{display:grid;gap:16px}
     .card{border:1px solid var(--line);border-radius:23px;background:linear-gradient(155deg,rgba(20,24,35,.97),rgba(13,16,24,.98));box-shadow:var(--shadow);overflow:hidden}
     .pad{padding:22px}
@@ -41,19 +42,25 @@
     .head-actions{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 
     /* Every tag the reader met is a note taped to the same corridor wall as the
-       offerings and the saved scripts: paper over the dark, one strip of tape,
+       field notes and the saved scripts: paper over the dark, one strip of tape,
        never a row inside a panel. Placement is derived from the UID so a tag
        keeps its tilt across refreshes instead of reshuffling the wall. */
-    .feed{display:flex;flex-direction:column;gap:20px;padding:14px 12px 12px}
-    article.tag-note{position:relative;overflow:visible;border:1px solid #918878;border-radius:0;
-      padding:14px 16px 16px;background:var(--sm-paper-hi,#ebe5d8);color:#171717;
-      box-shadow:3px 5px 0 rgba(0,0,0,.32);
+    .feed{display:block;columns:320px;column-gap:30px;padding:14px 12px 12px}
+    /* The transparent top border is the strip of wall the tape reaches onto,
+       rather than an overhang: a box sticking out above its column is also
+       painted into the bottom of the previous one, leaving loose tape behind. */
+    article.tag-note{position:relative;overflow:visible;border:0;border-radius:0;
+      border-top:11px solid transparent;
+      padding:14px 16px 16px;color:#171717;
+      background:var(--sm-paper-hi,#ebe5d8);background-clip:padding-box;
+      width:fit-content;max-width:100%;min-width:min(220px,100%);break-inside:avoid;margin:0 0 26px;
       transform:translateX(var(--note-shift,0px)) rotate(var(--note-tilt,0deg));
       transform-origin:center center}
-    article.tag-note::before{content:"";position:absolute;z-index:2;pointer-events:none;
-      top:-10px;left:var(--tape-left,50%);width:clamp(66px,25%,94px);height:18px;
-      background:rgba(164,123,54,.42);border:1px solid rgba(215,194,145,.2);
-      transform:translateX(-50%) rotate(var(--tape-tilt,0deg))}
+    /* Edge and drop shadow both trace the paper: cast from the note itself the
+       shadow starts at the top of the transparent tape band instead. */
+    article.tag-note::after{content:"";position:absolute;inset:0;pointer-events:none;border:1px solid #918878;
+      box-shadow:3px 5px 0 rgba(0,0,0,.32)}
+
     .tag-note .post-head{display:flex;justify-content:space-between;align-items:baseline;
       gap:8px 12px;flex-wrap:wrap;padding:0 0 8px;border-bottom:1px dotted #978e80;color:#4a463e;
       font:700 .69rem/1.25 var(--sm-mono,"Courier New",monospace);
@@ -63,12 +70,13 @@
     .tag-note .kind{color:#6b655a}
     .tag-note .hits{flex-shrink:0;padding:2px 6px;border:1px solid #978e80;border-radius:2px;
       background:rgba(255,255,255,.2);font-size:.6rem;letter-spacing:.055em;white-space:nowrap}
-    .tag-note .post-text{margin:0;padding:10px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;
+    .tag-note .post-text{margin:0;padding:10px 0 0;white-space:pre-wrap;overflow-wrap:break-word;
       font:600 .73rem/1.55 var(--sm-mono,"Courier New",monospace);color:#171717}
     .tag-note .post-text a{color:#6f1d24 !important;text-decoration:underline}
     .tag-note .type-letter{display:inline-block}
-    .tag-note .type-letter:nth-child(7n){transform:translateY(1px) rotate(-.35deg)}
-    .tag-note .type-letter:nth-child(11n){transform:translateY(-1px) rotate(.35deg)}
+    .tag-note .type-word{white-space:nowrap}
+    .tag-note .type-letter.type-drop{transform:translateY(1px) rotate(-.35deg)}
+    .tag-note .type-letter.type-lift{transform:translateY(-1px) rotate(.35deg)}
     .tag-note .post-note{margin:0;padding:10px 0 0;color:#6b655a;font-style:italic;
       font:italic 600 .7rem/1.5 var(--sm-mono,"Courier New",monospace)}
 
@@ -81,60 +89,41 @@
   <div class="wrap">
     <header class="saint-header">
       <details class="nav-menu">
-        <summary aria-label="Abrir menú"><img class="brand-mark" src="assets/logo-candle.png" alt=""></summary>
-        <nav class="nav-menu-list" aria-label="Navegación del badge">
+        <summary aria-label="Open menu"><img class="brand-mark" src="assets/logo-candle.png" alt=""></summary>
+        <nav class="nav-menu-list" aria-label="Badge navigation">
           <a href="/notes">Field Notes</a>
           <a href="/led">LED Tools</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/usb">Herramientas USB</a>
+          <a href="/nfc-log">NFC Log</a>
+          <a href="/usb">USB Tools</a>
           <a href="/ducky">DuckyScript</a>
           <a href="/badusb">BadUSB</a>
           <a href="/terminal">Terminal</a>
-          <a href="/network">Red</a>
+          <a href="/network">Network</a>
         </nav>
       </details>
-      <div class="header-page-title"><h1>Registro NFC</h1></div>
+      <div class="header-page-title"><h1>NFC Log</h1></div>
       <details class="nav-menu nav-menu--right">
-        <summary aria-label="Abrir menú"><img class="brand-mark" src="assets/logo-candle.png" alt=""></summary>
-        <nav class="nav-menu-list" aria-label="Navegación del badge">
+        <summary aria-label="Open menu"><img class="brand-mark" src="assets/logo-candle.png" alt=""></summary>
+        <nav class="nav-menu-list" aria-label="Badge navigation">
           <a href="/notes">Field Notes</a>
           <a href="/led">LED Tools</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/usb">Herramientas USB</a>
+          <a href="/nfc-log">NFC Log</a>
+          <a href="/usb">USB Tools</a>
           <a href="/ducky">DuckyScript</a>
           <a href="/badusb">BadUSB</a>
           <a href="/terminal">Terminal</a>
-          <a href="/network">Red</a>
+          <a href="/network">Network</a>
         </nav>
       </details>
     </header>
 
     <main>
-      <section class="shelf" aria-label="Encuentros NFC">
+      <section class="shelf" aria-label="Tags read">
         <div id="tagList" class="feed"></div>
         <div id="emptyState" class="empty" hidden>
-          Todavía no hay tags. Enciende <b>Escaneo automático</b> en Herramientas NFC y
-          acerca una tarjeta: su identidad y su contenido aparecerán aquí.
-        </div>
-      </section>
-
-      <section class="card pad">
-        <div class="card-head">
-          <div>
-            <div class="eyebrow">Encuentros NFC</div>
-            <h2>Cada tag que el lector conoció</h2>
-          </div>
-          <div class="head-actions">
-            <span id="countPill" class="count-pill">—</span>
-            <button id="refreshBtn" class="btn">Actualizar</button>
-            <button id="clearBtn" class="btn btn-danger">Borrar registro</button>
-          </div>
-        </div>
-
-        <div class="hint">
-          Los tags leídos ya no van a Field Notes; llegan aquí, con su UID, su
-          tipo y lo que se pudo leer. Volver a ver el mismo tag suma a su cuenta
-          en vez de repetirlo.
+          Nothing here yet. Turn on <b>Auto-scan</b> in NFC Tools and hold a card or a keyfob to the badge: whatever can be read shows up here.
         </div>
       </section>
     </main>
@@ -150,13 +139,12 @@
   'use strict';
   var listEl = document.getElementById('tagList');
   var emptyEl = document.getElementById('emptyState');
-  var countEl = document.getElementById('countPill');
   // The wall only gets rebuilt when the badge actually saw something new.
   // Re-typing every note four times a second was thousands of spans of churn
   // for a list that usually has not moved.
   var lastSignature = null;
 
-  // The same hand-pinned placement the offerings and the script shelf use,
+  // The same hand-pinned placement the field notes and the script shelf use,
   // seeded from the UID so a tag hangs in one spot for as long as it is kept.
   function pinNote(note, seedText){
     var seed = Array.prototype.reduce.call(String(seedText || 'tag'),
@@ -170,15 +158,23 @@
 
   // One span per character, as on the board: the letters sit a hair off the
   // line so a note reads as struck rather than set.
+  // Letters are inline-block so they can sit off the line, which also lets a
+  // line break fall between any two of them. Grouping each word in a span that
+  // refuses to break stops a narrow note splitting a word down the middle.
   function typewriter(node, text){
     node.replaceChildren();
+    var word = null;
     for (var i = 0; i < text.length; i++) {
       var character = text[i];
-      if (character === '\n') { node.appendChild(document.createElement('br')); continue; }
+      if (character === '\n') { word = null; node.appendChild(document.createElement('br')); continue; }
       var letter = document.createElement('span');
       letter.className = 'type-letter';
+      if (i % 7 === 0) letter.classList.add('type-drop');
+      if (i % 11 === 0) letter.classList.add('type-lift');
       letter.textContent = character;
-      node.appendChild(letter);
+      if (/\s/.test(character)) { word = null; node.appendChild(letter); continue; }
+      if (!word) { word = document.createElement('span'); word.className = 'type-word'; node.appendChild(word); }
+      word.appendChild(letter);
     }
   }
 
@@ -195,7 +191,7 @@
     if (!content) {
       var note = document.createElement('p');
       note.className = 'post-note';
-      note.textContent = 'Solo UID — sin contenido legible';
+      note.textContent = 'ID only — nothing else could be read';
       return note;
     }
     var paragraph = document.createElement('p');
@@ -218,6 +214,10 @@
     var article = document.createElement('article');
     article.className = 'tag-note';
     pinNote(article, tag.uid);
+    PortalTape.tape(article, {
+      label: 'Take this tag down',
+      onDelete: function(){ return deleteTag(tag.id); }
+    });
 
     var head = document.createElement('div');
     head.className = 'post-head';
@@ -233,8 +233,25 @@
     return article;
   }
 
+  // Resolving false leaves the note where it is, so a refused delete simply
+  // looks like nothing happened rather than losing the tag from the view.
+  function deleteTag(id){
+    return fetch('/api/nfc/board/delete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'id=' + encodeURIComponent(id)
+    }).then(function(response){
+      return response.json().catch(function(){ return {}; }).then(function(body){
+        if (!response.ok || !body.ok) return false;
+        window.setTimeout(function(){
+          if (!listEl.querySelector('.tag-note')) emptyEl.hidden = false;
+        }, 260);
+        return true;
+      });
+    }).catch(function(){ return false; });
+  }
+
   function render(tags, stored, capacity){
-    countEl.textContent = stored + ' / ' + capacity;
     if (!tags.length) { listEl.replaceChildren(); emptyEl.hidden = false; return; }
     emptyEl.hidden = true;
     var wall = document.createDocumentFragment();
@@ -251,23 +268,8 @@
         lastSignature = signature;
         render(d.tags || [], d.stored || 0, d.capacity || 0);
       })
-      .catch(function(){ lastSignature = null; countEl.textContent = 'sin conexión'; });
+      .catch(function(){ lastSignature = null; });
   }
-
-  document.getElementById('refreshBtn').addEventListener('click', function(){
-    lastSignature = null;
-    load();
-  });
-  document.getElementById('clearBtn').addEventListener('click', function(){
-    var ask = window.PortalLocale
-      ? window.PortalLocale.convert('¿Borrar todos los tags del registro NFC?', window.PortalLocale.locale)
-      : '¿Borrar todos los tags del registro NFC?';
-    if (!confirm(ask)) return;
-    lastSignature = null;
-    fetch('/api/nfc/board/clear', {method:'POST'})
-      .then(function(r){ return r.json(); })
-      .then(load).catch(load);
-  });
 
   load();
   setInterval(load, 4000);

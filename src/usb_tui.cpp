@@ -37,8 +37,8 @@ enum class Screen : uint8_t {
   NFC_WRITE,
   NFC_EMULATE,
   NFC_LOG,
-  OFFERINGS,
-  OFFERING_DETAIL,
+  FIELD_NOTES,
+  FIELD_NOTE_DETAIL,
   SYSTEM,
   USB,
   USB_CONTROLS,
@@ -52,8 +52,8 @@ enum class Screen : uint8_t {
   LOGS,
   HELP
 };
-enum class Prompt : uint8_t { NONE, AP_SSID, AP_PASSWORD, HOME_SSID, HOME_PASSWORD, LED_HEX, LED_BRIGHTNESS, LED_SPEED, NFC_TEXT, NFC_URL, EMU_TEXT, EMU_URL, OFFERING };
-enum class Action : uint8_t { NONE, SWITCH_AP, SWITCH_HOME, SAVE_AP, TOGGLE_AP_HIDDEN, SAVE_HOME, NFC_WRITE_TEXT, NFC_WRITE_URL, EMU_TEXT, EMU_URL, NFC_WIFI, CLEAR_BOARD, CLEAR_NFC_LOG, REBOOT, POST_OFFERING, RUN_PAYLOAD, RUN_BADUSB_PAYLOAD, USB_POWER_OFF };
+enum class Prompt : uint8_t { NONE, AP_SSID, AP_PASSWORD, HOME_SSID, HOME_PASSWORD, LED_HEX, LED_BRIGHTNESS, LED_SPEED, NFC_TEXT, NFC_URL, EMU_TEXT, EMU_URL, FIELD_NOTE };
+enum class Action : uint8_t { NONE, SWITCH_AP, SWITCH_HOME, SAVE_AP, TOGGLE_AP_HIDDEN, SAVE_HOME, NFC_WRITE_TEXT, NFC_WRITE_URL, EMU_TEXT, EMU_URL, NFC_WIFI, CLEAR_BOARD, CLEAR_NFC_LOG, REBOOT, POST_FIELD_NOTE, RUN_PAYLOAD, RUN_BADUSB_PAYLOAD, USB_POWER_OFF };
 
 struct LogLine { char module[12]; char text[LOG_LINE_LENGTH]; uint32_t at; };
 LogLine logs[LOG_CAPACITY] = {};
@@ -107,8 +107,8 @@ const char *screenName(Screen value) {
     case Screen::NFC_WRITE: return tr("NFC // ESCRIBIR", "NFC // WRITE");
     case Screen::NFC_EMULATE: return tr("NFC // EMULAR", "NFC // EMULATE");
     case Screen::NFC_LOG: return tr("NFC // REGISTRO", "NFC // LOG");
-    case Screen::OFFERINGS: return "FIELD NOTES";
-    case Screen::OFFERING_DETAIL: return "FIELD NOTE";
+    case Screen::FIELD_NOTES: return tr("NOTAS DE CAMPO", "FIELD NOTES");
+    case Screen::FIELD_NOTE_DETAIL: return tr("NOTA DE CAMPO", "FIELD NOTE");
     case Screen::SYSTEM: return tr("SISTEMA // SYSTEM", "SYSTEM");
     case Screen::USB: return tr("USB // HERRAMIENTAS", "USB TOOLS");
     case Screen::USB_CONTROLS: return tr("USB // CONTROL DEL HOST", "USB // HOST CONTROLS");
@@ -128,7 +128,7 @@ const char *screenName(Screen value) {
 // The portal's Terminal page is a second window onto this console, not a
 // console of its own: same globals, same screen, same staged input. What it
 // shows is therefore the byte stream the cable receives rather than a second
-// rendering of it, so ANSI colour and the offering photo previews arrive in
+// rendering of it, so ANSI colour and the note photo previews arrive in
 // the browser exactly as they arrive in minicom.
 constexpr size_t MIRROR_CAPACITY = 8192;
 constexpr uint32_t MIRROR_IDLE_MS = 15000;
@@ -382,63 +382,115 @@ void renderBoardImagePreview(uint32_t postId) {
   }
 }
 
-// Spanish is the badge's source language, so the NFC, network and board
-// subsystems hand back Spanish status lines and errors no matter which
+// English is the badge's source language, so the NFC, network and board
+// subsystems hand back English status lines and errors no matter which
 // language the terminal is in. data/locale.js does the same job for the web
-// portal; the English column here matches it word for word so both surfaces
-// say the same thing.
-struct Phrase { const char *spanish; const char *english; };
+// portal; the Spanish column here matches it word for word so both surfaces
+// say the same thing. A phrase with no row here simply stays English in a
+// Spanish session, which is the harmless direction to fail in.
+struct Phrase { const char *english; const char *spanish; };
 
 const Phrase phrases[] = {
-    {"Lector listo. Elige una acción y acerca un tag.", "Reader ready. Pick an action and present a tag."},
-    {"Tag detectado. Procesando…", "Tag detected. Processing…"},
-    {"Listo para leer", "Ready to read"},
-    {"Emulación activa", "Emulating"},
-    {"Emulación parada", "Emulation stopped"},
-    {"Ofrenda NFC encendida. Cada tag que se lea se va a las ofrendas.", "NFC Offering on. Every tag read joins the offerings."},
-    {"Ofrenda NFC apagada.", "NFC Offering off."},
-    {"Escaneo automático encendido. Cada tag que se lea va al registro NFC.", "Auto-scan on. Every tag read goes to the NFC log."},
-    {"Escaneo automático apagado.", "Auto-scan off."},
-    {"El escaneo automático se apagó para emular.", "Auto-scan switched off for emulation."},
-    {"Tag guardado en el registro NFC.", "Tag saved to the NFC log."},
-    {"Tag sin datos; su UID quedó en el registro NFC.", "Tag had no data; its UID stayed in the NFC log."},
-    {"El PN532 no ha iniciado.", "The PN532 has not started."},
-    {"El lector PN532 no está disponible.", "The PN532 reader is unavailable."},
-    {"El PN532 no volvió al modo lector.", "The PN532 did not return to reader mode."},
-    {"El PN532 no está disponible para pasar Wi-Fi.", "The PN532 is unavailable for Wi-Fi sharing."},
-    {"No se encontró el PN532. Revisa corriente, SPI y cables.", "PN532 not found. Check power, SPI and wiring."},
-    {"Falló el inicio del PN532.", "The PN532 failed to start."},
-    {"Falló la configuración SAM del PN532.", "PN532 SAM configuration failed."},
-    {"Falló la configuración de reintentos del PN532.", "PN532 retry configuration failed."},
-    {"No arrancó la tarea NFC.", "The NFC task did not start."},
-    {"No arrancó la sincronización NFC.", "NFC synchronisation did not start."},
-    {"Para la emulación antes de leer o escribir otro tag.", "Stop emulation before reading or writing another tag."},
-    {"Ya hay otra acción NFC esperando un tag.", "Another NFC action is already waiting for a tag."},
-    {"Espera a que termine la acción NFC.", "Wait for the NFC action to finish."},
-    {"Espera a que termine la acción del tag.", "Wait for the tag action to finish."},
-    {"Se vio memoria Type 2, pero sin contenedor válido.", "Type 2 memory seen, but no valid container."},
-    {"Los ajustes guardados no están disponibles.", "Saved settings are unavailable."},
-    {"No se pudo abrir NVS para guardar el ajuste del punto de acceso.", "Could not open NVS to save the access-point setting."},
-    {"No se pudo guardar el ajuste del punto de acceso.", "Could not save the access-point setting."},
-    {"No se pudo abrir NVS para guardar el idioma.", "Could not open NVS to save the language."},
-    {"No se pudo guardar el idioma.", "Could not save the language."},
-    {"No se pudo abrir NVS para guardar el Wi-Fi.", "Could not open NVS to save the Wi-Fi."},
-    {"La contraseña nueva no se pudo guardar.", "The new password could not be saved."},
-    {"El ajuste de SSID oculto no se pudo guardar.", "The hidden-SSID setting could not be saved."},
-    {"No se pudo abrir NVS para guardar el Wi-Fi guardado.", "Could not open NVS to save saved Wi-Fi."},
-    {"El Wi-Fi guardado no se pudo guardar.", "Saved Wi-Fi could not be saved."},
-    {"La contraseña debe tener 8 a 63 caracteres.", "The password must be 8 to 63 characters."},
-    {"El SSID guardado debe tener 1 a 32 bytes sin controles.", "The saved Wi-Fi SSID must be 1 to 32 bytes with no control characters."},
-    {"Usa ASCII visible. Letras con acento y emoji no caben en la clave WPA2.", "Use visible ASCII. Accents and emoji do not fit in a WPA2 password."},
-    {"El tablero no está disponible.", "The board is unavailable."},
-    {"Dibuja, escribe o haz las dos.", "Draw, write, or do both."},
-    {"No se pudo guardar la ofrenda.", "The offering could not be saved."},
+    {"Reader ready. Pick an action and present a tag.", "Lector listo. Elige una acción y acerca un tag."},
+    {"Tag detected. Processing…", "Tag detectado. Procesando…"},
+    {"Ready to read", "Listo para leer"},
+    {"Emulating", "Emulación activa"},
+    {"Emulation stopped", "Emulación parada"},
+    {"Auto-scan on. Every tag read goes to the NFC log.", "Escaneo automático encendido. Cada tag que se lea va al registro NFC."},
+    {"Auto-scan off.", "Escaneo automático apagado."},
+    {"Tag saved to the NFC log.", "Tag guardado en el registro NFC."},
+    {"Tag had no data; its UID stayed in the NFC log.", "Tag sin datos; su UID quedó en el registro NFC."},
+    {"The NFC reader has not started.", "El lector NFC no ha iniciado."},
+    {"The NFC reader is not available.", "El lector NFC no está disponible."},
+    {"The PN532 did not return to reader mode.", "El PN532 no volvió al modo lector."},
+    {"The PN532 is unavailable for Wi-Fi sharing.", "El PN532 no está disponible para pasar Wi-Fi."},
+    {"PN532 not found. Check power, SPI and wiring.", "No se encontró el PN532. Revisa corriente, SPI y cables."},
+    {"The PN532 failed to start.", "Falló el inicio del PN532."},
+    {"PN532 SAM configuration failed.", "Falló la configuración SAM del PN532."},
+    {"PN532 retry configuration failed.", "Falló la configuración de reintentos del PN532."},
+    {"The NFC task did not start.", "No arrancó la tarea NFC."},
+    {"NFC synchronisation did not start.", "No arrancó la sincronización NFC."},
+    {"Stop acting as a tag before reading or writing another one.", "Deja de actuar como tag antes de leer o escribir otro."},
+    {"Another NFC action is already waiting for a tag.", "Ya hay otra acción NFC esperando un tag."},
+    {"Wait for the NFC action to finish.", "Espera a que termine la acción NFC."},
+    {"Wait for the tag action to finish.", "Espera a que termine la acción del tag."},
+    {"Type 2 memory seen, but no valid container.", "Se vio memoria Type 2, pero sin contenedor válido."},
+    {"Saved settings are unavailable.", "Los ajustes guardados no están disponibles."},
+    {"Could not open NVS to save the access-point setting.", "No se pudo abrir NVS para guardar el ajuste del punto de acceso."},
+    {"Could not save the access-point setting.", "No se pudo guardar el ajuste del punto de acceso."},
+    {"Could not open NVS to save the language.", "No se pudo abrir NVS para guardar el idioma."},
+    {"Could not save the language.", "No se pudo guardar el idioma."},
+    {"Could not open NVS to save the Wi-Fi.", "No se pudo abrir NVS para guardar el Wi-Fi."},
+    {"The new password could not be saved.", "La contraseña nueva no se pudo guardar."},
+    {"The hidden-SSID setting could not be saved.", "El ajuste de SSID oculto no se pudo guardar."},
+    {"Could not open NVS to save saved Wi-Fi.", "No se pudo abrir NVS para guardar el Wi-Fi guardado."},
+    {"Saved Wi-Fi could not be saved.", "El Wi-Fi guardado no se pudo guardar."},
+    {"The password must be 8 to 63 characters.", "La contraseña debe tener 8 a 63 caracteres."},
+    {"The saved Wi-Fi SSID must be 1 to 32 bytes with no control characters.", "El SSID guardado debe tener 1 a 32 bytes sin controles."},
+    {"Use visible ASCII. Accents and emoji do not fit in a WPA2 password.", "Usa ASCII visible. Letras con acento y emoji no caben en la clave WPA2."},
+    {"The board is unavailable.", "El tablero no está disponible."},
+    {"Draw, write, or do both.", "Dibuja, escribe o haz las dos."},
+    {"The note could not be saved.", "No se pudo guardar la nota."},
+    {"Hold an NFC tag to the reader on the PCB to read it.", "Acerca un tag NFC al lector del PCB para leerlo."},
+    {"Hold a Type 2 tag to save the text.", "Acerca un tag Type 2 para guardar el texto."},
+    {"Hold a Type 2 tag to save the URL.", "Acerca un tag Type 2 para guardar la URL."},
+    {"Hold a writable Type 2 tag to save the text.", "Acerca un tag Type 2 que se pueda escribir para guardar el texto."},
+    {"Hold a writable Type 2 tag to save the URL.", "Acerca un tag Type 2 que se pueda escribir para guardar la URL."},
+    {"The SSID is empty or longer than 32 bytes.", "El SSID está vacío o pasa de 32 bytes."},
+    {"The content is over the 700-byte limit.", "El contenido pasa el límite de 700 bytes."},
+    {"The Type 2 TLV length is over the tag's capacity.", "El largo TLV Type 2 pasa la capacidad del tag."},
+    {"The NDEF record is too big for this tag.", "El registro NDEF pesa mucho para este tag."},
+    {"The Type 4 tag carries an empty NDEF message.", "El tag Type 4 trae un mensaje NDEF vacío."},
+    {"The tag has no user memory.", "El tag no tiene memoria de usuario."},
+    {"The tag answers as Type 2 memory but is not in NDEF format. Its first bytes are shown below.", "El tag responde como memoria Type 2, pero no está en formato NDEF. Abajo salen sus primeros bytes."},
+    {"The tag carries a TLV length larger than its data area.", "El tag trae un largo TLV mayor que su área de datos."},
+    {"This tag reports its NDEF as read-only.", "Este tag dice que su NDEF es solo lectura."},
+    {"This tag is not in NFC Forum Type 2 format. It is not formatted automatically, because that could alter an incompatible chip.", "Este tag no está en formato NFC Forum Type 2. No se formatea solo porque eso podría cambiar un chip incompatible."},
+    {"This tag has no memory to write to.", "Este tag no tiene memoria para escribir."},
+    {"This tag carries an empty NDEF message.", "Este tag trae un mensaje NDEF vacío."},
+    {"The NDEF write to MIFARE Classic failed.", "Falló la escritura NDEF en MIFARE Classic."},
+    {"A MIFARE Classic URL must be 1 to 38 characters after the prefix.", "La URL para MIFARE Classic debe medir entre 1 y 38 caracteres después del prefijo."},
+    {"The NFC action queue is full.", "La cola de acciones NFC está llena."},
+    {"Type something before you start.", "Escribe algo antes de empezar."},
+    {"The content is too big to present.", "El contenido es demasiado grande para presentarlo."},
+    {"Stopping.", "Dejando de actuar como tag."},
+    {"NFC reader detected. Sending the content…", "Lector NFC detectado. Enviando el contenido…"},
+    {"The NFC reader left before it finished.", "El lector NFC se fue antes de terminar."},
+    {"Auto-scan switched off.", "El escaneo automático se apagó."},
+    {"Only 220 characters fit.", "Solo caben 220 caracteres."},
+    {"The badge is not acting as a tag.", "El badge no está actuando como tag."},
+    {"You can only present text or a link.", "Solo puedes presentar texto o un enlace."},
+    {"The Type 2 page is outside the NTAG2xx range.", "La página Type 2 queda fuera del rango NTAG2xx."},
+    {"The MIFARE Classic card answers to neither factory keys nor NDEF; it cannot be formatted for writing.", "La tarjeta MIFARE Classic no responde a llaves de fábrica ni NDEF; no se puede formatear para escritura."},
+    {"Ready. Hold a phone or an NFC reader to the badge.", "Listo. Acerca un teléfono o un lector NFC al badge."},
+    {"The Wi-Fi details do not fit.", "Los datos de Wi-Fi no caben."},
+    {"The Wi-Fi details are not valid.", "Los datos de Wi-Fi no son válidos."},
+    {"MIFARE Classic read.", "MIFARE Classic leído."},
+    {"No tag was detected in 15 seconds.", "No se detectó ningún tag en 15 segundos."},
+    {"No NDEF message was found on the tag.", "No se encontró mensaje NDEF en el tag."},
+    {"The Type 2 capability page could not be read.", "No se pudo leer la página de capacidad Type 2."},
+    {"The NFC action could not be queued.", "No se pudo poner la acción NFC en cola."},
+    {"Could not start acting as a tag.", "No se pudo empezar a actuar como tag."},
+    {"On MIFARE Classic the badge writes URLs only; write text to an NTAG / Ultralight (Type 2) tag.", "Para MIFARE Classic el badge escribe solo URLs; escribe texto en un tag NTAG / Ultralight (Type 2)."},
+    {"Stopping…", "Dejando de actuar como tag…"},
+    {"A reader just read the badge.", "Un lector acaba de leer el badge."},
+    {"The tag was detected, but its Type 2 memory could not be read.", "Se detectó el tag, pero no se pudo leer su memoria Type 2."},
+    {"UTF-16 text was detected; only UTF-8 is shown here.", "Se detectó texto UTF-16; aquí solo se muestra UTF-8."},
+    {"The UID was read. It answered as neither Type 4 nor opened with known MIFARE Classic keys.", "Se leyó el UID. No respondió como Type 4 ni abrió con llaves MIFARE Classic conocidas."},
+    {"The UID was read. It carries no readable Type 2 NDEF and did not answer as Type 4.", "Se leyó el UID. No trae NDEF Type 2 legible ni respondió como Type 4."},
+    {"A Type 4 tag was read, but its NDEF could not be interpreted.", "Se leyó un tag Type 4, pero el NDEF no se pudo interpretar."},
+    {"Type 4 tag read.", "Tag Type 4 leído."},
+    {"Tag read.", "Tag leído."},
+    {"Another NFC action is still being queued.", "Todavía se está poniendo otra acción NFC en cola."},
+    {"Read the tag ID.", "Se leyó el ID del tag."},
+    {"That button action is not valid.", "Acción de botón no válida."},
+    {"The button actions could not be saved.", "No se pudieron guardar las acciones del botón."},
 };
 
 String localized(const String &value) {
-  if (!english || !value.length()) return value;
+  if (english || !value.length()) return value;
   for (const Phrase &phrase : phrases) {
-    if (value == phrase.spanish) return phrase.english;
+    if (value == phrase.english) return phrase.spanish;
   }
   return value;
 }
@@ -500,7 +552,7 @@ void setNotice(const String &message, bool error = false) {
 // The portal has no login of its own: anyone who joins the badge's AP reaches
 // it. So the actions that hand out something nobody can take back -- the saved
 // passphrases, a keystroke payload typed into the attached computer, the
-// offering ring, the host's power state -- answer to the cable only. Nothing
+// field note ring, the host's power state -- answer to the cable only. Nothing
 // is hidden from the page; the refusal simply says where to go instead.
 bool portalMayNot(const char *spanish, const char *englishText) {
   if (!keyFromPortal) return false;
@@ -535,8 +587,8 @@ void renderDashboard() {
   const WifiTuiState wifi = getWifiTuiState();
   const LedTuiState led = getLedTuiState();
   const NfcTuiState nfc = getNfcTuiState();
-  // Nine-wide label column: English "OFFERINGS" is the longest label and
-  // overflowed the old eight-wide field, shunting that one row out of line.
+  // Nine-wide label column: sized for the longest label so no row is shunted
+  // out of line the way an overflowing one used to be.
   tuiPrintf("%-9s %s\n", tr("RED", "NETWORK"), wifi.accessPointActive ? "Santa Muerte AP" : tr("Wi-Fi guardado", "Saved Wi-Fi"));
   if (wifi.accessPointActive) tuiPrintf("%-9s %s  //  10.69.4.20\n", "SSID", wifi.accessPointSsid.c_str());
   // Print "offline" rather than an empty IP field: a failed join used to render
@@ -549,7 +601,7 @@ void renderDashboard() {
   tuiPrintf("%-9s %s  RGB %u,%u,%u  B:%u V:%u\n", "LED",
             ledPatternLabel(led.pattern), led.red, led.green, led.blue,
             led.brightness, led.speed);
-  tuiPrintf("%-9s %s%s\n", "NFC", nfc.readerReady ? tr("listo", "ready") : tr("PN532 fuera", "PN532 offline"), nfc.emulating ? tr(" / emulando", " / emulating") : nfc.captureEnabled ? tr(" / ofrendando", " / capturing") : "");
+  tuiPrintf("%-9s %s%s\n", "NFC", nfc.readerReady ? tr("listo", "ready") : tr("PN532 fuera", "PN532 offline"), nfc.emulating ? tr(" / emulando", " / emulating") : nfc.captureEnabled ? tr(" / escaneando", " / capturing") : "");
   muted(clipped(localized(nfc.message), 64));
   tuiPrintf("%-9s %u / %u %s // %u %s\n", "NOTES", boardStoredCount(),
             boardCapacity(), tr("textos", "texts"), boardImageCapacity(),
@@ -559,7 +611,7 @@ void renderDashboard() {
   tuiPrintf("%-9s %u KB %s // %u KB // %lus\n", tr("MEMORIA", "MEMORY"), ESP.getFreeHeap() / 1024, tr("libres", "free"), ESP.getMaxAllocHeap() / 1024, millis() / 1000);
   tuiPrintf("%-9s %s\n", "HID", usbHidStatusLine().c_str());
   out.println();
-  tuiLine("1 Field Notes");
+  tuiLine(tr("1 Notas de Campo", "1 Field Notes"));
   tuiLine(tr("2 Herramientas LED", "2 LED Tools"));
   tuiLine(tr("3 Herramientas NFC", "3 NFC Tools"));
   tuiLine(tr("4 Herramientas USB", "4 USB Tools"));
@@ -786,7 +838,7 @@ void renderNfcEmulate() {
   tuiLine(tr("2 Emular URL", "2 Emulate URL"));
 }
 
-void renderOfferings() {
+void renderFieldNotes() {
   tuiPrintf("%u / %u %s // %s %u %s\n\n", boardStoredCount(),
             boardCapacity(), tr("notas guardadas", "stored notes"),
             tr("ring", "ring"), boardImageCapacity(),
@@ -812,7 +864,7 @@ void renderOfferings() {
   tuiLine(tr("2 Borrar todas las notas", "2 Clear all Field Notes"));
 }
 
-void renderOfferingDetail() {
+void renderFieldNoteDetail() {
   BoardPost post;
   if (!selectedPostId || !findBoardPost(selectedPostId, post)) {
     muted(tr("Esta nota ya no está guardada.", "This note is no longer stored."));
@@ -922,7 +974,7 @@ void renderUsbProfile() {
   const UsbDriveState drive = getUsbDriveState();
   tuiPrintf("%-9s %s\n\n", "ACTIVO",
             profile == UsbDeviceProfile::NETWORK ? tr("WiFi Tethering", "WiFi Tethering")
-                                                 : tr("Unidad Field Notes", "Field Notes Drive"));
+                                                 : tr("Unidad Notas de Campo", "Field Notes Drive"));
   tuiLine(tr("1 WiFi Tethering: Serial + NCM", "1 WiFi Tethering: Serial + NCM"));
   tuiLine(tr("2 Unidad: Serial + HID + almacenamiento solo lectura", "2 Drive: Serial + HID + read-only storage"));
   if (profile == UsbDeviceProfile::DRIVE) {
@@ -953,7 +1005,7 @@ void renderUsbNetwork() {
            "Shares saved Wi-Fi with the attached computer through NCM."));
   muted(tr("El puente sigue al Wi-Fi guardado: no hay nada que iniciar.",
            "The bridge follows saved Wi-Fi; there is nothing to start."));
-  muted(tr("Mantén BOOT para salir a la Unidad Field Notes.",
+  muted(tr("Mantén BOOT para salir a la Unidad Notas de Campo.",
            "Hold BOOT to leave for the Field Notes Drive."));
 }
 
@@ -1067,8 +1119,8 @@ void render() {
     case Screen::NFC_WRITE: renderNfcWrite(); break;
     case Screen::NFC_EMULATE: renderNfcEmulate(); break;
     case Screen::NFC_LOG: renderNfcLog(); break;
-    case Screen::OFFERINGS: renderOfferings(); break;
-    case Screen::OFFERING_DETAIL: renderOfferingDetail(); break;
+    case Screen::FIELD_NOTES: renderFieldNotes(); break;
+    case Screen::FIELD_NOTE_DETAIL: renderFieldNoteDetail(); break;
     case Screen::SYSTEM: renderSystem(); break;
     case Screen::USB: renderUsbTools(); break;
     case Screen::USB_CONTROLS: renderUsbControls(); break;
@@ -1120,7 +1172,7 @@ bool parseHex(const String &value, int &r, int &g, int &b) {
 
 // Everything the console can do. A menu selection is already an instruction,
 // so it is carried out where it is made. The exceptions are the three that
-// cost work nobody can get back: erasing the offering ring, rebooting the
+// cost work nobody can get back: erasing the field note ring, rebooting the
 // badge, and powering off the attached computer all stop to ask first.
 void performAction(Action action) {
   String error;
@@ -1169,7 +1221,7 @@ void performAction(Action action) {
     }
     case Action::CLEAR_BOARD: ok = clearBoard(); break;
     case Action::CLEAR_NFC_LOG: ok = clearNfcLog(); break;
-    case Action::POST_OFFERING:
+    case Action::POST_FIELD_NOTE:
       ok = addBoardPost(stagedA, 0, nullptr, 0, error, USB_CONSOLE_AUTHOR_ID);
       break;
     case Action::RUN_PAYLOAD: ok = usbHidRunPayload(stagedA, error); break;
@@ -1212,10 +1264,10 @@ void completePrompt() {
   else if (prompt == Prompt::NFC_URL) { stagedA = input; prompt = Prompt::NONE; performAction(Action::NFC_WRITE_URL); }
   else if (prompt == Prompt::EMU_TEXT) { stagedA = input; prompt = Prompt::NONE; performAction(Action::EMU_TEXT); }
   else if (prompt == Prompt::EMU_URL) { stagedA = input; prompt = Prompt::NONE; performAction(Action::EMU_URL); }
-  else if (prompt == Prompt::OFFERING) {
+  else if (prompt == Prompt::FIELD_NOTE) {
     stagedA = input;
     prompt = Prompt::NONE;
-    performAction(Action::POST_OFFERING);
+    performAction(Action::POST_FIELD_NOTE);
   }
   needsRedraw = true;
 }
@@ -1277,16 +1329,16 @@ void handleScreenKey(char key) {
     if (key == '1') setNotice(queueNfcRead() ? tr("Lectura en cola. Acerca un tag.", "Read queued. Present a tag.") : tr("No se pudo iniciar lectura.", "Could not start the read."), false);
     else if (key == '2') beginPrompt(Prompt::NFC_TEXT, tr("Texto para escribir", "Text to write"));
     else if (key == '3') beginPrompt(Prompt::NFC_URL, tr("URL para escribir", "URL to write"));
-    else if (key == '4') { const bool next = !isNfcCaptureEnabled(); setNotice(setNfcCaptureEnabled(next) ? next ? tr("NFC Offering encendida.", "NFC Offering on.") : tr("NFC Offering apagada.", "NFC Offering off.") : tr("No se pudo cambiar NFC Offering.", "Could not change NFC Offering."), false); }
+    else if (key == '4') { const bool next = !isNfcCaptureEnabled(); setNotice(setNfcCaptureEnabled(next) ? next ? tr("Escaneo automático encendido.", "Auto-scan on.") : tr("Escaneo automático apagado.", "Auto-scan off.") : tr("No se pudo cambiar el escaneo automático.", "Could not change auto-scan."), false); }
     else if (key == '5') beginPrompt(Prompt::EMU_TEXT, tr("Texto para emular", "Text to emulate"));
     else if (key == '6') beginPrompt(Prompt::EMU_URL, tr("URL para emular", "URL to emulate"));
     else if (key == '7') performAction(Action::NFC_WIFI);
-    else if (key == '8') setNotice(stopNfcTagEmulation() ? tr("Parando emulación.", "Stopping emulation.") : tr("No se pudo parar.", "Could not stop."), false);
+    else if (key == '8') setNotice(stopNfcTagEmulation() ? tr("Dejando de actuar como tag.", "Stopping.") : tr("No se pudo parar.", "Could not stop."), false);
   } else if (screen == Screen::NFC_LOG) {
     if (key == '1') beginConfirm(Action::CLEAR_NFC_LOG,
                                  tr("Borrar el registro NFC", "Clear the NFC Log"));
-  } else if (screen == Screen::OFFERINGS) {
-    if (key == '1') beginPrompt(Prompt::OFFERING,
+  } else if (screen == Screen::FIELD_NOTES) {
+    if (key == '1') beginPrompt(Prompt::FIELD_NOTE,
                                  tr("Texto de la nota", "Field Note text"));
     else if (key == '2') beginConfirm(Action::CLEAR_BOARD,
                                       tr("Borrar todas las notas", "Clear all Field Notes"));
@@ -1324,7 +1376,7 @@ void handleScreenKey(char key) {
 
 void handleDashboardSelection(int selection) {
   switch (selection) {
-    case 1: screen = Screen::OFFERINGS; break;
+    case 1: screen = Screen::FIELD_NOTES; break;
     case 2: screen = Screen::LED; break;
     case 3: screen = Screen::NFC; break;
     case 4: screen = Screen::USB; break;
@@ -1502,9 +1554,9 @@ void handleScreenSelection(int selection) {
     return;
   }
 
-  if (screen == Screen::OFFERINGS) {
+  if (screen == Screen::FIELD_NOTES) {
     if (selection == 1) {
-      beginPrompt(Prompt::OFFERING, tr("Texto de la nota", "Field Note text"));
+      beginPrompt(Prompt::FIELD_NOTE, tr("Texto de la nota", "Field Note text"));
     } else if (selection == 2) {
       beginConfirm(Action::CLEAR_BOARD,
                    tr("Borrar todas las notas", "Clear all Field Notes"));
@@ -1715,8 +1767,8 @@ void handleCommand(const String &value) {
     } else if (screen == Screen::NFC_MODE || screen == Screen::NFC_WRITE ||
                screen == Screen::NFC_EMULATE) {
       screen = Screen::NFC;
-    } else if (screen == Screen::OFFERING_DETAIL) {
-      screen = Screen::OFFERINGS;
+    } else if (screen == Screen::FIELD_NOTE_DETAIL) {
+      screen = Screen::FIELD_NOTES;
     } else if (screen == Screen::USB_BUTTON_SHORT ||
                screen == Screen::USB_BUTTON_LONG) {
       screen = Screen::USB_BUTTON;
@@ -1732,13 +1784,13 @@ void handleCommand(const String &value) {
     return;
   }
 
-  if (screen == Screen::OFFERINGS) {
+  if (screen == Screen::FIELD_NOTES) {
     uint32_t postId = 0;
     if (parseBoardPostId(commandText, postId)) {
       BoardPost post;
       if (findBoardPost(postId, post)) {
         selectedPostId = postId;
-        screen = Screen::OFFERING_DETAIL;
+        screen = Screen::FIELD_NOTE_DETAIL;
       } else {
         setNotice(tr("No se encontró esa nota.", "That Field Note was not found."),
                   true);

@@ -47,5 +47,10 @@ bool nfcLogRecord(const uint8_t *uid, uint8_t uidLength, const String &tagType,
 // false once no further entry remains.
 bool nfcLogReadNext(uint32_t &beforeId, NfcLogEntry &entry);
 
+// Retires one tag by the lastSeenId the web layer reports. Returns false when
+// the log is unavailable or no live entry carries that id. Seeing the same UID
+// again afterwards records it afresh, with its hit count back at one.
+bool deleteNfcLogEntry(uint32_t lastSeenId);
+
 // Empties the board.
 bool clearNfcLog();

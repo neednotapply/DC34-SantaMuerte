@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es-MX" translate="no">
+<html lang="en-US" translate="no">
 <head>
   <meta charset="utf-8">
   <!-- The portal carries its own ES/EN layer, so a browser translating on top
@@ -10,9 +10,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#151615">
   <title>Santa Muerte // LED Tools</title>
-  <link rel="stylesheet" href="theme.css?v=30">
+  <link rel="stylesheet" href="theme.css?v=46">
   <link rel="icon" type="image/png" href="assets/logo-candle.png">
-  <script src="locale.js?v=27"></script>
+  <script src="locale.js?v=35"></script>
   <style>
     :root {
       color-scheme: dark;
@@ -41,7 +41,7 @@
     }
     button,input{font:inherit}
     button{color:inherit}
-    .wrap{width:min(1120px,100%);margin:auto;padding:22px 16px 46px}
+    .wrap{margin:auto;padding:22px 16px 46px}
     header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:4px 2px 22px}
     .brand{display:flex;align-items:center;gap:13px}
     .logo{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(145deg,var(--accent),var(--accent2));box-shadow:0 10px 32px var(--glow);font-weight:900;letter-spacing:-1px}
@@ -155,36 +155,38 @@
   <div class="wrap">
     <header class="saint-header">
       <details class="nav-menu">
-        <summary aria-label="Abrir menú">
+        <summary aria-label="Open menu">
           <img class="brand-mark" src="assets/logo-candle.png" alt="">
         </summary>
-        <nav class="nav-menu-list" aria-label="Navegación del badge">
+        <nav class="nav-menu-list" aria-label="Badge navigation">
           <a href="/notes">Field Notes</a>
+          <a href="/led">LED Tools</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/nfc-log">Registro NFC</a>
-          <a href="/usb">Herramientas USB</a>
+          <a href="/nfc-log">NFC Log</a>
+          <a href="/usb">USB Tools</a>
           <a href="/ducky">DuckyScript</a>
           <a href="/badusb">BadUSB</a>
           <a href="/terminal">Terminal</a>
-          <a href="/network">Red</a>
+          <a href="/network">Network</a>
         </nav>
       </details>
       <div class="header-page-title">
         <h1>LED Tools</h1>
       </div>
       <details class="nav-menu nav-menu--right">
-        <summary aria-label="Abrir menú">
+        <summary aria-label="Open menu">
           <img class="brand-mark" src="assets/logo-candle.png" alt="">
         </summary>
-        <nav class="nav-menu-list" aria-label="Navegación del badge">
+        <nav class="nav-menu-list" aria-label="Badge navigation">
           <a href="/notes">Field Notes</a>
+          <a href="/led">LED Tools</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/nfc-log">Registro NFC</a>
-          <a href="/usb">Herramientas USB</a>
+          <a href="/nfc-log">NFC Log</a>
+          <a href="/usb">USB Tools</a>
           <a href="/ducky">DuckyScript</a>
           <a href="/badusb">BadUSB</a>
           <a href="/terminal">Terminal</a>
-          <a href="/network">Red</a>
+          <a href="/network">Network</a>
         </nav>
       </details>
     </header>
@@ -192,57 +194,57 @@
       <section class="card art-card">
         <div class="preview">
           <div id="connectionStatus" class="status checking preview-status" role="status" aria-live="polite">
-            <span class="dot" aria-hidden="true"></span><span id="connectionText">Revisando…</span>
+            <span class="dot" aria-hidden="true"></span><span id="connectionText">Loading…</span>
           </div>
           <svg id="badge" class="badge" viewBox="0 0 208 287" role="img"
-               aria-label="Las once luces del badge sobre la figura">
+               aria-label="The badge&#x27;s eleven lights on the figure">
             <defs id="ledDefs"></defs>
             <image class="badge-art" href="assets/badge-figure.png"
                    x="0" y="0" width="208" height="287"/>
             <g id="leds" transform="matrix(0.241181 0.007313 -0.009401 0.250063 -75.2337 -29.5942)"></g>
           </svg>
-          <div id="previewLabel" class="preview-label">Ola morada</div>
+          <div id="previewLabel" class="preview-label">Purple wave</div>
         </div>
       </section>
 
       <section class="card card-pad color-card">
-        <h2>Rueda de color</h2>
+        <h2>Color wheel</h2>
         <div class="wheel-layout">
           <div id="wheelWrap" class="wheel-wrap">
             <canvas id="wheel" width="500" height="500"></canvas>
             <div id="marker"></div>
           </div>
           <div class="color-info">
-            <div class="hex-row"><div id="swatch" class="swatch"></div><input id="hex" class="hex" maxlength="7" value="#A624FF" aria-label="Color hexadecimal"></div>
+            <div class="hex-row"><div id="swatch" class="swatch"></div><input id="hex" class="hex" maxlength="7" value="#A624FF" aria-label="Hex color"></div>
             <div class="preset-row">
-              <button class="preset" data-color="#FF315C" style="--preset:#ff315c" aria-label="Rojo"></button>
-              <button class="preset" data-color="#FF8A1F" style="--preset:#ff8a1f" aria-label="Naranja"></button>
-              <button class="preset" data-color="#FFE347" style="--preset:#ffe347" aria-label="Amarillo"></button>
-              <button class="preset" data-color="#42E58B" style="--preset:#42e58b" aria-label="Verde"></button>
-              <button class="preset" data-color="#24C7FF" style="--preset:#24c7ff" aria-label="Cian"></button>
-              <button class="preset" data-color="#5078FF" style="--preset:#5078ff" aria-label="Azul"></button>
-              <button class="preset" data-color="#A624FF" style="--preset:#a624ff" aria-label="Morado"></button>
-              <button class="preset" data-color="#FF3EA5" style="--preset:#ff3ea5" aria-label="Rosa"></button>
-              <button class="preset" data-color="#FFFFFF" style="--preset:#fff" aria-label="Blanco"></button>
+              <button class="preset" data-color="#FF315C" style="--preset:#ff315c" aria-label="Red"></button>
+              <button class="preset" data-color="#FF8A1F" style="--preset:#ff8a1f" aria-label="Orange"></button>
+              <button class="preset" data-color="#FFE347" style="--preset:#ffe347" aria-label="Yellow"></button>
+              <button class="preset" data-color="#42E58B" style="--preset:#42e58b" aria-label="Green"></button>
+              <button class="preset" data-color="#24C7FF" style="--preset:#24c7ff" aria-label="Cyan"></button>
+              <button class="preset" data-color="#5078FF" style="--preset:#5078ff" aria-label="Blue"></button>
+              <button class="preset" data-color="#A624FF" style="--preset:#a624ff" aria-label="Purple"></button>
+              <button class="preset" data-color="#FF3EA5" style="--preset:#ff3ea5" aria-label="Pink"></button>
+              <button class="preset" data-color="#FFFFFF" style="--preset:#fff" aria-label="White"></button>
             </div>
           </div>
         </div>
 
         <div class="section-gap">
-          <h2>Animación</h2>
+          <h2>Animation</h2>
           <div class="control">
-            <div class="control-head"><span>Brillo</span><span id="brightnessValue" class="value">63%</span></div>
+            <div class="control-head"><span>Brightness</span><span id="brightnessValue" class="value">63%</span></div>
             <input id="brightness" type="range" min="0" max="255" value="160">
           </div>
           <div class="control">
-            <div class="control-head"><span>Velocidad</span><span id="speedValue" class="value">55%</span></div>
+            <div class="control-head"><span>Speed</span><span id="speedValue" class="value">55%</span></div>
             <input id="speed" type="range" min="1" max="100" value="55">
           </div>
         </div>
       </section>
 
       <section class="card card-pad anims-card">
-        <h2>Animaciones</h2>
+        <h2>Animations</h2>
         <div class="anims" id="patterns"></div>
       </section>
     </main>
@@ -251,7 +253,7 @@
       <div class="footer-language"></div>
     </footer>
   </div>
-  <div id="toast" class="toast">Ajustes guardados</div>
+  <div id="toast" class="toast">Settings saved</div>
 
 <script>
 (() => {
@@ -267,47 +269,47 @@
   // on this badge that is the interesting part -- ARO is the halo ring, MANOS
   // the three over the praying hands.
   const CATALOGUE = [
-    ['Despertar', [
-      ['ofrenda',   'Ofrenda',    'todo'],
+    ['Wake', [
+      ['ofrenda',   'Offering',    'all'],
     ]],
-    ['Color propio', [
-      ['solid',     'Fijo',       'todo'],
-      ['pulse',     'Pulso',      'todo'],
-      ['aureola',   'Aureola',    'todo'],
-      ['corona',    'Corona',     'aro'],
-      ['encuentro', 'Encuentro',  'aro'],
-      ['escaner',   'Escáner',    'aro'],
-      ['chase',     'Carrera',    'todo'],
-      ['manos',     'Manos',      'manos'],
-      ['theater',   'Teatro',     'todo'],
-      ['twinkle',   'Destello',   'todo'],
+    ['Custom colour', [
+      ['solid',     'Solid',       'all'],
+      ['pulse',     'Pulse',      'all'],
+      ['aureola',   'Aperture',    'all'],
+      ['corona',    'Crown',     'ring'],
+      ['encuentro', 'Collide',  'ring'],
+      ['escaner',   'Scanner',    'ring'],
+      ['chase',     'Chase',    'all'],
+      ['hands',     'Hands',      'hands'],
+      ['theater',   'Theater',     'all'],
+      ['twinkle',   'Twinkle',   'all'],
     ]],
-    ['Rituales lentos', [
-      ['candle',    'Vela',       'todo'],
-      ['breath',    'Respira',    'todo'],
-      ['embers',    'Brasas',     'todo'],
-      ['tide',      'Marea',      'aro'],
-      ['vigil',     'Vigilia',    'aro'],
-      ['comet',     'Cometa',     'aro'],
-      ['rosary',    'Rosario',    'aro'],
-      ['veil',      'Velo',       'todo'],
+    ['Slow rituals', [
+      ['candle',    'Candle',       'all'],
+      ['breath',    'Breathe',    'all'],
+      ['embers',    'Embers',     'all'],
+      ['tide',      'Tide',      'ring'],
+      ['vigil',     'Vigil',    'ring'],
+      ['comet',     'Comet',     'ring'],
+      ['rosary',    'Rosary',    'ring'],
+      ['veil',      'Veil',       'all'],
     ]],
-    ['Multicolor', [
-      ['rainbow',   'Arcoíris',   'todo'],
-      ['aurora',    'Ola morada', 'todo'],
-      ['plasma',    'Plasma',     'todo'],
-      ['deriva',    'Deriva',     'aro'],
-      ['prism',     'Prisma',     'todo'],
-      ['sunset',    'Ocaso',      'todo'],
-      ['ocean',     'Océano',     'todo'],
-      ['nebula',    'Nebulosa',   'todo'],
-      ['orbit',     'Órbita',     'aro'],
-      ['bloom',     'Florecer',   'todo'],
-      ['mirage',    'Espejismo',  'todo'],
-      ['cosmos',    'Cosmos',     'todo'],
+    ['Multicolour', [
+      ['rainbow',   'Rainbow',   'all'],
+      ['aurora',    'Purple wave', 'all'],
+      ['plasma',    'Plasma',     'all'],
+      ['deriva',    'Drift',     'ring'],
+      ['prism',     'Prism',     'all'],
+      ['sunset',    'Sunset',      'all'],
+      ['ocean',     'Ocean',     'all'],
+      ['nebula',    'Nebula',   'all'],
+      ['orbit',     'Orbit',     'ring'],
+      ['bloom',     'Bloom',   'all'],
+      ['mirage',    'Mirage',  'all'],
+      ['cosmos',    'Cosmos',     'all'],
     ]],
-    ['Silencio', [
-      ['off',       'Apagado',    '—'],
+    ['Silence', [
+      ['off',       'Off',    '—'],
     ]],
   ];
 
@@ -367,13 +369,13 @@
     if(h<0)h+=360; return {h,s:max===0?0:d/max,v:max};
   }
   function setRangeFill(el){const p=(el.value-el.min)/(el.max-el.min)*100;el.style.setProperty('--fill',`${p}%`)}
-  function toast(msg='Ajustes guardados'){$('#toast').textContent=msg;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),1100)}
+  function toast(msg='Settings saved'){$('#toast').textContent=msg;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),1100)}
 
   function setConnectionStatus(status){
     const badge=$('#connectionStatus'),text=$('#connectionText');
     badge.classList.remove('connected','disconnected','checking');
     badge.classList.add(status);
-    text.textContent=status==='connected'?'Conectado':status==='disconnected'?'Desconectado':'Revisando…';
+    text.textContent=status==='connected'?'Connected':status==='disconnected'?'Disconnected':'Loading…';
   }
 
   async function fetchWithTimeout(url,options={},timeoutMs=2200){
@@ -388,9 +390,9 @@
     connectionCheckActive=true;
     try{
       const res=await fetchWithTimeout('/api/state?_='+Date.now(),{cache:'no-store'});
-      if(!res.ok)throw new Error('El ESP32 no respondió.');
+      if(!res.ok)throw new Error('The badge did not respond.');
       const nextState=await res.json();
-      if(!nextState||typeof nextState!=='object')throw new Error('Respuesta inválida.');
+      if(!nextState||typeof nextState!=='object')throw new Error('The badge sent a reply that could not be understood.');
       setConnectionStatus('connected');
       // The hardware BOOT button changes the same state as these controls. Do
       // not let a just-scheduled local save be overwritten by an older response,
@@ -436,17 +438,17 @@
   // #leds group carries an affine that maps this frame onto the artwork, so the
   // doc stays the single source of truth and radii below stay in scan units.
   const LED_SITES=[
-    {x:509,y:632,name:'halo // hombro izquierdo'},
-    {x:469,y:432,name:'halo // izquierda baja'},
-    {x:509,y:308,name:'halo // izquierda alta'},
-    {x:682,y:197,name:'halo // corona izquierda'},
-    {x:816,y:192,name:'halo // corona derecha'},
-    {x:993,y:303,name:'halo // derecha alta'},
-    {x:1060,y:423,name:'halo // derecha baja'},
-    {x:1016,y:619,name:'halo // hombro derecho'},
-    {x:780,y:958,name:'manos // arriba'},
-    {x:712,y:1078,name:'manos // abajo izquierda'},
-    {x:857,y:1080,name:'manos // abajo derecha'}
+    {x:509,y:632,name:'halo // left shoulder'},
+    {x:469,y:432,name:'halo // lower left'},
+    {x:509,y:308,name:'halo // upper left'},
+    {x:682,y:197,name:'halo // crown left'},
+    {x:816,y:192,name:'halo // crown right'},
+    {x:993,y:303,name:'halo // upper right'},
+    {x:1060,y:423,name:'halo // lower right'},
+    {x:1016,y:619,name:'halo // right shoulder'},
+    {x:780,y:958,name:'hands // top'},
+    {x:712,y:1078,name:'hands // lower left'},
+    {x:857,y:1080,name:'hands // lower right'}
   ];
   // Verified on hardware 2026-09-08 with the identify frames: the halo is
   // strands 0-7 clockwise from the left shoulder, exactly as traced. The two
@@ -544,7 +546,7 @@
     if(document.hidden)return;
     try{
       const res=await fetchWithTimeout('/api/led/pixels',{cache:'no-store'},1200);
-      if(!res.ok)throw new Error('sin pixeles');
+      if(!res.ok)throw new Error('no lights');
       const data=await res.json();
       const hex=String(data.pixels||'');
       const colours=[];
@@ -587,12 +589,12 @@
     stateSendActive=true;
     try{
       const res=await fetchWithTimeout('/api/set?'+q,{cache:'no-store'});
-      if(!res.ok)throw new Error('El ESP32 no aceptó los ajustes.');
+      if(!res.ok)throw new Error('The badge did not accept the settings.');
       setConnectionStatus('connected');
       toast();
     }catch(e){
       setConnectionStatus('disconnected');
-      toast('Se perdió la conexión.');
+      toast('Connection lost.');
     }finally{
       stateSendActive=false;
     }

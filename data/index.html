@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es-MX" translate="no">
+<html lang="en-US" translate="no">
 <head>
   <meta charset="utf-8">
   <!-- The portal carries its own ES/EN layer, so a browser translating on top
@@ -9,10 +9,10 @@
   <meta name="google" content="notranslate">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#151615">
-  <title>Santa Muerte // Red</title>
-  <link rel="stylesheet" href="theme.css?v=30">
+  <title>Santa Muerte // Network</title>
+  <link rel="stylesheet" href="theme.css?v=46">
   <link rel="icon" type="image/png" href="assets/logo-candle.png">
-  <script src="locale.js?v=27"></script>
+  <script src="locale.js?v=35"></script>
   <style>
     :root {
       color-scheme:dark;
@@ -51,8 +51,7 @@
     }
     main{
       position:relative;
-      width:min(680px,100%);
-      margin:0 auto;
+            margin:0 auto;
       display:grid;
       gap:16px;
     }
@@ -242,47 +241,49 @@
   </style>
 </head>
 <body class="dashboard-page">
-  <main aria-label="Red del badge">
-    <header class="saint-header">
+  <main class="block-flow" aria-label="Badge network">
+    <header class="saint-header flow-wide">
       <details class="nav-menu">
-        <summary aria-label="Abrir menú">
+        <summary aria-label="Open menu">
           <img class="brand-mark" src="assets/logo-candle.png" alt="">
         </summary>
-        <nav class="nav-menu-list" aria-label="Navegación del badge">
+        <nav class="nav-menu-list" aria-label="Badge navigation">
           <a href="/notes">Field Notes</a>
           <a href="/led">LED Tools</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/nfc-log">Registro NFC</a>
-          <a href="/usb">Herramientas USB</a>
+          <a href="/nfc-log">NFC Log</a>
+          <a href="/usb">USB Tools</a>
           <a href="/ducky">DuckyScript</a>
           <a href="/badusb">BadUSB</a>
           <a href="/terminal">Terminal</a>
+          <a href="/network">Network</a>
         </nav>
       </details>
-      <div class="header-page-title"><h1>Red</h1></div>
+      <div class="header-page-title"><h1>Network</h1></div>
       <details class="nav-menu nav-menu--right">
-        <summary aria-label="Abrir menú">
+        <summary aria-label="Open menu">
           <img class="brand-mark" src="assets/logo-candle.png" alt="">
         </summary>
-        <nav class="nav-menu-list" aria-label="Navegación del badge">
+        <nav class="nav-menu-list" aria-label="Badge navigation">
           <a href="/notes">Field Notes</a>
           <a href="/led">LED Tools</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/nfc-log">Registro NFC</a>
-          <a href="/usb">Herramientas USB</a>
+          <a href="/nfc-log">NFC Log</a>
+          <a href="/usb">USB Tools</a>
           <a href="/ducky">DuckyScript</a>
           <a href="/badusb">BadUSB</a>
           <a href="/terminal">Terminal</a>
+          <a href="/network">Network</a>
         </nav>
       </details>
     </header>
     <form class="settings" id="wifiForm">
-      <div class="settings-title">Acceso al badge // Wi-Fi</div>
-      <label class="field-label" for="accessPointSsid">Nombre del punto de acceso (SSID)</label>
+      <div class="settings-title">Badge hotspot</div>
+      <label class="field-label" for="accessPointSsid">Hotspot name</label>
       <input id="accessPointSsid" name="ssid" type="text" maxlength="32" autocapitalize="none" spellcheck="false" autocomplete="off" required>
-      <div class="password-help">De 1 a 32 bytes. Guardarlo reinicia el punto de acceso con este nombre.</div>
+      <div class="password-help">1 to 32 characters. Saving restarts the hotspot under the new name.</div>
 
-      <label class="field-label" for="wifiPassword">Contraseña Wi-Fi</label>
+      <label class="field-label" for="wifiPassword">Hotspot password</label>
       <div class="password-row">
         <input
           id="wifiPassword"
@@ -294,23 +295,22 @@
           spellcheck="false"
           autocomplete="off"
           aria-describedby="passwordHelp wifiStatus">
-        <button class="small-button" id="showPassword" type="button">Ver</button>
+        <button class="small-button" id="showPassword" type="button">Show</button>
       </div>
       <div class="password-help" id="passwordHelp">
-        Déjala vacía para una red abierta sin contraseña. Si escribes una, debe
-        tener 8–63 caracteres ASCII.
+        Leave it empty and anyone can join without a password. If you set one, it needs 8 to 63 letters or numbers.
       </div>
 
       <div class="toggle-row">
         <div class="toggle-copy">
-          <strong>Ocultar SSID</strong>
-          <span>Las redes ocultas se escriben a mano.</span>
+          <strong>Hide the hotspot</strong>
+          <span>It will not show up in the list of networks on your phone. You will have to type the name in by hand.</span>
         </div>
         <label class="switch">
           <input
             id="hideSsid"
             type="checkbox"
-            aria-label="Ocultar SSID"
+            aria-label="Hide the hotspot"
             aria-describedby="hiddenSsidWarning">
           <span class="slider"></span>
         </label>
@@ -322,56 +322,55 @@
         role="alert"
         aria-live="assertive"
         hidden>
-        <strong>Ojo: guarda el SSID tal cual aparece arriba.</strong>
-        Si tu teléfono olvida esta red y ya no sabes su SSID, no podrás volver a
-        entrar por Wi-Fi. Toca usar serial o borrar y cargar el badge otra vez.
+        <strong>Heads up: write the name down exactly as it appears above.</strong>
+        If your phone forgets this network and you no longer remember the name, you will not get back in over Wi-Fi: you would have to plug the badge in over USB.
       </div>
 
       <div class="toggle-row">
         <div class="toggle-copy">
-          <strong>Punto de acceso del badge</strong>
-          <span>Modo Santa Muerte. Apágalo para cambiar al Wi-Fi guardado.</span>
+          <strong>Turn the hotspot on</strong>
+          <span>The badge makes its own network. Turn this off to have it join your Wi-Fi instead.</span>
         </div>
         <label class="switch">
-          <input id="accessPointEnabled" type="checkbox" aria-label="Punto de acceso del badge" aria-describedby="accessPointWarning">
+          <input id="accessPointEnabled" type="checkbox" aria-label="Turn the hotspot on" aria-describedby="accessPointWarning">
           <span class="slider"></span>
         </label>
       </div>
       <div class="ssid-warning" id="accessPointWarning" role="alert" aria-live="assertive" hidden>
-        <strong>Ojo: apagarlo desconecta esta página.</strong>
-        El badge cambiará al Wi-Fi guardado. Si no llega, conecta USB y presiona <b>a</b> para volver al modo Santa Muerte.
+        <strong>Heads up: turning this off disconnects this page.</strong>
+        The badge will try to join your Wi-Fi. If it cannot, plug it in over USB and press <b>a</b> to have it make its own network again.
       </div>
 
-      <button class="save-button" id="saveWifi" type="submit">Guardar Wi-Fi</button>
+      <button class="save-button" id="saveWifi" type="submit">Save hotspot</button>
       <div class="status" id="wifiStatus" role="status" aria-live="polite"></div>
     </form>
 
     <form class="settings" id="stationWifiForm">
-      <div class="settings-title">Cambiar al Wi-Fi guardado</div>
+      <div class="settings-title">Join your Wi-Fi</div>
       <div class="station-state" id="stationState" role="status" aria-live="polite">
-        <strong>Wi-Fi guardado sin configurar.</strong>
-        Cuando se conecte, abre <b>http://SantaMuerte.local/</b> o la IP local que sale aquí.
+        <strong>You have not saved a network yet.</strong>
+        Once it connects, open <b>http://SantaMuerte.local/</b> or whatever address shows up here.
       </div>
 
-      <label class="field-label" for="stationSsid">Nombre de red (SSID)</label>
+      <label class="field-label" for="stationSsid">Network name</label>
       <input id="stationSsid" name="ssid" type="text" maxlength="32" autocapitalize="none" spellcheck="false" autocomplete="off" required>
       <div class="scan-row">
-        <button class="small-button" id="scanNetworksBtn" type="button">Buscar redes</button>
+        <button class="small-button" id="scanNetworksBtn" type="button">Scan networks</button>
         <span class="scan-note" id="scanNote"></span>
       </div>
       <div id="scanResults" class="scan-results" hidden></div>
 
-      <label class="field-label" for="stationPassword" style="margin-top:16px">Contraseña de red (opcional)</label>
+      <label class="field-label" for="stationPassword" style="margin-top:16px">Network password (optional)</label>
       <div class="password-row">
         <input id="stationPassword" name="password" type="password" maxlength="63" pattern="[ -~]{8,63}" inputmode="text" autocapitalize="none" spellcheck="false" autocomplete="current-password">
-        <button class="small-button" id="showStationPassword" type="button">Ver</button>
+        <button class="small-button" id="showStationPassword" type="button">Show</button>
       </div>
-      <div class="home-password-help">Déjala vacía para una red abierta. Si usas una contraseña, se guarda en el badge y debe tener 8 a 63 caracteres ASCII visibles.</div>
+      <div class="home-password-help">Leave it empty if the network is open. The password is saved on the badge and needs 8 to 63 letters or numbers.</div>
 
-      <button class="save-button" id="connectStationWifi" type="submit" style="margin-top:16px">Guardar y cambiar de red</button>
+      <button class="save-button" id="connectStationWifi" type="submit" style="margin-top:16px">Save and connect</button>
       <div class="status" id="stationWifiStatus" role="status" aria-live="polite"></div>
     </form>
-    <footer class="saint-footer">
+    <footer class="saint-footer flow-wide">
       <span class="footer-identity">SANTAMUERTE.LOCAL // ESP32 // 10.69.4.20</span>
       <div class="footer-language"></div>
     </footer>
@@ -415,7 +414,7 @@
           const data = await res.json();
           const nets = (data.networks || []);
           if (!nets.length) {
-            scanNote.textContent = t('No se vieron redes.', 'No networks found.');
+            scanNote.textContent = t('No networks found.', 'No networks found.');
             return;
           }
           scanNote.textContent = '';
@@ -437,7 +436,7 @@
             });
           });
         } catch (e) {
-          scanNote.textContent = t('No se pudo buscar.', 'Scan failed.');
+          scanNote.textContent = t('Could not scan.', 'Scan failed.');
         } finally {
           scanBtn.disabled = false;
         }
@@ -477,11 +476,11 @@
     function accessPointPasswordError(value) {
       if (value.length === 0) return '';
       if (value.length < 8 || value.length > 63) {
-        return 'Si usas contraseña, debe tener 8 a 63 caracteres.';
+        return 'A password, if you set one, must be 8 to 63 characters.';
       }
 
       if (!ALLOWED_PASSWORD.test(value)) {
-        return 'Usa ASCII visible. Letras con acento y emoji no caben en la clave WPA2.';
+        return 'Use ordinary letters and numbers only. Accents and emoji do not work in a Wi-Fi password.';
       }
 
       return '';
@@ -490,10 +489,10 @@
     function stationPasswordError(value) {
       if (value.length === 0) return '';
       if (value.length < 8 || value.length > 63) {
-        return 'La contraseña debe tener 8 a 63 caracteres.';
+        return 'The password must be 8 to 63 characters.';
       }
       if (!ALLOWED_PASSWORD.test(value)) {
-        return 'Usa ASCII visible. Letras con acento y emoji no caben en la clave WPA2.';
+        return 'Use ordinary letters and numbers only. Accents and emoji do not work in a Wi-Fi password.';
       }
       return '';
     }
@@ -501,7 +500,7 @@
     function accessPointSsidError(value) {
       const length = new TextEncoder().encode(value).length;
       if (length < 1 || length > 32) return 'El SSID del badge debe tener 1 a 32 bytes.';
-      if (/[\u0000-\u001F\u007F]/.test(value)) return 'El SSID del badge no puede tener caracteres de control.';
+      if (/[\u0000-\u001F\u007F]/.test(value)) return 'The hotspot name has characters that cannot be used.';
       return '';
     }
 
@@ -518,7 +517,7 @@
       }
 
       if (announce) {
-        setStatus(valid ? 'Contraseña válida.' : error, valid ? 'ok' : 'error');
+        setStatus(valid ? 'Valid password.' : error, valid ? 'ok' : 'error');
       }
 
       return valid;
@@ -531,7 +530,7 @@
       if (!contentType.toLowerCase().includes('application/json')) {
         if (/^\s*</.test(responseText)) {
           throw new Error(
-            'Los ajustes de Wi-Fi solo salen al abrir esto desde el badge.'
+            'Wi-Fi settings only appear if you open this page from the badge.'
           );
         }
 
@@ -543,7 +542,7 @@
       try {
         return JSON.parse(responseText);
       } catch {
-        throw new Error('El badge mandó datos de Wi-Fi inválidos.');
+        throw new Error('The badge sent a reply that could not be understood.');
       }
     }
 
@@ -559,7 +558,7 @@
     function stationCredentialError() {
       const ssidLength = new TextEncoder().encode(stationSsidInput.value.trim()).length;
       if (ssidLength < 1 || ssidLength > 32) {
-        return 'El nombre de red debe tener 1 a 32 bytes.';
+        return 'The hotspot name must be 1 to 32 characters.';
       }
       return stationPasswordError(stationPasswordInput.value);
     }
@@ -569,17 +568,17 @@
       const connected = Boolean(state.connected);
       const configured = Boolean(state.configured);
       stationState.className = `station-state ${connected ? 'connected' : configured ? 'connecting' : ''}`.trim();
-      const address = connected ? `http://${state.ip}/` : 'la IP local que sale aquí';
+      const address = connected ? `http://${state.ip}/` : 'the address shown here';
       const dhcpName = state.dhcpHostname || 'SantaMuerte';
       const saved = Array.isArray(state.saved) ? state.saved : [];
       const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-      const savedLine = saved.length ? `<span class="station-detail">${localize('Redes recordadas:')} <b>${saved.map(escapeHtml).join(' // ')}</b></span>` : '';
+      const savedLine = saved.length ? `<span class="station-detail">${localize('Remembered networks:')} <b>${saved.map(escapeHtml).join(' // ')}</b></span>` : '';
       // The status sentence stays whole so the locale table can translate it;
       // the network's name travels separately and is never translated.
       const trialLine = state.trialSsid
-        ? `<span class="station-detail">${localize(state.trial ? 'Probando:' : 'No se guardó:')} <b>${escapeHtml(state.trialSsid)}</b></span>`
+        ? `<span class="station-detail">${localize(state.trial ? 'Testing:' : 'Not saved:')} <b>${escapeHtml(state.trialSsid)}</b></span>`
         : '';
-      stationState.innerHTML = `<strong>${localize(state.status || 'Wi-Fi guardado sin configurar.')}</strong>${localize('Abre el badge en')} <b>http://${hostname}/</b> ${localize('o')} <b>${address}</b>.<span class="station-detail">${localize('Nombre enviado al router:')} <b>${dhcpName}</b></span>${trialLine}${savedLine}`;
+      stationState.innerHTML = `<strong>${localize(state.status || 'You have not saved a network yet.')}</strong>${localize('Open the badge at')} <b>http://${hostname}/</b> ${localize('or')} <b>${address}</b>.<span class="station-detail">${localize('Name sent to the router:')} <b>${dhcpName}</b></span>${trialLine}${savedLine}`;
     }
 
     async function loadStationSettings({quiet = false} = {}) {
@@ -588,14 +587,14 @@
         stationPasswordInput.disabled = true;
         showStationPassword.disabled = true;
         connectStationWifi.disabled = true;
-        renderStationState({status:'Abre esta página desde el badge para conectar un Wi-Fi guardado.'});
+        renderStationState({status:'Open this page from the badge to connect it to your Wi-Fi.'});
         return;
       }
 
       try {
         const response = await fetch('/api/wifi/client', {cache:'no-store'});
         const state = await readJsonResponse(response);
-        if (!response.ok || !state.ok) throw new Error(state.message || 'No cargó el Wi-Fi guardado.');
+        if (!response.ok || !state.ok) throw new Error(state.message || 'Could not read the saved network.');
         // Both fields are left empty on purpose. The connected and remembered
         // networks are already named in the block above, and a form that came
         // back pre-filled with an SSID but a blank password was one stray
@@ -608,7 +607,7 @@
       } catch (error) {
         // A quiet refresh runs in the background, so it must not overwrite a
         // message the reader is in the middle of acting on.
-        if (!quiet) setStationStatus(error.message || 'No cargó el Wi-Fi guardado.', 'error');
+        if (!quiet) setStationStatus(error.message || 'Could not read the saved network.', 'error');
       }
       return null;
     }
@@ -648,7 +647,7 @@
         passwordInput.classList.remove('password-valid', 'password-invalid');
         passwordInput.setAttribute('aria-invalid', 'false');
         setStatus(
-          'Abre esta página desde el badge en 10.69.4.20 para ver o cambiar la red.'
+          'Open this page from the badge at 10.69.4.20 to view or change the network.'
         );
         return;
       }
@@ -657,7 +656,7 @@
         const response = await fetch('/api/wifi/settings', {cache:'no-store'});
         const state = await readJsonResponse(response);
         if (!response.ok || !state.ok) {
-          throw new Error(state.message || 'No cargó la configuración de red.');
+          throw new Error(state.message || 'Could not read the network settings.');
         }
 
         accessPointSsidInput.value = String(state.ssid || '');
@@ -673,7 +672,7 @@
         passwordInput.classList.add('password-invalid');
         passwordInput.setAttribute('aria-invalid', 'true');
         saveButton.disabled = true;
-        setStatus(error.message || 'No cargó la configuración Wi-Fi.', 'error');
+        setStatus(error.message || 'Could not read the Wi-Fi settings.', 'error');
       }
     }
 
@@ -685,7 +684,7 @@
       const enabled = accessPointEnabled.checked;
       updateAccessPointWarning();
       accessPointEnabled.disabled = true;
-      setStatus(enabled ? 'Encendiendo el punto de acceso…' : 'Apagando el punto de acceso…');
+      setStatus(enabled ? 'Turning the hotspot on…' : 'Turning the hotspot off…');
       try {
         const body = new URLSearchParams({enabled: enabled ? '1' : '0'});
         const response = await fetch('/api/wifi/ap', {
@@ -694,12 +693,12 @@
           body
         });
         const state = await readJsonResponse(response);
-        if (!response.ok || !state.ok) throw new Error(state.message || 'No cambió el punto de acceso.');
+        if (!response.ok || !state.ok) throw new Error(state.message || 'Could not change the hotspot.');
         setStatus(state.message, 'ok');
       } catch (error) {
         accessPointEnabled.checked = !enabled;
         updateAccessPointWarning();
-        setStatus(error.message || 'No cambió el punto de acceso.', 'error');
+        setStatus(error.message || 'Could not change the hotspot.', 'error');
       } finally {
         accessPointEnabled.disabled = !RUNNING_ON_BADGE;
       }
@@ -723,7 +722,7 @@
     showButton.addEventListener('click', () => {
       const showing = passwordInput.type === 'text';
       passwordInput.type = showing ? 'password' : 'text';
-      showButton.textContent = showing ? 'Ver' : 'Ocultar';
+      showButton.textContent = showing ? 'Show' : 'Hide';
     });
 
     form.addEventListener('submit', async event => {
@@ -736,7 +735,7 @@
 
       saveButton.dataset.saving = 'true';
       saveButton.disabled = true;
-      setStatus('Guardando…');
+      setStatus('Saving…');
 
       try {
         const body = new URLSearchParams({
@@ -751,22 +750,22 @@
         });
         const state = await readJsonResponse(response);
         if (!response.ok || !state.ok) {
-          throw new Error(state.message || 'No se guardó la configuración de red.');
+          throw new Error(state.message || 'Could not save the network settings.');
         }
 
         setStatus(state.message, 'ok');
-        saveButton.textContent = 'Reconectar al badge';
+        saveButton.textContent = 'Reconnect to badge';
       } catch (error) {
         delete saveButton.dataset.saving;
         updatePasswordState({announce:false});
-        setStatus(error.message || 'No se guardó la configuración de red.', 'error');
+        setStatus(error.message || 'Could not save the network settings.', 'error');
       }
     });
 
     showStationPassword.addEventListener('click', () => {
       const showing = stationPasswordInput.type === 'text';
       stationPasswordInput.type = showing ? 'password' : 'text';
-      showStationPassword.textContent = showing ? 'Ver' : 'Ocultar';
+      showStationPassword.textContent = showing ? 'Show' : 'Hide';
     });
 
     stationForm.addEventListener('submit', async event => {
@@ -781,7 +780,7 @@
       connectStationWifi.disabled = true;
       accessPointEnabled.checked = false;
       updateAccessPointWarning();
-      setStationStatus('Probando la red…');
+      setStationStatus('Testing the network…');
       try {
         const body = new URLSearchParams({
           ssid: stationSsidInput.value.trim(),
@@ -793,14 +792,14 @@
           body
         });
         const state = await readJsonResponse(response);
-        if (!response.ok || !state.ok) throw new Error(state.message || 'No se guardó el Wi-Fi guardado.');
+        if (!response.ok || !state.ok) throw new Error(state.message || 'Could not save the network.');
         stationSsidInput.value = '';
         stationPasswordInput.value = '';
         renderStationState(state);
-        setStationStatus(state.message || 'Probando la red… se guarda solo si conecta.', 'ok');
+        setStationStatus(state.message || 'Testing the network… it is only saved if it connects.', 'ok');
         await followStationTrial();
       } catch (error) {
-        setStationStatus(error.message || 'No se guardó el Wi-Fi guardado.', 'error');
+        setStationStatus(error.message || 'Could not save the network.', 'error');
       } finally {
         connectStationWifi.disabled = !RUNNING_ON_BADGE;
       }

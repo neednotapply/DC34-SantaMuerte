@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es-MX" translate="no">
+<html lang="en-US" translate="no">
 <head>
   <meta charset="utf-8">
   <!-- The portal carries its own ES/EN layer, so a browser translating on top
@@ -10,9 +10,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#151615">
   <title>Santa Muerte // Field Notes</title>
-  <link rel="stylesheet" href="theme.css?v=30">
+  <link rel="stylesheet" href="theme.css?v=46">
   <link rel="icon" type="image/png" href="assets/logo-candle.png">
-  <script src="locale.js?v=27"></script>
+  <script src="locale.js?v=35"></script>
+  <script src="tape.js?v=3"></script>
   <style>
     :root{
       color-scheme:dark;
@@ -46,14 +47,19 @@
       background:linear-gradient(90deg,#101110,#151615 52%,#101110);
       background-attachment:fixed;
     }
-    main{width:min(680px,100%);margin:0 auto;display:grid;gap:16px}
+    /* Width itself is set in theme.css, which owns the corridor. What matters
+       here is that only the wall uses it: the things you act on rather than
+       read keep a hand's width so the composer does not become a billboard. */
+    main{margin:0 auto;display:grid;gap:16px}
+    main > .card,
+    main > .more{width:min(680px,100%);margin-inline:auto}
 
     header{display:grid;gap:12px}
     .titlebar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
     h1{margin:0;font-size:1.5rem;font-weight:850;letter-spacing:-.03em}
     h2{margin:0 0 14px;font-size:1.05rem;font-weight:800;letter-spacing:-.02em}
     .subtitle{color:var(--muted);font-size:.84rem}
-    /* The offerings are notes taped to the corridor wall, not the contents of
+    /* The notes are taped to the corridor wall, not the contents of
        a panel. Card chrome around them read as a second frame drawn inside the
        page. min-width:0 is kept from .card so a long word cannot widen the
        grid column. */
@@ -134,12 +140,11 @@
     .swatch[aria-pressed=true]{border-color:#fff;transform:scale(1.14)}
     .nibs{display:flex;gap:6px;align-items:center}
     .nib{
-      width:30px;height:30px;padding:0;border-radius:9px;display:grid;place-items:center;
-      background:rgba(0,0,0,.3);border:1px solid var(--line);
+      width:38px;height:32px;padding:0;border-radius:9px;display:grid;place-items:center;
+      background:rgba(0,0,0,.3);border:1px solid var(--line);color:var(--muted);cursor:pointer;
     }
-    .nib[aria-pressed=true]{border-color:var(--violet);background:rgba(111,29,36,.2)}
-    .nib i{display:block;border-radius:50%;background:var(--muted)}
-    .nib[aria-pressed=true] i{background:#fff}
+    .nib svg{display:block;width:21px;height:21px}
+    .nib[aria-pressed=true]{border-color:var(--violet);background:rgba(111,29,36,.2);color:#fff}
     .ink-actions{display:flex;gap:8px;flex-wrap:wrap}
 
     .composer-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
@@ -170,10 +175,11 @@
     }
     .post-head{display:flex;justify-content:space-between;gap:10px;
       font-size:.75rem;color:var(--faint);font-variant-numeric:tabular-nums}
-    .post-text{white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
+    .post-text{white-space:pre-wrap;overflow-wrap:break-word;margin:0}
     .post-text .type-letter{display:inline-block}
-    .post-text .type-letter:nth-child(7n){transform:translateY(1px) rotate(-.35deg)}
-    .post-text .type-letter:nth-child(11n){transform:translateY(-1px) rotate(.35deg)}
+    .post-text .type-word{white-space:nowrap}
+    .post-text .type-letter.type-drop{transform:translateY(1px) rotate(-.35deg)}
+    .post-text .type-letter.type-lift{transform:translateY(-1px) rotate(.35deg)}
     .media{border-radius:12px;overflow:hidden;border:1px solid var(--line-soft);
       background:#000}
     /* height:auto, not a max-height cap with object-fit:contain -- that
@@ -190,73 +196,75 @@
   <main>
     <header class="saint-header">
       <details class="nav-menu">
-        <summary aria-label="Abrir menú">
+        <summary aria-label="Open menu">
           <img class="brand-mark" src="assets/logo-candle.png" alt="">
         </summary>
-        <nav class="nav-menu-list" aria-label="Navegación del badge">
+        <nav class="nav-menu-list" aria-label="Badge navigation">
+          <a href="/notes">Field Notes</a>
           <a href="/led">LED Tools</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/nfc-log">Registro NFC</a>
-          <a href="/usb">Herramientas USB</a>
+          <a href="/nfc-log">NFC Log</a>
+          <a href="/usb">USB Tools</a>
           <a href="/ducky">DuckyScript</a>
           <a href="/badusb">BadUSB</a>
           <a href="/terminal">Terminal</a>
-          <a href="/network">Red</a>
+          <a href="/network">Network</a>
         </nav>
       </details>
       <div class="header-page-title"><h1>Field Notes</h1></div>
       <details class="nav-menu nav-menu--right">
-        <summary aria-label="Abrir menú">
+        <summary aria-label="Open menu">
           <img class="brand-mark" src="assets/logo-candle.png" alt="">
         </summary>
-        <nav class="nav-menu-list" aria-label="Navegación del badge">
+        <nav class="nav-menu-list" aria-label="Badge navigation">
+          <a href="/notes">Field Notes</a>
           <a href="/led">LED Tools</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/nfc-log">Registro NFC</a>
-          <a href="/usb">Herramientas USB</a>
+          <a href="/nfc-log">NFC Log</a>
+          <a href="/usb">USB Tools</a>
           <a href="/ducky">DuckyScript</a>
           <a href="/badusb">BadUSB</a>
           <a href="/terminal">Terminal</a>
-          <a href="/network">Red</a>
+          <a href="/network">Network</a>
         </nav>
       </details>
     </header>
     <section class="hall">
-      <div id="postList" style="display:grid;gap:12px">
-        <div class="empty" id="feedEmpty">Leyendo el pasillo&hellip;</div>
+      <div id="postList">
+        <div class="empty" id="feedEmpty">Loading…</div>
       </div>
     </section>
 
-    <div class="more"><button class="ghost" id="loadMore" type="button" hidden>Ver todas</button></div>
+    <div class="more"><button class="ghost" id="loadMore" type="button" hidden>See all</button></div>
 
     <section class="card">
       <form id="composer">
-        <div class="mode-tabs" role="group" aria-label="Tipo de ofrenda">
-          <button class="mode-button active" type="button" aria-pressed="true" data-mode="draw">Dibuja</button>
-          <button class="mode-button" type="button" aria-pressed="false" data-mode="write">Escribe</button>
-          <button class="mode-button" id="pickImage" type="button" aria-label="Seleccionar foto">Foto</button>
+        <div class="mode-tabs" role="group" aria-label="Note type">
+          <button class="mode-button active" type="button" aria-pressed="true" data-mode="draw">Draw</button>
+          <button class="mode-button" type="button" aria-pressed="false" data-mode="write">Write</button>
+          <button class="mode-button" id="pickImage" type="button" aria-label="Choose an image">Image</button>
         </div>
         <div class="paper-editor">
           <div class="paper-surface">
-            <canvas id="pad" class="pad" width="512" height="512" aria-label="Área para dibujar"></canvas>
-            <textarea class="paper-text" id="text" maxlength="280" aria-label="Mensaje en la banda" dir="auto" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
+            <canvas id="pad" class="pad" width="512" height="512" aria-label="Drawing area"></canvas>
+            <textarea class="paper-text" id="text" maxlength="280" aria-label="Your message" dir="auto" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>
           </div>
         </div>
         <div class="padbar">
           <div class="swatches" id="swatches"></div>
           <div class="nibs" id="nibs"></div>
           <div class="ink-actions">
-            <button class="ghost" id="padUndo" type="button">Deshacer</button>
-            <button class="ghost" id="padClear" type="button">Limpiar</button>
-            <button class="ghost" id="dropImage" type="button" hidden>Quitar foto</button>
+            <button class="ghost" id="padUndo" type="button">Undo</button>
+            <button class="ghost" id="padClear" type="button">Clear</button>
+            <button class="ghost" id="dropImage" type="button" hidden>Remove image</button>
           </div>
         </div>
-        <span id="padMeta" class="visually-hidden">vacía</span>
+        <span id="padMeta" class="visually-hidden">empty</span>
         <div class="field-foot"><span id="textCount">0 / 280</span></div>
-        <input id="imageInput" class="visually-hidden" type="file" accept="image/*" aria-label="Seleccionar foto">
+        <input id="imageInput" class="visually-hidden" type="file" accept="image/*" aria-label="Choose an image">
 
         <div class="composer-actions">
-          <button id="submit" type="submit">Dejar ofrenda</button>
+          <button id="submit" type="submit">Post</button>
           <span class="status" id="composerStatus" role="status" aria-live="polite"></span>
         </div>
       </form>
@@ -289,18 +297,41 @@
       try { localStorage.setItem('santa-muerte-author', authorId); } catch (_) {}
     }
 
+    // Every letter is its own inline-block so it can sit a little off the line,
+    // which also means the browser may break a line between any two of them --
+    // "parpadea" came out as "parpade/a" once notes were no longer full width.
+    // Letters are therefore grouped into words that refuse to break, leaving
+    // the spaces between them as the only place a line can end.
     function typewriter(node, text) {
       node.replaceChildren();
+      let word = null;
+      let index = 0;
       for (const character of text) {
         const letter = document.createElement('span');
         letter.className = 'type-letter';
         letter.textContent = character;
-        node.appendChild(letter);
+        // Jitter follows the letter's place in the whole line rather than in
+        // its word, so grouping changes where lines break and nothing else.
+        if (index % 7 === 0) letter.classList.add('type-drop');
+        if (index % 11 === 0) letter.classList.add('type-lift');
+        index++;
+
+        if (/\s/.test(character)) {
+          word = null;
+          node.appendChild(letter);
+          continue;
+        }
+        if (!word) {
+          word = document.createElement('span');
+          word.className = 'type-word';
+          node.appendChild(word);
+        }
+        word.appendChild(letter);
       }
     }
     function labelAuthor(node) {
       const english = window.PortalLocale?.locale === 'en-US';
-      const anon = english ? 'Anonymous' : 'Anónimo';
+      const anon = english ? 'Anonymous' : 'Anonymous';
       const id = node.dataset.authorId;
       // The name is the device when the badge could work one out, and falls
       // back to Anonymous when it could not -- a request relayed through a
@@ -309,7 +340,7 @@
       // 1 and 2 match NFC_CAPTURE_AUTHOR_ID / USB_CONSOLE_AUTHOR_ID in
       // src/board.h, both below the 1000-9999 browser pseudonym range.
       const TRANSPORT = {'1': 'NFC', '2': 'USB'};
-      // The parenthesis identifies which one: the transport for an offering the
+      // The parenthesis identifies which one: the transport for a note the
       // badge made itself, otherwise the last octet of the poster's MAC. The
       // 4-digit pseudonym is the last resort, for a client whose MAC the badge
       // could not resolve. All of this is RAM-only and resets on reboot.
@@ -328,6 +359,11 @@
     // and it only ever receives something already small enough to store.
     const MAX_IMAGE_BYTES = 12288;
     const MAX_EDGE = 384;
+    // The floor both shrinkers fall back to before giving up. A JPEG this
+    // small cannot fail to fit under MAX_IMAGE_BYTES, so "too complex to
+    // compact" stops being something a busy drawing or a detailed photo can
+    // actually hit -- it only ever costs sharpness, never the note itself.
+    const MIN_IMAGE_EDGE = 24;
 
     const PAD_BACKGROUND = '#ebe5d8';
     // Bright, familiar marker hues still reproduce cleanly against the warm
@@ -343,10 +379,39 @@
       '#8b43d6', // violet
       '#f8f8f2' // white
     ];
-    // The former largest nib is now the smallest. These broad marker sizes
-    // stay legible on the square paper without requiring many retraced lines.
-    const PAD_NIBS = [18, 32, 48];
-    const PAD_INK_ALPHA = .84;
+    // Three genuinely different implements rather than three widths of the
+    // same one. They are spread far apart on purpose: the pen is for writing
+    // and detail, the brush is for painting, the highlighter is for covering
+    // ground. Each behaves the way its real counterpart does.
+    //   flex  how much the nib swells and starves, as a fraction of size
+    //   drag  how quickly a fast stroke starves it (mouse/finger only)
+    //   lag   how heavily the width is smoothed between samples
+    //   film  lay the whole stroke down as one even film (see paintFilmStroke)
+    const PAD_TOOLS = [
+      {
+        id:'pen', label:'Pen', size:7, opacity:1,
+        flex:.16, drag:.5, lag:.5, step:.7,
+        // A hard round ball point. Solid ink, so retracing changes nothing.
+        icon:'M4 20l1.1-3.8L15.6 5.6a1.7 1.7 0 012.4 0l.4.4a1.7 1.7 0 010 2.4L7.8 18.9 4 20z M14.6 6.6l2.8 2.8'
+      },
+      {
+        id:'brush', label:'Brush', size:30, opacity:.9,
+        flex:.45, drag:.28, lag:.72, step:1.1,
+        // A loaded flat brush: a dark core with bristle streaks either side,
+        // building up where it is worked over.
+        bristles:[-.32, 0, .32], bristleWidth:.52,
+        icon:'M17.4 2.9l2.2 2.2-8.5 8.5-2.2-2.2z M8.2 10.7l3.6 3.6-1.4 1.4-3.6-3.6z ' +
+          'M6.8 12.1c-2.3.9-3.3 3.4-3.8 6.4-.2 1.3.6 2.2 1.9 1.9 3-.6 5.2-1.8 5.5-4.1z'
+      },
+      {
+        id:'marker', label:'Highlighter', size:56, opacity:.42,
+        // A rigid felt chisel: no pressure response at all, and a single even
+        // film of ink no matter how many times a stroke crosses itself.
+        flex:0, lag:0, step:.9, film:true, chisel:-Math.PI / 5, chiselWidth:.3,
+        icon:'M9.4 3.4h5.2v8.2H9.4z M9.4 11.6h5.2l-1.3 3.4h-2.6z M3.5 19.6h17'
+      }
+    ];
+    const padTool = id => PAD_TOOLS.find(tool => tool.id === id) || PAD_TOOLS[0];
     // The pad is square only while it is blank paper. A picked photo reshapes
     // it, so the drawing surface IS the photo rather than a square window onto
     // it -- which is what used to crop, and what left letterbox bars once the
@@ -358,7 +423,7 @@
     let padImage = null;
     let strokes = [];
     let penColor = PAD_COLORS[0];
-    let penSize = PAD_NIBS[1];
+    let penTool = PAD_TOOLS[0];
     let activeMode = 'draw';
     let paperOrigin = {x:26, y:24};
     let paperCursor = {x:26, y:24, offset:0};
@@ -394,12 +459,12 @@
     }
 
     function formatWhen(seconds) {
-      if (!seconds) return 'hora desconocida';
+      if (!seconds) return 'unknown time';
       const then = new Date(seconds * 1000);
-      if (Number.isNaN(then.getTime())) return 'hora desconocida';
+      if (Number.isNaN(then.getTime())) return 'unknown time';
       const delta = (Date.now() - then.getTime()) / 1000;
       if (delta < 0) return then.toLocaleString();
-      if (delta < 60) return 'ahora';
+      if (delta < 60) return 'now';
       if (delta < 3600) return `hace ${Math.floor(delta / 60)} min`;
       if (delta < 86400) return `hace ${Math.floor(delta / 3600)} h`;
       return then.toLocaleDateString(undefined, {month:'short', day:'numeric'});
@@ -469,12 +534,12 @@
       const decoded = await decodeImage(file);
       if (!decoded.width || !decoded.height) {
         decoded.release();
-        throw new Error('El navegador no pudo leer el tamaño de la foto.');
+        throw new Error('The browser could not read the image.');
       }
 
       try {
         let edge = MAX_EDGE;
-        for (let attempt = 0; attempt < 4; attempt++) {
+        while (true) {
           const scale = Math.min(1, edge / Math.max(decoded.width, decoded.height));
           const width = Math.max(1, Math.round(decoded.width * scale));
           const height = Math.max(1, Math.round(decoded.height * scale));
@@ -486,26 +551,16 @@
           context.imageSmoothingQuality = 'high';
           context.drawImage(decoded.source, 0, 0, width, height);
 
-          for (const quality of [0.6, 0.45, 0.32, 0.22, 0.15]) {
+          for (const quality of [0.6, 0.45, 0.32, 0.22, 0.15, 0.08]) {
             const blob = await canvasToBlob(canvas, quality);
             if (blob && blob.size <= MAX_IMAGE_BYTES) return {blob, width, height};
           }
-          edge = Math.round(edge * 0.7);
+          if (edge <= MIN_IMAGE_EDGE) return null;
+          edge = Math.max(MIN_IMAGE_EDGE, Math.round(edge * 0.7));
         }
-        return null;
       } finally {
         decoded.release();
       }
-    }
-
-    async function toBase64Url(blob) {
-      const bytes = new Uint8Array(await blob.arrayBuffer());
-      let binary = '';
-      const CHUNK = 0x8000;
-      for (let i = 0; i < bytes.length; i += CHUNK) {
-        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-      }
-      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
 
     function clearPendingImage() {
@@ -520,7 +575,7 @@
       return new Promise((resolve, reject) => {
         const image = new Image();
         image.addEventListener('load', () => resolve(image), {once:true});
-        image.addEventListener('error', () => reject(new Error('No se pudo leer la foto.')), {once:true});
+        image.addEventListener('error', () => reject(new Error('Could not read the image.')), {once:true});
         image.src = url;
       });
     }
@@ -528,10 +583,10 @@
     async function choosePicture(file) {
       if (!file) return;
       const status = $('composerStatus');
-      setStatus(status, 'Reduciendo la foto…');
+      setStatus(status, 'Shrinking the image…');
       try {
         const shrunk = await shrinkImage(file);
-        if (!shrunk) throw new Error('La foto no quedó lo bastante pequeña.');
+        if (!shrunk) throw new Error('The image is still too big.');
 
         if (pendingImage?.url) URL.revokeObjectURL(pendingImage.url);
         const url = URL.createObjectURL(shrunk.blob);
@@ -545,7 +600,7 @@
         schedulePadRender();
       } catch (error) {
         clearPendingImage();
-        setStatus(status, error.message || 'No se pudo leer la foto.', 'error');
+        setStatus(status, error.message || 'Could not read the image.', 'error');
       }
     }
 
@@ -732,42 +787,144 @@
       // same strip can be written on, crossed out, or annotated PictoChat-style.
       renderPaperText(context);
 
-      for (const stroke of strokes) {
-        if (stroke.points.length === 1) {
-          drawSegment(stroke, stroke.points[0], stroke.points[0]);
-        }
-        for (let i = 1; i < stroke.points.length; i++) {
-          drawSegment(stroke, stroke.points[i - 1], stroke.points[i]);
-        }
-      }
+      for (const stroke of strokes) replayStroke(context, stroke);
 
       renderPaperCaret(context);
     }
 
+    // ---- nibs ------------------------------------------------------------
+    // Scratch canvases the size of the pad. A highlighter needs somewhere to
+    // build its stroke opaque before it is faded, and the live stroke needs a
+    // snapshot of everything underneath it to redraw against.
+    const padLayers = {};
+    function padLayer(name) {
+      const layer = padLayers[name] || (padLayers[name] = document.createElement('canvas'));
+      if (layer.width !== pad.width || layer.height !== pad.height) {
+        layer.width = pad.width;
+        layer.height = pad.height;
+      }
+      return layer.getContext('2d');
+    }
+
+    // How wide the nib runs right now, as a multiple of the tool's size. A pen
+    // barely varies, a brush loads and starves dramatically, and a felt chisel
+    // is rigid and never varies at all.
+    function nibScale(tool, pressure, speed) {
+      if (!tool.flex) return 1;
+      const drive = pressure === null ? Math.max(0, 1 - speed * tool.drag) : pressure;
+      return Math.max(.3, 1 + tool.flex * (drive - .5) * 2);
+    }
+
+    function replayStroke(context, stroke) {
+      const points = stroke.points;
+      if (points.length === 1) {
+        paintStroke(context, stroke, () => paintSegment(context, stroke, points[0], points[0]));
+        return;
+      }
+      paintStroke(context, stroke, () => {
+        for (let i = 1; i < points.length; i++) {
+          paintSegment(context, stroke, points[i - 1], points[i]);
+        }
+      });
+    }
+
+    // A highlighter lays down ONE film of ink: crossing your own stroke must
+    // not darken it, the way a second pass with a real marker does not. So its
+    // whole stroke is built opaque on a scratch layer and composited once.
+    // Everything else paints straight onto the pad as it is drawn.
+    function paintStroke(context, stroke, paint) {
+      const tool = padTool(stroke.tool);
+      if (!tool.film) {
+        paint();
+        return;
+      }
+      const film = padLayer('film');
+      film.clearRect(0, 0, pad.width, pad.height);
+      filmTarget = film;
+      try { paint(); } finally { filmTarget = null; }
+      layFilm(context, stroke, film.canvas);
+    }
+
+    // Marker ink tints what it crosses instead of washing it out, which is the
+    // whole point of a highlighter -- pen lines stay readable underneath. White
+    // is the exception: multiplying it would erase the stroke entirely, so it
+    // goes down as an ordinary translucent wash.
+    function layFilm(context, stroke, canvas) {
+      context.save();
+      context.globalAlpha = padTool(stroke.tool).opacity;
+      if (!isPaleInk(stroke.color)) context.globalCompositeOperation = 'multiply';
+      context.drawImage(canvas, 0, 0);
+      context.restore();
+    }
+
+    function isPaleInk(color) {
+      const hex = parseInt(color.slice(1), 16);
+      return (((hex >> 16 & 255) * .299 + (hex >> 8 & 255) * .587 + (hex & 255) * .114) / 255) > .8;
+    }
+
+    // Set while a film stroke is being built, so paintSegment writes to the
+    // scratch layer at full strength rather than onto the pad.
+    let filmTarget = null;
+
     // Each new segment is drawn on its own rather than replaying every stroke,
     // so a long scribble does not get slower the longer it gets.
-    function drawSegment(stroke, from, to) {
-      const context = padContext();
-      // A fixed-angle nib makes downstrokes fuller than cross strokes.
-      // Stored widths keep live ink, undo, and exported ink identical.
+    function paintSegment(context, stroke, from, to) {
+      const tool = padTool(stroke.tool);
+      const surface = filmTarget || context;
       const distance = Math.hypot(to.x - from.x, to.y - from.y);
-      const steps = Math.max(1, Math.ceil(distance / .8));
-      context.save();
-      context.fillStyle = stroke.color;
-      context.strokeStyle = stroke.color;
+      const steps = Math.max(1, Math.ceil(distance / tool.step));
+      surface.save();
+      surface.fillStyle = stroke.color;
+
+      if (tool.film) {
+        // A chisel tip never changes shape, so the whole segment can go down as
+        // one path: on the film layer overlapping stamps simply union.
+        const nx = Math.cos(tool.chisel), ny = Math.sin(tool.chisel);
+        const hx = nx * stroke.size / 2, hy = ny * stroke.size / 2;
+        const tx = -ny * stroke.size * tool.chiselWidth / 2;
+        const ty = nx * stroke.size * tool.chiselWidth / 2;
+        surface.beginPath();
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps;
+          const x = from.x + (to.x - from.x) * t, y = from.y + (to.y - from.y) * t;
+          surface.moveTo(x - hx - tx, y - hy - ty);
+          surface.lineTo(x + hx - tx, y + hy - ty);
+          surface.lineTo(x + hx + tx, y + hy + ty);
+          surface.lineTo(x - hx + tx, y - hy + ty);
+          surface.closePath();
+        }
+        surface.fill();
+        surface.restore();
+        return;
+      }
+
+      // Bristles ride either side of the stroke, across its direction of
+      // travel, so a brush leaves streaks at its edges and solid ink down the
+      // middle. A pen is a single round ball with no spread at all.
+      const bristles = tool.bristles || [0];
+      const spread = tool.bristleWidth || 1;
+      const length = Math.max(.0001, distance);
+      const ax = -(to.y - from.y) / length, ay = (to.x - from.x) / length;
+
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
         const width = (from.width || stroke.size) * (1 - t) + (to.width || stroke.size) * t;
+        const x = from.x + (to.x - from.x) * t, y = from.y + (to.y - from.y) * t;
         // A line is built from many overlapping nib stamps. Split the intended
         // stroke opacity across those stamps, otherwise one ordinary pass
-        // would build itself up to solid ink before someone draws over it.
-        context.globalAlpha = 1 - Math.pow(1 - stroke.opacity, 1 / Math.max(1, width));
-        context.beginPath();
-        context.ellipse(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t,
-          width / 2, width * .28, -.65, 0, Math.PI * 2);
-        context.fill();
+        // would build itself up to solid ink before someone draws over it. The
+        // divisor is the bristle's own diameter, not the stroke's: a bundle of
+        // thin bristles is crossed by far fewer stamps than a single fat nib.
+        surface.globalAlpha = 1 - Math.pow(1 - stroke.opacity, 1 / Math.max(1, width * spread));
+        surface.beginPath();
+        for (const offset of bristles) {
+          const radius = width * spread / 2;
+          surface.moveTo(x + ax * offset * width + radius, y + ay * offset * width);
+          surface.arc(x + ax * offset * width, y + ay * offset * width, radius, 0, Math.PI * 2);
+        }
+        surface.fill();
       }
-      context.restore();
+      surface.restore();
     }
 
     function padPoint(event) {
@@ -780,12 +937,40 @@
       };
     }
 
-    // A photo with nothing drawn or written on it is an offering in its own
+    // A photo with nothing drawn or written on it is a note in its own
     // right and keeps its own proportions. The square pad is only the right
     // thing to store for a composite: strokes and paper text are positioned in
     // pad coordinates and mean nothing detached from it.
     function photoStandsAlone() {
       return Boolean(pendingImage) && strokes.length === 0 && !paperText.value.trim();
+    }
+
+    // Resolving false leaves the note on the wall, so a refused delete shows
+    // as the note simply staying put plus a line in the status.
+    async function deletePost(id) {
+      try {
+        const response = await fetch('/api/board/delete', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: `id=${encodeURIComponent(id)}`
+        });
+        const state = await response.json().catch(() => ({}));
+        if (!response.ok || !state.ok) {
+          setStatus($('composerStatus'), state.message || 'Could not delete that note.', 'error');
+          return false;
+        }
+        updateMeter(state);
+        // The wall has one fewer note, so a column may now have room for one
+        // that was being held back.
+        window.setTimeout(() => {
+          if (!feed.querySelector('.post')) showEmpty('No notes yet');
+          else topUpWall();
+        }, 260);
+        return true;
+      } catch (_) {
+        setStatus($('composerStatus'), 'Could not reach the badge.', 'error');
+        return false;
+      }
     }
 
     let padTimer = 0;
@@ -797,7 +982,7 @@
     async function renderPadImage() {
       if (!strokes.length && !pendingImage) {
         padImage = null;
-        $('padMeta').textContent = 'vacía';
+        $('padMeta').textContent = 'empty';
         return;
       }
 
@@ -812,16 +997,18 @@
       }
 
       // A busy square can carry far more detail than the fixed 12 KiB ring
-      // accepts. Work down through dimensions as well as JPEG quality, so an
-      // energetic scribble remains an offering rather than disappearing.
-      for (let edge = MAX_EDGE; edge >= 56; edge = Math.floor(edge * .65)) {
+      // accepts. Work down through dimensions as well as JPEG quality, all the
+      // way to MIN_IMAGE_EDGE, so an energetic scribble remains a note
+      // rather than disappearing -- it only ever loses sharpness, never gets
+      // rejected outright.
+      for (let edge = MAX_EDGE; ; edge = Math.max(MIN_IMAGE_EDGE, Math.floor(edge * .65))) {
         const exportPad = document.createElement('canvas');
         const scale = Math.min(1, edge / Math.max(pad.width, pad.height));
         exportPad.width = Math.max(1, Math.round(pad.width * scale));
         exportPad.height = Math.max(1, Math.round(pad.height * scale));
         exportPad.getContext('2d').drawImage(pad, 0, 0, exportPad.width, exportPad.height);
 
-        for (const quality of [.72, .58, .44, .3, .2, .12, .07]) {
+        for (const quality of [.72, .58, .44, .3, .2, .12, .07, .04]) {
           const blob = await canvasToBlob(exportPad, quality);
           if (blob && blob.size <= MAX_IMAGE_BYTES) {
             padImage = blob;
@@ -830,10 +1017,11 @@
             return;
           }
         }
+        if (edge <= MIN_IMAGE_EDGE) break;
       }
 
       padImage = null;
-      $('padMeta').textContent = 'no se pudo compactar el dibujo';
+      $('padMeta').textContent = 'the drawing is too big';
     }
 
     function buildPadControls() {
@@ -855,19 +1043,19 @@
       }
 
       const nibs = $('nibs');
-      for (const size of PAD_NIBS) {
+      for (const tool of PAD_TOOLS) {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'nib';
-        button.setAttribute('aria-pressed', String(size === penSize));
-        button.setAttribute('aria-label', `Tamaño de pincel ${size}`);
-        const dot = document.createElement('i');
-        const previewSize = Math.min(Math.round(size * .6), 28);
-        dot.style.width = `${previewSize}px`;
-        dot.style.height = `${previewSize}px`;
-        button.appendChild(dot);
+        button.setAttribute('aria-pressed', String(tool === penTool));
+        button.setAttribute('aria-label', tool.label);
+        button.setAttribute('title', tool.label);
+        button.innerHTML =
+          `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor"` +
+          ` stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">` +
+          `<path d="${tool.icon}"/></svg>`;
         button.addEventListener('click', () => {
-          penSize = size;
+          penTool = tool;
           for (const other of nibs.children) {
             other.setAttribute('aria-pressed', String(other === button));
           }
@@ -891,12 +1079,25 @@
         event.preventDefault();
         pad.setPointerCapture(event.pointerId);
         drawing = true;
+        const tool = penTool;
         const point = padPoint(event);
-        point.width = penSize * (point.pressure === null ? .85 : .5 + point.pressure);
+        // A mouse reports no pressure, and a stroke that has not moved yet has
+        // no speed either, so the nib would otherwise land at its very widest
+        // and leave a blot at the start of every stroke. Start it mid-load.
+        point.width = tool.size * (point.pressure === null ? 1 : nibScale(tool, point.pressure, 0));
+        // A film stroke is recomposited from scratch on every move, so set
+        // aside everything beneath it first rather than replaying it each time.
+        if (tool.film) {
+          redrawPad();
+          const under = padLayer('under');
+          under.clearRect(0, 0, pad.width, pad.height);
+          under.drawImage(pad, 0, 0);
+        }
         strokes.push({
+          tool:tool.id,
           color:penColor,
-          size:penSize,
-          opacity:PAD_INK_ALPHA,
+          size:tool.size,
+          opacity:tool.opacity,
           points:[point]
         });
         redrawPad();
@@ -906,15 +1107,22 @@
         if (!drawing) return;
         event.preventDefault();
         const stroke = strokes[strokes.length - 1];
+        const tool = padTool(stroke.tool);
         for (const sample of (event.getCoalescedEvents?.().length ? event.getCoalescedEvents() : [event])) {
           const previous = stroke.points[stroke.points.length - 1];
           const to = padPoint(sample);
           const speed = Math.hypot(to.x - previous.x, to.y - previous.y) / Math.max(1, to.time - previous.time);
-          const target = stroke.size * (to.pressure === null ? 1.25 - Math.min(.65, speed * .22) : .5 + to.pressure);
-          to.width = previous.width * .65 + target * .35;
+          const target = stroke.size * nibScale(tool, to.pressure, speed);
+          to.width = previous.width * tool.lag + target * (1 - tool.lag);
           stroke.points.push(to);
-          drawSegment(stroke, previous, to);
+          if (!tool.film) paintSegment(padContext(), stroke, previous, to);
         }
+        if (!tool.film) return;
+        // Repaint the film over the untouched layers below. Cheap, and unlike a
+        // full redraw its cost does not grow with the number of strokes.
+        const context = padContext();
+        context.drawImage(padLayers.under, 0, 0);
+        replayStroke(context, stroke);
       });
 
       const finish = () => {
@@ -976,7 +1184,7 @@
         paperCursor = {x:26, y:24, offset:0};
         $('text').dispatchEvent(new Event('input'));
         redrawPad();
-        $('padMeta').textContent = 'vacía';
+        $('padMeta').textContent = 'empty';
       });
     }
 
@@ -998,9 +1206,9 @@
 
     function buildPost(post) {
       const article = document.createElement('article');
-      article.className = `post${post.hasImage ? ' offering-photo' : ' offering-note'}`;
+      article.className = `post${post.hasImage ? ' note-photo' : ' note-plain'}`;
       // Deterministic variation gives the wall its hand-pinned character while
-      // ensuring an offering does not change position on every refresh.
+      // ensuring a note does not change position on every refresh.
       const seed = Array.from(String(post.id || post.createdAt || '0'))
         .reduce((total, character) => (total * 31 + character.charCodeAt(0)) >>> 0, 0);
       const variation = salt => {
@@ -1009,10 +1217,19 @@
         value = Math.imul(value ^ (value >>> 13), 3266489909);
         return (value ^ (value >>> 16)) >>> 0;
       };
-      article.style.setProperty('--offering-tilt', `${((variation(0x2d) % 25 - 12) / 10).toFixed(1)}deg`);
-      article.style.setProperty('--offering-shift', `${(variation(0x71) % 11 - 5) * 2}px`);
+      article.style.setProperty('--note-tilt', `${((variation(0x2d) % 37 - 18) / 10).toFixed(1)}deg`);
+      // Kept inside the column gap: further than this and a note leans on its
+      // neighbour instead of just sitting crooked next to it.
+      article.style.setProperty('--note-shift', `${variation(0x71) % 25 - 12}px`);
       article.style.setProperty('--tape-left', `${30 + variation(0xb3) % 41}%`);
       article.style.setProperty('--tape-tilt', `${((variation(0xe7) % 13 - 6) / 2).toFixed(1)}deg`);
+
+      // The tape is the only way to take a note down. Nothing says so: you
+      // find it the way you would find the tape on a real note.
+      PortalTape.tape(article, {
+        label: 'Take this note down',
+        onDelete: () => deletePost(post.id)
+      });
 
       const head = document.createElement('div');
       head.className = 'post-head';
@@ -1034,7 +1251,7 @@
         wrap.className = 'media';
         const image = document.createElement('img');
         image.loading = 'lazy';
-        image.alt = 'Dibujo publicado en el tablero';
+        image.alt = 'Drawing posted';
         const revision = Array.from(crypto.getRandomValues(new Uint32Array(4)), n => n.toString(16)).join('-');
         image.src = `/api/board/image?id=${encodeURIComponent(post.id)}&v=${revision}`;
         // The picture may have been pruned between the listing and this fetch.
@@ -1052,12 +1269,7 @@
         paragraph.className = 'post-text';
         paragraph.hidden = Boolean(post.hasImage && post.textInImage);
         paragraph.dir = 'auto';
-        for (const character of post.text) {
-          const letter = document.createElement('span');
-          letter.className = 'type-letter';
-          letter.textContent = character;
-          paragraph.appendChild(letter);
-        }
+        typewriter(paragraph, post.text);
         article.appendChild(paragraph);
       }
 
@@ -1082,12 +1294,40 @@
       feed.appendChild(empty);
     }
 
+    // The wall opens with whole columns: as many as the window fits, four notes
+    // deep. A fixed count could not know how wide the board was, so "the latest
+    // five" ran out mid-column on a wide screen and overfilled a narrow one.
+    const NOTES_PER_COLUMN = 4;
+
+    function wallColumns() {
+      const style = getComputedStyle(feed);
+      // column-width reads as "auto" until the wall's stylesheet has applied;
+      // fall back to the width theme.css asks for rather than guessing one.
+      const column = parseFloat(style.columnWidth) || 290;
+      const gap = parseFloat(style.columnGap) || 0;
+      const width = feed.clientWidth;
+      if (!width) return 1;
+      return Math.max(1, Math.floor((width + gap) / (column + gap)));
+    }
+
+    const firstWall = () => wallColumns() * NOTES_PER_COLUMN;
+
+    // Measuring can come up short -- a stylesheet that has not applied yet, a
+    // window that just grew -- so the wall is topped up rather than trusted to
+    // one reading. Deliberately not on requestAnimationFrame: a board opened in
+    // a background tab never gets a frame, and would never load at all.
+    function topUpWall() {
+      const wanted = firstWall();
+      const showing = feed.querySelectorAll('.post').length;
+      if (state.more && showing < wanted) loadPage(wanted - showing);
+    }
+
     function refreshFeed() {
       state.before = 0;
       state.more = true;
       feed.replaceChildren();
-      showEmpty('Viendo el pasillo…');
-      loadPage(5);
+      showEmpty('Loading…');
+      loadPage(firstWall()).then(topUpWall);
     }
 
     async function loadPage(limit = 20) {
@@ -1099,7 +1339,7 @@
       try {
         const query = new URLSearchParams({before:String(state.before), limit:String(limit)});
         const response = await fetch(`/api/board/posts?${query}`, {cache:'no-store'});
-        if (!response.ok) throw new Error('El badge no contesta.');
+        if (!response.ok) throw new Error('The badge is not answering.');
         const page = await response.json();
         loaded = true;
 
@@ -1111,11 +1351,11 @@
         updateMeter(page);
 
         if (!feed.children.length) {
-          showEmpty('El muro está vacío...');
+          showEmpty('No notes yet');
         }
       } catch (error) {
         const placeholder = $('feedEmpty');
-        if (placeholder) placeholder.textContent = error.message || 'No cargó el tablero.';
+        if (placeholder) placeholder.textContent = error.message || 'Could not load the notes.';
       } finally {
         state.loading = false;
         $('loadMore').hidden = !state.more;
@@ -1128,13 +1368,13 @@
     async function expandList() {
       if (state.loading || !state.more) return;
       $('loadMore').disabled = true;
-      $('loadMore').textContent = 'Cargando…';
+      $('loadMore').textContent = 'Loading…';
 
       while (state.more) {
         if (!await loadPage(40)) break;
       }
 
-      $('loadMore').textContent = 'Ver todas';
+      $('loadMore').textContent = 'See all';
       $('loadMore').hidden = !state.more;
     }
 
@@ -1149,37 +1389,42 @@
       await renderPadImage();
       if (strokes.length && !padImage) {
         $('submit').disabled = false;
-        setStatus(status, 'El dibujo no se pudo compactar. Intenta de nuevo.', 'error');
+        setStatus(status, 'The drawing is too big. Try something simpler.', 'error');
         return;
       }
       const picture = photoStandsAlone() ? pendingImage.blob : (padImage || pendingImage?.blob || null);
       if (!text.trim() && !picture) {
         $('submit').disabled = false;
-        setStatus(status, 'Dibuja, escribe o haz las dos.', 'error');
+        setStatus(status, 'Draw, write, or do both.', 'error');
         return;
       }
 
       $('submit').disabled = true;
-      setStatus(status, 'Enviando…');
+      setStatus(status, 'Sending…');
 
       try {
-        const body = new URLSearchParams({
-          authorId,
-          textInImage: padImage && text ? '1' : '0',
-          text,
-          // The badge has no clock of its own, so it can only record what this
-          // browser says the time is.
-          ts: String(Math.floor(Date.now() / 1000))
-        });
-        if (picture) body.set('image', await toBase64Url(picture));
-
+        // The drawing is the whole body, raw. Sending it as a base64 form
+        // field instead made the badge's web server buffer and copy it several
+        // times over before the firmware saw a byte, which overran the free
+        // heap and killed the connection -- a "Failed to fetch" whenever the
+        // picture got big. The metadata rides in headers so the body stays
+        // pure, and skipping base64 drops a quarter of the bytes as well.
         const response = await fetch('/api/board/post', {
           method:'POST',
-          headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
-          body
+          headers:{
+            'Content-Type':'application/octet-stream',
+            'X-Note-Author':String(authorId),
+            'X-Note-Text-In-Image':padImage && text ? '1' : '0',
+            // A header cannot carry a newline or a raw UTF-8 byte.
+            'X-Note-Text':encodeURIComponent(text),
+            // The badge has no clock of its own, so it can only record what
+            // this browser says the time is.
+            'X-Note-Ts':String(Math.floor(Date.now() / 1000))
+          },
+          body: picture || new Blob()
         });
         const result = await response.json();
-        if (!response.ok || !result.ok) throw new Error(result.message || 'No pasó la ofrenda.');
+        if (!response.ok || !result.ok) throw new Error(result.message || 'Could not post the note.');
 
         $('text').value = '';
         $('text').dispatchEvent(new Event('input'));
@@ -1187,12 +1432,12 @@
         strokes = [];
         padImage = null;
         redrawPad();
-        $('padMeta').textContent = 'vacía';
-        setStatus(status, 'Ofrenda enviada.', 'ok');
+        $('padMeta').textContent = 'empty';
+        setStatus(status, 'Note posted.', 'ok');
 
         refreshFeed();
       } catch (error) {
-        setStatus(status, error.message || 'No se pudo llegar al badge.', 'error');
+        setStatus(status, error.message || 'Could not reach the badge.', 'error');
       } finally {
         $('submit').disabled = false;
       }
@@ -1206,6 +1451,14 @@
       schedulePadRender();
     });
     $('loadMore').addEventListener('click', expandList);
+
+    // Widening the window adds columns, which would otherwise stay empty until
+    // the next refresh.
+    let wallResize = 0;
+    window.addEventListener('resize', () => {
+      clearTimeout(wallResize);
+      wallResize = setTimeout(topUpWall, 250);
+    });
     document.querySelectorAll('.mode-button[data-mode="draw"], .mode-button[data-mode="write"]').forEach(button => {
       button.addEventListener('click', () => setComposerMode(button.dataset.mode));
     });
@@ -1216,7 +1469,7 @@
     redrawPad();
 
     countField('text', 'textCount', 280);
-    loadPage(5);
+    loadPage(firstWall()).then(topUpWall);
   })();
   </script>
 </body>

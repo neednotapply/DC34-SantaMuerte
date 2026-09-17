@@ -30,7 +30,7 @@ constexpr uint16_t BOARD_NO_IMAGE = 0xFFFF;
 // Posts the badge made on its own, rather than a browser. Deliberately below
 // the browser pseudonym range so they can never collide with one, and non-zero
 // so they are distinguishable from a legacy post. These name the transport an
-// offering arrived on; the board shows them as "(NFC)" and "(USB)".
+// note arrived on; the board shows them as "(NFC)" and "(USB)".
 constexpr uint16_t NFC_CAPTURE_AUTHOR_ID = 1;
 constexpr uint16_t USB_CONSOLE_AUTHOR_ID = 2;
 
@@ -40,7 +40,7 @@ constexpr uint16_t BOARD_FIRST_BROWSER_AUTHOR_ID = 1000;
 constexpr uint16_t BOARD_LAST_BROWSER_AUTHOR_ID = 9999;
 
 // True for every id the board will store as-is. Anything else becomes 0, which
-// renders as an unattributed offering.
+// renders as an unattributed note.
 constexpr bool isStorableAuthorId(uint16_t id) {
   return id == NFC_CAPTURE_AUTHOR_ID || id == USB_CONSOLE_AUTHOR_ID ||
          (id >= BOARD_FIRST_BROWSER_AUTHOR_ID && id <= BOARD_LAST_BROWSER_AUTHOR_ID);
@@ -92,6 +92,11 @@ bool readNextBoardPost(uint32_t &beforeId, BoardPost &post);
 // Copies a post's image into buffer. Returns the byte count, or 0 when the
 // post has no image or its image has since been overwritten by a newer one.
 size_t readBoardImage(uint32_t postId, uint8_t *buffer, size_t capacity);
+
+// Retires one post: its slot is zeroed and the image slot it owns is removed.
+// Returns false when the board is unavailable or no live post carries that id.
+// The number is never handed out again, so a deleted post cannot come back.
+bool deleteBoardPost(uint32_t id);
 
 // Empties every slot in both rings.
 bool clearBoard();

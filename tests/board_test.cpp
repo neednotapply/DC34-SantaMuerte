@@ -89,10 +89,10 @@ void testTransportAuthorIds() {
 
   check(addBoardPost(String("reader capture"), 0, nullptr, 0, error, NFC_CAPTURE_AUTHOR_ID),
         "an NFC capture posts");
-  check(addBoardPost(String("console offering"), 0, nullptr, 0, error, USB_CONSOLE_AUTHOR_ID),
-        "a USB offering posts");
-  check(addBoardPost(String("browser offering"), 0, nullptr, 0, error, 4242),
-        "a browser offering posts");
+  check(addBoardPost(String("console note"), 0, nullptr, 0, error, USB_CONSOLE_AUTHOR_ID),
+        "a USB note posts");
+  check(addBoardPost(String("browser note"), 0, nullptr, 0, error, 4242),
+        "a browser note posts");
   check(addBoardPost(String("bogus author"), 0, nullptr, 0, error, 500),
         "an id outside every known range still posts");
 
@@ -106,22 +106,22 @@ void testTransportAuthorIds() {
   }
 }
 
-// An offering number is never reused. Clearing the wall, a reboot, or a
+// A field note number is never reused. Clearing the wall, a reboot, or a
 // LittleFS re-flash all leave the ring empty, and each used to restart from 1.
 void testIdsNeverRepeat() {
-  std::printf("offering numbers only ever count upward\n");
+  std::printf("field note numbers only ever count upward\n");
   check(clearBoard(), "the board clears");
   String error;
 
   addBoardPost(String("one"), 0, nullptr, 0, error);
   addBoardPost(String("two"), 0, nullptr, 0, error);
   const uint32_t beforeClear = boardNewestId();
-  check(beforeClear >= 2, "two offerings numbered");
+  check(beforeClear >= 2, "two notes numbered");
 
   check(clearBoard(), "the board clears again");
   addBoardPost(String("after the clear"), 0, nullptr, 0, error);
   std::vector<BoardPost> found = drain();
-  check(found.size() == 1, "one offering after the clear");
+  check(found.size() == 1, "one note after the clear");
   if (!found.empty()) {
     check(found[0].id > beforeClear,
           "a number handed out after a clear is higher than one before it");

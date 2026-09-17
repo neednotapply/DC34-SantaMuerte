@@ -71,7 +71,7 @@ uint32_t highestStoredId = 0;
 // Records the first number not yet used, before the record that uses it is
 // written. Losing power between the two skips a number, which is harmless;
 // doing it the other way round could hand the same number out twice, which is
-// the one thing this must never do. Offerings arrive at human pace and NVS
+// the one thing this must never do. Notes arrive at human pace and NVS
 // wear-levels, so writing on each one costs nothing worth saving.
 uint16_t storedCount = 0;
 uint16_t nextImageSlot = 0;
@@ -393,7 +393,7 @@ bool addBoardPost(const String &text,
   error = String();
 
   if (!boardReady) {
-    error = F("El tablero no está disponible.");
+    error = F("The board is unavailable.");
     return false;
   }
 
@@ -401,12 +401,12 @@ bool addBoardPost(const String &text,
   const bool hasImage = image != nullptr && imageLength > 0;
 
   if (!hasVisibleText(cleanText) && !hasImage) {
-    error = F("Dibuja, escribe o haz las dos.");
+    error = F("Draw, write, or do both.");
     return false;
   }
 
   if (hasImage && imageLength > BOARD_MAX_IMAGE_BYTES) {
-    error = F("El dibujo pesa mucho para el badge.");
+    error = F("The drawing is too big for the badge.");
     return false;
   }
 
@@ -414,7 +414,7 @@ bool addBoardPost(const String &text,
   // claimed MIME type so the stored bytes can always be served as an image.
   if (hasImage && (imageLength < 4 || image[0] != 0xFF || image[1] != 0xD8 ||
                    image[2] != 0xFF)) {
-    error = F("La foto debe ser JPEG.");
+    error = F("The image must be a JPEG.");
     return false;
   }
 
@@ -437,7 +437,7 @@ bool addBoardPost(const String &text,
   // rather than stored with a reference to bytes that were never written.
   if (hasImage) {
     if (!writeImageSlot(nextImageSlot, record.id, image, imageLength)) {
-      error = F("No se pudo guardar el dibujo.");
+      error = F("Could not save the drawing.");
       return false;
     }
     record.imageSlot = nextImageSlot;
@@ -452,7 +452,7 @@ bool addBoardPost(const String &text,
       readRecord(nextSlot, replaced) && validRecord(replaced);
 
   if (!writeRecord(nextSlot, record)) {
-    error = F("No se pudo guardar la ofrenda.");
+    error = F("The note could not be saved.");
     return false;
   }
 
@@ -569,6 +569,40 @@ size_t readBoardImage(uint32_t postId, uint8_t *buffer, size_t capacity) {
   return stored.length;
 }
 
+bool deleteBoardPost(uint32_t id) {
+  if (!boardReady || id == 0 || storedCount == 0) return false;
+
+  for (uint16_t slot = 0; slot < BOARD_SLOT_COUNT; ++slot) {
+    BoardRecord record = {};
+    if (!readRecord(slot, record)) continue;
+    if (!validRecord(record) || record.id != id) continue;
+
+    // The picture goes first. If the slot were emptied first and the image
+    // write then failed, the post would be gone while its drawing stayed on
+    // the filesystem with nothing left to reclaim it.
+    if (record.imageSlot != BOARD_NO_IMAGE &&
+        record.imageSlot < BOARD_IMAGE_SLOT_COUNT) {
+      uint32_t length = 0;
+      if (imageSlotHoldsPost(record.imageSlot, record.id, length)) {
+        char path[24] = {};
+        imageSlotPath(record.imageSlot, path, sizeof(path));
+        if (LittleFS.exists(path)) LittleFS.remove(path);
+      }
+    }
+
+    // Zeroing the slot is enough to retire it: every reader tests the magic
+    // and the checksum, and the write cursor walks the ring by position rather
+    // than looking for a free slot, so the hole simply waits its turn.
+    const BoardRecord empty = {};
+    if (!writeRecord(slot, empty)) return false;
+    if (storedCount > 0) --storedCount;
+    Serial.printf("[BOARD] Post #%lu deleted from slot %u\r\n",
+                  static_cast<unsigned long>(id), static_cast<unsigned>(slot));
+    return true;
+  }
+  return false;
+}
+
 bool clearBoard() {
   if (!boardReady) return false;
 
@@ -589,7 +623,7 @@ bool clearBoard() {
 
   nextSlot = 0;
   // nextId deliberately survives: clearing the wall does not un-write the
-  // offerings that were on it, and a number must never be handed out twice.
+  // notes that were on it, and a number must never be handed out twice.
   setPersistentBoardIdWatermark(nextId);
   highestStoredId = 0;
   storedCount = 0;

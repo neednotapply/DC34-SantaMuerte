@@ -32,7 +32,7 @@ bool setPersistentAccessPointEnabled(bool enabled, String &error);
 bool getPersistentEnglishLanguage();
 bool setPersistentEnglishLanguage(bool english, String &error);
 
-// Offering numbers only ever count upward. The board itself cannot remember
+// Field note numbers only ever count upward. The board itself cannot remember
 // that: clearing it rewrites every record, and re-flashing LittleFS replaces
 // the whole partition. NVS is a different partition and survives both, so the
 // high-water mark lives here. It is a reservation, not the exact next id --
@@ -101,7 +101,7 @@ enum : uint8_t {
 // emulated, so it can never need storing.
 struct StoredNfcSettings {
   uint8_t mode;
-  bool offeringEnabled;
+  bool captureEnabled;
   char payload[221];
 };
 

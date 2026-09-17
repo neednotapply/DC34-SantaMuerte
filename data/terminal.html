@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es-MX" translate="no">
+<html lang="en-US" translate="no">
 <head>
   <meta charset="UTF-8">
   <!-- The portal carries its own ES/EN layer, so a browser translating on top
@@ -10,9 +10,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#151615">
   <title>Santa Muerte // Terminal</title>
-  <link rel="stylesheet" href="theme.css?v=30">
+  <link rel="stylesheet" href="theme.css?v=46">
   <link rel="icon" type="image/png" href="assets/logo-candle.png">
-  <script src="locale.js?v=27"></script>
+  <script src="locale.js?v=35"></script>
   <style>
     :root{
       --bg:#151615;--panel:#1e1f1c;--panel2:#282823;--line:#504d44;
@@ -26,7 +26,7 @@
       color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
     button,input{font:inherit}
     button,a{-webkit-tap-highlight-color:transparent}
-    .wrap{width:min(1180px,100%);margin:auto;padding:24px 20px 44px}
+    .wrap{margin:auto;padding:24px 20px 44px}
     .card{border:1px solid var(--line);border-radius:23px;background:linear-gradient(155deg,rgba(20,24,35,.97),rgba(13,16,24,.98));box-shadow:var(--shadow);overflow:hidden}
     .pad{padding:22px}
     .card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px;flex-wrap:wrap}
@@ -74,36 +74,38 @@
   <div class="wrap">
     <header class="saint-header">
       <details class="nav-menu">
-        <summary aria-label="Abrir menú">
+        <summary aria-label="Open menu">
           <img class="brand-mark" src="assets/logo-candle.png" alt="">
         </summary>
-        <nav class="nav-menu-list" aria-label="Navegación del badge">
+        <nav class="nav-menu-list" aria-label="Badge navigation">
           <a href="/notes">Field Notes</a>
           <a href="/led">LED Tools</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/nfc-log">Registro NFC</a>
-          <a href="/usb">Herramientas USB</a>
+          <a href="/nfc-log">NFC Log</a>
+          <a href="/usb">USB Tools</a>
           <a href="/ducky">DuckyScript</a>
           <a href="/badusb">BadUSB</a>
-          <a href="/network">Red</a>
+          <a href="/terminal">Terminal</a>
+          <a href="/network">Network</a>
         </nav>
       </details>
       <div class="header-page-title">
         <h1>Terminal</h1>
       </div>
       <details class="nav-menu nav-menu--right">
-        <summary aria-label="Abrir menú">
+        <summary aria-label="Open menu">
           <img class="brand-mark" src="assets/logo-candle.png" alt="">
         </summary>
-        <nav class="nav-menu-list" aria-label="Navegación del badge">
+        <nav class="nav-menu-list" aria-label="Badge navigation">
           <a href="/notes">Field Notes</a>
           <a href="/led">LED Tools</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/nfc-log">Registro NFC</a>
-          <a href="/usb">Herramientas USB</a>
+          <a href="/nfc-log">NFC Log</a>
+          <a href="/usb">USB Tools</a>
           <a href="/ducky">DuckyScript</a>
           <a href="/badusb">BadUSB</a>
-          <a href="/network">Red</a>
+          <a href="/terminal">Terminal</a>
+          <a href="/network">Network</a>
         </nav>
       </details>
     </header>
@@ -112,35 +114,31 @@
       <section class="card pad">
         <div class="card-head">
           <div>
-            <div class="eyebrow">Consola USB</div>
-            <h2>La misma sesión que ve el cable</h2>
+            <div class="eyebrow">USB Console</div>
+            <h2>The same thing you see over the USB cable</h2>
           </div>
-          <div id="livePill" class="reader-pill"><i></i><span id="liveLabel">Conectando</span></div>
+          <div id="livePill" class="reader-pill"><i></i><span id="liveLabel">Connecting</span></div>
         </div>
 
         <div id="screen" class="terminal-screen raw" tabindex="0" role="log" aria-live="polite"></div>
 
         <div class="term-controls">
           <input id="lineInput" class="term-input" autocomplete="off" autocorrect="off"
-                 autocapitalize="off" spellcheck="false" placeholder="Escribe y pulsa Enter">
+                 autocapitalize="off" spellcheck="false" placeholder="Type, then press Enter">
           <button class="keycap" data-key="enter">Enter</button>
           <button class="keycap" data-key="escape">Esc</button>
           <button class="keycap" data-key="back">&#9003;</button>
-          <button class="keycap" data-key="colour" title="Alterna el color ANSI (tecla p)">Color</button>
+          <button class="keycap" data-key="colour" title="Toggles colours (key p)">Colour</button>
         </div>
 
         <div class="hint">
-          Haz clic en la pantalla y escribe igual que en el cable, o usa la caja de
-          arriba desde el teléfono. <b>Enter</b> abre una sesión cerrada, y
-          <b>Color</b> enciende el color ANSI en las dos vistas a la vez.
+          Click the screen and type just as you would over the cable, or use the box above from a phone. <b>Enter</b> reopens a closed session, and
+          <b>Colour</b> turns colours on in both views at once.
         </div>
 
         <div class="notice">
           <span class="mark">!</span>
-          <div>Una sola sesión: el cable y esta página comparten pantalla y lo que
-          está escrito a medias. Las claves guardadas, los payloads de teclado y
-          borrar las notas siguen siendo solo por cable, porque el portal no pide
-          contraseña.</div>
+          <div>One session: the cable and this page share the same screen, down to whatever is half-typed. Seeing saved passwords, sending keyboard payloads and clearing the notes stay cable-only, because this page asks for no password.</div>
         </div>
       </section>
     </main>
@@ -346,9 +344,9 @@
           feed(decoder.decode(bytes, {stream: true}));
           render();
         }
-        setLive('live', 'En vivo');
+        setLive('live', 'Live');
       })
-      .catch(function () { setLive('lost', 'Sin conexión'); })
+      .catch(function () { setLive('lost', 'Offline'); })
       .then(function () { inFlight = false; });
   }
 
@@ -365,7 +363,7 @@
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
       body: 'keys=' + encodeURIComponent(keys)
-    }).then(soon).catch(function () { setLive('lost', 'Sin conexión'); });
+    }).then(soon).catch(function () { setLive('lost', 'Offline'); });
   }
 
   // ---- input --------------------------------------------------------------
@@ -404,7 +402,7 @@
     });
   });
 
-  setLive('', 'Conectando');
+  setLive('', 'Connecting');
   poll();
   setInterval(poll, 300);
   screenEl.focus();

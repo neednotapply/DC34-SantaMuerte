@@ -250,7 +250,7 @@ void checkNotesFolder() {
   if (first) {
     const std::string content = fileBytes(*first);
     check(content.find("SANTA MUERTE // FIELD NOTE 2") == 0, "the note names itself");
-    check(content.find("segunda ofrenda") != std::string::npos, "the note carries its text");
+    check(content.find("segunda nota") != std::string::npos, "the note carries its text");
     check(content.find("0002.JPG") != std::string::npos, "the note points at its drawing");
   }
 }
@@ -384,7 +384,7 @@ bool nfcLogReadNext(uint32_t &beforeId, NfcLogEntry &entry) {
 }
 
 int main() {
-  posts = {{1, "primera ofrenda", false}, {2, "segunda ofrenda", true}};
+  posts = {{1, "primera nota", false}, {2, "segunda nota", true}};
   payloads = {{"hola", "STRING hola mundo\nENTER\n"}, {"lock", "GUI l\n"}};
 
   NfcLogEntry newest;

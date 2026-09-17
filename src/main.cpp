@@ -232,7 +232,7 @@ const char *patternToString(LedPattern pattern) {
     case PATTERN_CORONA: return "corona";
     case PATTERN_AUREOLA: return "aureola";
     case PATTERN_ENCUENTRO: return "encuentro";
-    case PATTERN_MANOS: return "manos";
+    case PATTERN_MANOS: return "hands";
     case PATTERN_ESCANER: return "escaner";
     case PATTERN_PLASMA: return "plasma";
     case PATTERN_DERIVA: return "deriva";
@@ -268,7 +268,7 @@ LedPattern stringToPattern(const String &name) {
   if (name == "corona") return PATTERN_CORONA;
   if (name == "aureola") return PATTERN_AUREOLA;
   if (name == "encuentro") return PATTERN_ENCUENTRO;
-  if (name == "manos") return PATTERN_MANOS;
+  if (name == "hands") return PATTERN_MANOS;
   if (name == "escaner") return PATTERN_ESCANER;
   if (name == "plasma") return PATTERN_PLASMA;
   if (name == "deriva") return PATTERN_DERIVA;
@@ -461,13 +461,13 @@ bool setUsbButtonState(UsbControlAction shortPress,
                        UsbControlAction longPress,
                        String &error) {
   if (!isUsbControlAction(shortPress) || !isUsbControlAction(longPress)) {
-    error = "Acción de botón no válida.";
+    error = "Invalid button action.";
     return false;
   }
   const StoredUsbButtonSettings settings = {
       static_cast<uint8_t>(shortPress), static_cast<uint8_t>(longPress)};
   if (!saveUsbButtonSettings(settings)) {
-    error = "No se pudieron guardar las acciones del botón.";
+    error = "Could not save the button actions.";
     return false;
   }
   usbButtonState = {shortPress, longPress};
@@ -1191,7 +1191,7 @@ void renderUsbDriveRead(uint32_t now) {
 // -----------------------------------------------------------------------------
 // Tag acknowledgement
 //
-// Offering mode exists to be used by someone who is not looking at the portal
+// Auto-scan exists to be used by someone who is not looking at the portal
 // -- often not even joined to the access point -- so the badge itself has to be
 // the receipt. Whatever the LEDs were doing, a read interrupts them for under a
 // second and then hands them straight back.
@@ -1729,17 +1729,17 @@ void restoreNfcSettings() {
   const bool restored = loadNfcSettings(stored);
   if (!restored) {
     stored.mode = NFC_MODE_WIFI;
-    stored.offeringEnabled = false;
+    stored.captureEnabled = false;
     Serial.println("[MAIN] No stored NFC state; sharing Wi-Fi over NFC");
   }
 
-  // Offering wins the radio at boot too. A record written before the two were
+  // Auto-scan wins the radio at boot too. A record written before the two were
   // made mutually exclusive can still hold both; starting emulation on top of
   // it would leave the toggle reading as on while the reader was busy
   // elsewhere, which is the one state the page cannot explain.
-  if (stored.offeringEnabled) {
+  if (stored.captureEnabled) {
     if (setNfcCaptureEnabled(true)) {
-      Serial.println("[MAIN] NFC Offering restored; reader scanning");
+      Serial.println("[MAIN] Auto-scan restored; reader scanning");
     }
     return;
   }

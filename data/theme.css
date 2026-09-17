@@ -22,6 +22,11 @@
   --sm-display: "DejaVu Sans", "Cambria Math", "Noto Sans Math", serif;
   --sm-ui: "DejaVu Sans Condensed", "Arial Narrow", Arial, sans-serif;
   --sm-mono: "Courier New", "DejaVu Sans Mono", monospace;
+  /* One page width for the whole portal. Every face -- the wall, the tools,
+     the forms -- is this wide, so moving between them does not move the
+     furniture. It is a ceiling, not a fixed size: below it the page is simply
+     the window, and each page arranges its own contents into the room it gets. */
+  --sm-page: 1400px;
 }
 
 html {
@@ -138,6 +143,27 @@ input[type="range"]::-moz-range-thumb {
 
 /* Shared portal chrome */
 .wrap, main, body > main { position: relative; }
+/* The single page width. Declared here rather than per page so the portal
+   cannot drift back into five different columns. */
+.wrap, body > main { width: min(var(--sm-page), 100%); margin-inline: auto; }
+
+/* Blocks move into the width rather than stretch across it. A wider window
+   buys more columns, not longer input fields: each block keeps a size it can
+   be read and used at, and only what genuinely needs the full width asks for
+   it. Below one column's worth this collapses to a single stack on its own. */
+.block-flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: center;
+}
+/* Grow from --sm-block up to --sm-block-max and no further. Past that the
+   leftover width buys another block on the same row rather than a wider one,
+   and when a row can no longer seat two the blocks wrap and take the width
+   for themselves again. */
+.block-flow > * { flex: 1 1 var(--sm-block, 360px); max-width: var(--sm-block-max, 620px); }
+.block-flow > .flow-wide { flex-basis: 100%; max-width: none; }
 .nav a, .nav-link, .status {
   border-color: var(--sm-line) !important;
   border-radius: 2px !important;
@@ -179,6 +205,11 @@ input[type="range"]::-moz-range-thumb {
   border-color:transparent !important; background:transparent !important;
   color:var(--sm-paper-hi) !important;
 }
+/* The flag you can press is a button and the one you are already on is a span,
+   so the cursor was whatever each page happened to say about buttons -- a hand
+   on some pages, an arrow on others. Say it here once, for every page. */
+.language-toggle button.flag { cursor:pointer; }
+.language-toggle .flag.active { cursor:default; }
 .language-toggle button:hover:not(:disabled) { border-color:transparent !important; background:transparent !important; }
 .language-toggle button:focus-visible { outline:2px solid var(--sm-brass) !important; outline-offset:1px; }
 .language-toggle .divider { color:var(--sm-faint); font:700 11px/1 var(--sm-mono); }
@@ -188,34 +219,142 @@ input[type="range"]::-moz-range-thumb {
   color:var(--sm-paper); box-shadow:4px 4px 0 rgba(0,0,0,.3); font:12px/1.4 var(--sm-ui);
 }
 
-/* Message board: passed paper notes over a dark corridor */
-body.board-page main { width: min(720px, 100%) !important; }
+/* Message board: passed paper notes over a dark corridor, at the shared page
+   width above. board.html keeps the composer narrow inside it. */
 body.board-page .card { border-color: var(--sm-line) !important; }
 /* Roomier now that the surrounding card is gone: each note is tilted and
-   shifted up to ~10px and carries a strip of tape 10px above its top edge,
+   shifted up to ~12px and carries a strip of tape 10px above its top edge,
    which the card's own padding used to absorb. */
-body.board-page #postList { gap: 20px !important; padding:14px 12px 12px; }
+/* A wall, not a column. Notes flow into as many columns as the window can hold
+   -- one on a phone, several on a laptop -- and each keeps only the width its
+   own text needs, so a two-word note stays a scrap and a paragraph fills its
+   column. The uneven widths are the point: they are what stops the wall from
+   reading as a list. */
+body.board-page #postList {
+  display: block !important;
+  columns: var(--note-column, 290px);
+  column-gap: 30px;
+  padding:14px 12px 12px;
+}
 body.board-page .post {
   position: relative;
-  border: 1px solid #918878 !important;
-  background: var(--sm-paper-hi) !important;
+  /* No border at all: the paper's edge is traced by ::after below. See the
+     note on the band further down for why a border cannot draw it. */
+  border: 0 !important;
   color: #171717 !important;
   padding: 14px 16px 16px !important;
   gap: 0 !important;
   overflow: visible;
-  transform:translateX(var(--offering-shift, 0px)) rotate(var(--offering-tilt, 0deg));
+  width: fit-content;
+  max-width: 100%;
+  /* Below this a note stops looking pinned and starts looking broken. */
+  min-width: min(184px, 100%);
+  /* A column box cannot be split, and the bottom margin is the only vertical
+     gap a multi-column layout honours between siblings. */
+  break-inside: avoid;
+  margin: 0 0 26px;
+  transform:translateX(var(--note-shift, 0px)) rotate(var(--note-tilt, 0deg));
   transform-origin:center center;
-  box-shadow:3px 5px 0 rgba(0,0,0,.32) !important;
+  /* The strip of wall the tape reaches onto. It is a transparent top border,
+     not an overhang: a box that sticks out ABOVE its column is also painted
+     into the bottom of the previous column, which littered the wall with
+     loose tape once the feed became multi-column. Keeping the tape inside the
+     note costs nothing and it can no longer escape.
+
+     Nothing else may draw in that band, which is why the paper's 1px edge is
+     a pseudo-element rather than a border: a solid side border running past a
+     transparent top border of a different width smears into the band at the
+     mitred corners, and an inset shadow is clipped to the border box and lands
+     at the top of the band outright. Both showed up as a bright rule floating
+     above every note. */
+  border-top:11px solid transparent !important;
+  background:var(--sm-paper-hi) !important;
+  background-clip:padding-box !important;
 }
-/* Every offering is pinned to the dark corridor with one small strip of
+/* The wall's own notices -- "the wall is empty", "the badge is not answering"
+   -- belong to the wall, not to one column of it. */
+body.board-page #postList > .empty { column-span: all; }
+
+/* The paper's edge, traced around the padding box -- which is exactly the
+   paper, since the background is clipped to it. The drop shadow rides here
+   too: cast from the note it would start at the top of the transparent band
+   and sit visibly high of the paper down the right-hand side. */
+body.board-page .post::after {
+  content:""; position:absolute; inset:0; pointer-events:none;
+  border:1px solid #918878;
+  box-shadow:3px 5px 0 rgba(0,0,0,.32);
+}
+/* Every note is pinned to the dark corridor with one small strip of
    translucent tape. Per-post custom properties keep its informal placement
-   stable when the feed refreshes instead of reshuffling the whole wall. */
-body.board-page .post::before {
-  content:""; position:absolute; z-index:2; pointer-events:none;
-  top:-10px; left:var(--tape-left, 50%); width:clamp(66px, 25%, 94px); height:18px;
-  background:rgba(164,123,54,.42); border:1px solid rgba(215,194,145,.2);
+   stable when the feed refreshes instead of reshuffling the whole wall.
+   The strip is also what peels the note off the wall, so it is a real button
+   rather than the ::before it used to be: a pseudo-element can be painted but
+   never clicked, focused or reached by a screen reader. At rest it is still
+   just tape -- no icon, no border, nothing that reads as a control -- and it
+   only darkens once you are already on it. See data/tape.js. */
+.tape {
+  position:absolute; z-index:3; padding:0;
+  /* The blanket button rules above give every button a maroon fill, a line
+     border and a 2px radius. Tape is a strip of tape. */
+  border:0 !important; border-radius:0 !important;
+  /* Offsets resolve against the padding box, so this is the top of the border
+     box: flush with the note, never outside it. */
+  top:-11px; left:var(--tape-left, 50%); width:clamp(66px, 25%, 94px); height:18px;
+  background:rgba(164,123,54,.42) !important;
   transform:translateX(-50%) rotate(var(--tape-tilt, 0deg));
+  cursor:pointer; -webkit-appearance:none; appearance:none;
+  transition:background .12s ease, box-shadow .12s ease;
 }
+.tape:hover:not(:disabled) { background:rgba(164,123,54,.62) !important; }
+.tape:focus-visible {
+  outline:none; box-shadow:0 0 0 2px var(--sm-brass, #a47b36);
+  background:rgba(164,123,54,.62) !important;
+}
+.tape:disabled { cursor:progress; }
+/* Held while the badge is still answering. */
+.note-pending { transition:opacity .12s ease; opacity:.45; pointer-events:none; }
+/* Lifting off the wall, rather than blinking out of the column. */
+.note-going {
+  transition:opacity .2s ease, transform .2s ease;
+  opacity:0; transform:translateX(var(--note-shift, 0px)) rotate(var(--note-tilt, 0deg)) scale(.94);
+  pointer-events:none;
+}
+
+/* "Are you sure?" -- a scrap of the same paper, over the same dark. */
+.ask-overlay {
+  position:fixed; inset:0; z-index:100; display:grid; place-items:center;
+  padding:20px; background:rgba(8,9,8,.72);
+}
+/* display:grid above is an author rule, and an author rule beats the browser's
+   built-in [hidden]{display:none}. Without this the dialog stayed on screen
+   after being dismissed and swallowed the next click -- which looked exactly
+   like a dead No button. Field Notes was the only board that hid it, and only
+   because board.html happens to declare its own [hidden] override. */
+.ask-overlay[hidden] { display:none !important; }
+.ask {
+  position:relative; width:min(320px, 100%); padding:22px 20px 18px;
+  background:var(--sm-paper-hi, #ebe5d8); color:var(--sm-ink, #1b1b18);
+  border:1px solid #918878; box-shadow:4px 6px 0 rgba(0,0,0,.4);
+  transform:rotate(-.8deg);
+}
+.ask::before {
+  content:""; position:absolute; top:-9px; left:38%; width:84px; height:18px;
+  background:rgba(164,123,54,.42); transform:rotate(2deg);
+}
+.ask-text {
+  margin:0 0 16px; text-align:center; font-weight:800; font-size:1rem;
+  letter-spacing:-.01em;
+}
+.ask-row { display:flex; gap:10px; }
+.ask-row button {
+  flex:1 1 0; min-height:42px; padding:9px 14px; border-radius:2px;
+  border:1px solid #918878 !important; cursor:pointer; font:inherit;
+  font-weight:800 !important; font-size:.82rem; letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.ask-yes { background:var(--sm-maroon, #6f1d24) !important; color:var(--sm-paper-hi, #ebe5d8) !important; }
+.ask-no { background:transparent !important; color:var(--sm-ink, #1b1b18) !important; }
+.ask-row button:focus-visible { outline:2px solid var(--sm-brass, #a47b36); outline-offset:2px; }
 body.board-page .post-head {
   padding: 0 0 8px;
   border-bottom: 1px dotted #978e80;
@@ -228,7 +367,7 @@ body.board-page .post-head {
 body.board-page .post-text { color: #171717 !important; font-family: var(--sm-mono) !important; padding:10px 0 0; }
 body.board-page .media { margin-top:10px; border:1px solid #b5ad9d !important; background:var(--sm-paper-hi) !important; }
 body.board-page .media img { border-radius:0 !important; }
-body.board-page .post.offering-photo { padding-bottom:22px !important; }
+body.board-page .post.note-photo { padding-bottom:22px !important; }
 body.board-page #composer { border-top: 0 !important; }
 body.board-page h2 { font-family: var(--sm-display) !important; letter-spacing: .07em !important; }
 body.board-page .mode-button { border-color: var(--sm-line) !important; background: var(--sm-panel-hi) !important; color: var(--sm-muted) !important; }
@@ -262,8 +401,9 @@ body.board-page #pad {
 body.board-page .write-note { background: var(--sm-paper-hi) !important; border-color: #918878 !important; color: var(--sm-ink) !important; border-radius: 2px !important; box-shadow: none !important; }
 body.board-page .upload-note { background: var(--sm-paper) !important; border-color: #918878 !important; color: var(--sm-ink) !important; border-radius: 2px !important; }
 body.board-page .swatch { border-radius: 1px !important; box-shadow: none !important; }
-body.board-page .nib { border-radius: 1px !important; background: var(--sm-panel-hi) !important; }
-body.board-page .nib i { border-radius: 1px !important; }
+body.board-page .nib { border-radius: 1px !important; background: var(--sm-panel-hi) !important; color: var(--sm-paper) !important; }
+/* The chosen implement reads as a pressed-in tile, not just a tinted one. */
+body.board-page .nib[aria-pressed=true] { background: var(--sm-paper-hi) !important; color: var(--sm-ink) !important; border-color: var(--sm-ink) !important; }
 body.board-page button.ghost { background: var(--sm-panel-hi) !important; color: var(--sm-paper) !important; }
 body.board-page .meter-track, body.board-page .meter-fill { border-radius: 1px !important; }
 body.board-page .pick { border-color: var(--sm-line) !important; background: var(--sm-panel-hi) !important; color: var(--sm-paper) !important; }
@@ -326,7 +466,7 @@ body.board-page .meter-head { display:grid; grid-template-columns:1fr auto; alig
 body.board-page .meter-head > :first-child { justify-self:start; text-align:left; }
 body.board-page #meterCount { justify-self:end; text-align:right; white-space:nowrap; }
 body.board-page #imageNote:empty { display:none; }
-body.board-page .post-head { flex-wrap:wrap; overflow-wrap:anywhere; }
+body.board-page .post-head { flex-wrap:wrap; overflow-wrap:break-word; }
 body.board-page .card, body.board-page form { min-width:0; }
 .saint-footer { padding:14px 0 6px; border-top:1px solid var(--sm-line); display:flex; justify-content:center; align-items:center; gap:12px; flex-wrap:wrap; color:var(--sm-faint); font:700 10px/1.5 var(--sm-mono); letter-spacing:.14em; }
 /* Field Notes and Network place their footer in a grid, which gives it a
@@ -356,6 +496,11 @@ body.board-page .card, body.board-page form { min-width:0; }
   margin:0; color:var(--sm-paper-hi); font-family:var(--sm-display); font-size:var(--header-title-size);
   font-weight:700; line-height:1; letter-spacing:.035em; text-shadow:1px 1px 0 #000; white-space:nowrap;
   position:relative; top:clamp(10px, 1.35vw, 18px);
+}
+/* Set by the title fitter in locale.js when a page name is too long to shrink
+   onto one line at a size that still looks like a masthead. */
+.saint-header .header-page-title h1.is-wrapped {
+  white-space:normal; text-wrap:balance; line-height:1.04;
 }
 @media (max-width:600px) {
   /* Keep the mobile header proportionate to the desktop masthead: the title
@@ -566,8 +711,11 @@ body.nfc-page .reader-pill.ready i, body.nfc-page .capture-card .reader-pill.rea
 
 body.board-page .post-head { text-transform:none; }
 body.board-page .post .type-letter { display:inline-block; white-space:pre; }
-body.board-page .post .type-letter:nth-child(7n) { transform:translateY(1px) rotate(-.6deg); }
-body.board-page .post .type-letter:nth-child(11n) { transform:translateY(-1px) rotate(.5deg); }
+/* A word is one unbreakable run; the jitter classes are set per letter in
+   board.html so the pattern still counts across the whole line. */
+body.board-page .post .type-word { white-space:nowrap; }
+body.board-page .post .type-letter.type-drop { transform:translateY(1px) rotate(-.6deg); }
+body.board-page .post .type-letter.type-lift { transform:translateY(-1px) rotate(.5deg); }
 .footer-brand { display:flex; justify-content:center; align-items:center; gap:16px; }
 .saint-footer .brand-mark { width:64px; height:96px; }
 .saint-title { font:38px/1.15 var(--sm-display); color:var(--sm-paper-hi); text-align:left; }

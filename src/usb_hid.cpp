@@ -222,7 +222,7 @@ uint8_t usbHidHostLeds() { return 0; }
 bool usbHidHostSeen() { return false; }
 String usbHidStatusLine() { return String("HID off (JTAG build)"); }
 bool usbHidRunControl(UsbControlAction, String &error) {
-  error = "Los controles del host necesitan modo OTG (ARDUINO_USB_MODE=0).";
+  error = "Host controls need OTG mode (ARDUINO_USB_MODE=0).";
   return false;
 }
 
@@ -528,7 +528,7 @@ void executeNextLine() {
 
 bool startRun(const String &newScript, const String &name, String &error) {
   if (runState != RunState::IDLE) {
-    error = "Hay una carga en curso.";
+    error = "A payload is already running.";
     return false;
   }
   if (newScript.length() == 0) {
@@ -711,12 +711,12 @@ bool usbHidRunControl(UsbControlAction action, String &error) {
     case UsbControlAction::NONE:
     case UsbControlAction::LED_CONTROLS:
     case UsbControlAction::LIMIT:
-      error = "Esta acción solo se puede usar al configurar el botón.";
+      error = "This action is only available as a badge-button setting.";
       return false;
   }
 
   if (!sent) {
-    error = "El host USB no aceptó ese control.";
+    error = "The USB host did not accept that control.";
     return false;
   }
   usbTuiLog("HID", String("control ") + usbControlActionKey(action));

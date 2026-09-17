@@ -345,14 +345,14 @@ void serveLittleFsFile(const char *path, const char *contentType) {
 
   if (!fileSystemReady || !LittleFS.exists(path)) {
     String error = path;
-    error += " no existe. Carga la imagen LittleFS y prueba otra vez.";
+    error += "is missing. Upload the LittleFS image and try again.";
     server.send(500, "text/plain; charset=utf-8", error);
     return;
   }
 
   File page = LittleFS.open(path, "r");
   if (!page) {
-    String error = "No se pudo abrir ";
+    String error = "Could not open";
     error += path;
     server.send(500, "text/plain; charset=utf-8", error);
     return;
@@ -614,17 +614,17 @@ void serviceStationConnection() {
 String stationWifiStatusText() {
   // The trial verdict outranks everything else: it is the answer to what the
   // operator just did, and it says whether the network was kept.
-  if (trialActive) return F("Probando la red… se guarda solo si conecta.");
+  if (trialActive) return F("Testing the network… it is only saved if it connects.");
   if (trialFailedSsid.length() > 0 && WiFi.status() != WL_CONNECTED) {
-    return F("No se pudo conectar. Esa red no se guardó.");
+    return F("Could not connect. That network was not saved.");
   }
-  if (!hasPersistentStationWifiSettings()) return F("Wi-Fi guardado sin configurar.");
-  if (WiFi.status() == WL_CONNECTED) return F("Conectado al Wi-Fi guardado.");
+  if (!hasPersistentStationWifiSettings()) return F("You have not saved a network yet.");
+  if (WiFi.status() == WL_CONNECTED) return F("Connected to saved Wi-Fi.");
   if (stationConnectionRequested && stationLastFailure.length() > 0) {
-    return String(F("Conectando al Wi-Fi guardado… ")) + stationLastFailure;
+    return String(F("Connecting to saved Wi-Fi…")) + stationLastFailure;
   }
-  if (stationConnectionRequested) return F("Conectando al Wi-Fi guardado…");
-  return F("El Wi-Fi guardado no está conectado.");
+  if (stationConnectionRequested) return F("Connecting to saved Wi-Fi…");
+  return F("Saved Wi-Fi is not connected.");
 }
 
 String stationWifiJson(bool ok, const String &message) {
@@ -717,7 +717,7 @@ void handleLanguageGet() {
 void handleLanguageSet() {
   addNoCacheHeaders();
   if (!server.hasArg("locale")) {
-    server.send(400, "application/json", languageJson(false, "Falta el idioma."));
+    server.send(400, "application/json", languageJson(false, "The language is missing."));
     return;
   }
   const bool english = server.arg("locale") == "en-US";
@@ -741,7 +741,7 @@ void handleWifiSettingsSet() {
     server.send(
         400,
         "application/json",
-        wifiSettingsJson(false, "Faltan el SSID, la contraseña o el ajuste de red oculta."));
+        wifiSettingsJson(false, "The network name, the password or the hidden-network setting is missing."));
     return;
   }
 
@@ -771,7 +771,7 @@ void handleWifiSettingsSet() {
 
   if (unchanged) {
     server.send(200, "application/json",
-                wifiSettingsJson(true, "Sin cambios. El badge sigue igual."));
+                wifiSettingsJson(true, "No changes. The badge is unchanged."));
     return;
   }
 
@@ -779,7 +779,7 @@ void handleWifiSettingsSet() {
     server.send(200, "application/json",
                 wifiSettingsJson(
                     true,
-                    "Guardado. El punto de acceso sigue apagado hasta que lo enciendas."));
+                    "Saved. The access point stays off until you turn it on."));
     return;
   }
 
@@ -795,15 +795,15 @@ void handleWifiSettingsSet() {
       wifiSettingsJson(
           true,
           hidden
-              ? "Guardado. Vuelve a entrar escribiendo a mano el SSID oculto y la contraseña nueva."
-              : "Guardado. Vuelve a entrar al badge con el SSID y la contraseña nuevos."));
+              ? "Saved. Join again by typing the hidden network name and the new password by hand."
+              : "Saved. Join the badge again with the new network name and password."));
 }
 
 void handleAccessPointSet() {
   addNoCacheHeaders();
   if (!server.hasArg("enabled")) {
     server.send(400, "application/json",
-                wifiSettingsJson(false, "Falta el ajuste del punto de acceso."));
+                wifiSettingsJson(false, "The access-point setting is missing."));
     return;
   }
 
@@ -824,8 +824,8 @@ void handleAccessPointSet() {
               wifiSettingsJson(
                   true,
                   enabled
-                      ? "Guardado. Encendiendo el punto de acceso del badge."
-                      : "Guardado. El punto de acceso se apagará; usa el Wi-Fi guardado o USB para volver a encenderlo."));
+                      ? "Saved. Turning on the badge access point."
+                      : "Saved. The access point will turn off; use saved Wi-Fi or USB to turn it back on."));
 }
 
 void handleStationWifiGet() {
@@ -899,7 +899,7 @@ void handleStationWifiSet() {
   if (!server.hasArg("ssid")) {
     server.send(400, "application/json",
                 stationWifiJson(false,
-                                "Falta el nombre del Wi-Fi guardado."));
+                                "The saved Wi-Fi name is required."));
     return;
   }
 
@@ -921,7 +921,7 @@ void handleStationWifiSet() {
   // lie the operator only discovers when a reboot drops the network.
   server.send(202, "application/json",
               stationWifiJson(true,
-                              "Probando la red… se guarda solo si conecta."));
+                              "Testing the network… it is only saved if it connects."));
 }
 
 void servicePendingAccessPointRestart() {
@@ -1009,6 +1009,10 @@ void handleThemeStylesheet() {
 
 void handleLocaleScript() {
   serveLittleFsFile("/locale.js", "text/javascript; charset=utf-8");
+}
+
+void handleTapeScript() {
+  serveLittleFsFile("/tape.js", "text/javascript; charset=utf-8");
 }
 
 void handleLogoAsset() {
@@ -1151,39 +1155,79 @@ String boardStateJson(bool ok, const String &message) {
 // overlap.
 uint8_t boardImageBuffer[BOARD_MAX_IMAGE_BYTES];
 
-int base64UrlValue(char character) {
-  if (character >= 'A' && character <= 'Z') return character - 'A';
-  if (character >= 'a' && character <= 'z') return character - 'a' + 26;
-  if (character >= '0' && character <= '9') return character - '0' + 52;
-  if (character == '-' || character == '+') return 62;
-  if (character == '_' || character == '/') return 63;
+// A drawing arrives as the raw POST body and is streamed straight into the
+// buffer above, 1436 bytes at a time, without a single allocation.
+//
+// It used to travel as a base64 field inside a urlencoded form. The web server
+// cannot stream one of those: it materialises the whole body as a malloc'd
+// buffer, then a copy in a String, then another copy per parsed argument --
+// about 50 KB of *contiguous* heap for a 12 KB drawing, before our handler is
+// even reached. The badge runs on ~51 KB free with a ~30 KB largest block, so
+// big notes died inside the parser, which then drops the connection
+// without a reply. That is the "Failed to fetch" the browser reported.
+size_t boardUploadLength = 0;
+bool boardUploadTooBig = false;
+
+void handleBoardUpload() {
+  HTTPRaw &upload = server.raw();
+
+  if (upload.status == RAW_START) {
+    boardUploadLength = 0;
+    boardUploadTooBig = false;
+    return;
+  }
+
+  if (upload.status == RAW_WRITE) {
+    // Once past the ceiling the remaining chunks are still accepted and
+    // discarded rather than refused: the server reads the whole body off the
+    // socket either way, and leaving part of it unread would desynchronise
+    // the connection.
+    if (boardUploadTooBig ||
+        upload.currentSize > sizeof(boardImageBuffer) - boardUploadLength) {
+      boardUploadTooBig = true;
+      return;
+    }
+
+    memcpy(boardImageBuffer + boardUploadLength, upload.buf, upload.currentSize);
+    boardUploadLength += upload.currentSize;
+    return;
+  }
+
+  if (upload.status == RAW_ABORTED) {
+    boardUploadLength = 0;
+    boardUploadTooBig = false;
+  }
+}
+
+int hexDigitValue(char character) {
+  if (character >= '0' && character <= '9') return character - '0';
+  if (character >= 'a' && character <= 'f') return character - 'a' + 10;
+  if (character >= 'A' && character <= 'F') return character - 'A' + 10;
   return -1;
 }
 
-// base64url, so the payload survives form encoding without the expansion that
-// '+', '/' and '=' would cause. Returns 0 on any invalid or oversized input.
-size_t decodeBase64Url(const String &encoded, uint8_t *out, size_t capacity) {
-  uint32_t accumulator = 0;
-  uint8_t bits = 0;
-  size_t written = 0;
+// The body now belongs to the image alone, so a note's text rides in a
+// header instead -- percent-encoded by the browser, because a header value
+// cannot carry a newline or a raw UTF-8 byte.
+String percentDecode(const String &value) {
+  String out;
+  out.reserve(value.length());
 
-  for (size_t i = 0; i < encoded.length(); ++i) {
-    const char character = encoded[i];
-    if (character == '=') break;
-
-    const int value = base64UrlValue(character);
-    if (value < 0) return 0;
-
-    accumulator = (accumulator << 6) | static_cast<uint32_t>(value);
-    bits += 6;
-    if (bits < 8) continue;
-
-    bits -= 8;
-    if (written >= capacity) return 0;
-    out[written++] = static_cast<uint8_t>((accumulator >> bits) & 0xFF);
+  for (unsigned int i = 0; i < value.length(); ++i) {
+    const char character = value[i];
+    if (character == '%' && i + 2 < value.length()) {
+      const int high = hexDigitValue(value[i + 1]);
+      const int low = hexDigitValue(value[i + 2]);
+      if (high >= 0 && low >= 0) {
+        out += static_cast<char>(high * 16 + low);
+        i += 2;
+        continue;
+      }
+    }
+    out += character;
   }
 
-  return written;
+  return out;
 }
 
 void handleBoardImage() {
@@ -1193,7 +1237,7 @@ void handleBoardImage() {
   const size_t length =
       readBoardImage(postId, boardImageBuffer, sizeof(boardImageBuffer));
   if (length == 0) {
-    server.send(404, "text/plain; charset=utf-8", "No hay dibujo para esa ofrenda.");
+    server.send(404, "text/plain; charset=utf-8", "That note has no drawing.");
     return;
   }
 
@@ -1218,7 +1262,7 @@ void handleBoardState() {
 // identity a browser volunteers, and it names a device class at best
 // ("Pixel 6a", "iPhone"). That is remembered here in RAM only: the board record
 // is packed to a fixed 304 bytes with no room for a name, and widening it would
-// change the on-disk layout and wipe every stored offering. So a label lives
+// change the on-disk layout and wipe every stored note. So a label lives
 // only until the badge reboots, after which posts show their pseudonym again.
 // The label is keyed to the author, not the post, so it applies to everything
 // that pseudonym has ever written -- including retroactively. Normally one
@@ -1433,27 +1477,23 @@ void handleBoardPosts() {
 void handleBoardCreate() {
   addNoCacheHeaders();
 
-  const String text = server.hasArg("text") ? server.arg("text") : String();
+  if (boardUploadTooBig) {
+    server.send(400, "application/json",
+                boardStateJson(false,
+                               "The drawing is bigger than the badge can hold."));
+    return;
+  }
+
+  const String text = percentDecode(server.header("X-Note-Text"));
   // The badge has no real-time clock, so the posting time can only ever be
   // what the browser claimed it was.
   const uint32_t createdAt =
-      server.hasArg("ts") ? strtoul(server.arg("ts").c_str(), nullptr, 10) : 0;
+      strtoul(server.header("X-Note-Ts").c_str(), nullptr, 10);
 
-  size_t imageLength = 0;
-  if (server.hasArg("image") && server.arg("image").length() > 0) {
-    imageLength = decodeBase64Url(server.arg("image"), boardImageBuffer,
-                                  sizeof(boardImageBuffer));
-    if (imageLength == 0) {
-      server.send(400, "application/json",
-                  boardStateJson(false,
-                                 "No se pudo leer el dibujo o pesa más de lo "
-                                 "que aguanta el badge."));
-      return;
-    }
-  }
+  const size_t imageLength = boardUploadLength;
 
   String error;
-  const long claimedAuthor = server.hasArg("authorId") ? server.arg("authorId").toInt() : 0;
+  const long claimedAuthor = server.header("X-Note-Author").toInt();
   // Deliberately the browser range only, not isStorableAuthorId(): a web
   // client must not be able to claim it is the NFC reader or the USB console.
   const uint16_t authorId = claimedAuthor >= BOARD_FIRST_BROWSER_AUTHOR_ID &&
@@ -1464,12 +1504,13 @@ void handleBoardCreate() {
                      clientMacSuffix(server.client().remoteIP()));
   if (!addBoardPost(text, createdAt,
                     imageLength > 0 ? boardImageBuffer : nullptr, imageLength,
-                    error, authorId, server.arg("textInImage") == "1")) {
+                    error, authorId,
+                    server.header("X-Note-Text-In-Image") == "1")) {
     server.send(400, "application/json", boardStateJson(false, error));
     return;
   }
 
-  server.send(201, "application/json", boardStateJson(true, "Ofrenda enviada."));
+  server.send(201, "application/json", boardStateJson(true, "Note posted."));
 }
 
 void handleNfcCaptureSet() {
@@ -1477,7 +1518,7 @@ void handleNfcCaptureSet() {
 
   if (!server.hasArg("enabled")) {
     server.send(400, "application/json",
-                F("{\"ok\":false,\"message\":\"Falta el ajuste del escaneo automático.\"}"));
+                F("{\"ok\":false,\"message\":\"The auto-scan setting is missing.\"}"));
     return;
   }
 
@@ -1492,15 +1533,28 @@ void handleNfcCaptureSet() {
   server.send(200, "application/json", getNfcStateJson());
 }
 
+void handleBoardDelete() {
+  addNoCacheHeaders();
+  const uint32_t id = server.hasArg("id")
+                          ? strtoul(server.arg("id").c_str(), nullptr, 10)
+                          : 0;
+  if (!deleteBoardPost(id)) {
+    server.send(404, "application/json",
+                boardStateJson(false, "That note is not on the board."));
+    return;
+  }
+  server.send(200, "application/json", boardStateJson(true, "Note deleted."));
+}
+
 void handleBoardClear() {
   addNoCacheHeaders();
   if (!clearBoard()) {
     server.send(500, "application/json",
-                boardStateJson(false, "No se pudo limpiar el tablero."));
+                boardStateJson(false, "Could not clear the board."));
     return;
   }
   server.send(200, "application/json",
-              boardStateJson(true, "Se borraron todas las ofrendas."));
+              boardStateJson(true, "Every note was deleted."));
 }
 
 void handleNfcLogPage() {
@@ -1553,15 +1607,29 @@ void handleNfcBoard() {
   server.sendContent(F(""));
 }
 
+void handleNfcBoardDelete() {
+  addNoCacheHeaders();
+  const uint32_t id = server.hasArg("id")
+                          ? strtoul(server.arg("id").c_str(), nullptr, 10)
+                          : 0;
+  if (!deleteNfcLogEntry(id)) {
+    server.send(404, "application/json",
+                F("{\"ok\":false,\"message\":\"That tag is not in the log.\"}"));
+    return;
+  }
+  server.send(200, "application/json",
+              F("{\"ok\":true,\"message\":\"Tag deleted.\"}"));
+}
+
 void handleNfcBoardClear() {
   addNoCacheHeaders();
   if (!clearNfcLog()) {
     server.send(500, "application/json",
-                F("{\"ok\":false,\"message\":\"No se pudo limpiar el registro NFC.\"}"));
+                F("{\"ok\":false,\"message\":\"Could not clear the NFC log.\"}"));
     return;
   }
   server.send(200, "application/json",
-              F("{\"ok\":true,\"message\":\"Registro NFC borrado.\"}"));
+              F("{\"ok\":true,\"message\":\"NFC log cleared.\"}"));
 }
 
 // -----------------------------------------------------------------------------
@@ -1605,10 +1673,10 @@ void handleNotFound() {
   }
 
   server.send(404, "text/plain; charset=utf-8",
-              "No se encontró la página. Abre http://10.69.4.20/notes para las notas, "
-              "http://10.69.4.20/led para luces, "
-              "http://10.69.4.20/nfc para NFC o "
-              "http://10.69.4.20/network para la red.");
+              "Page not found. Open http://10.69.4.20/notes for the notes,"
+              "http://10.69.4.20/led for the lights,"
+              "http://10.69.4.20/nfc for NFC, or"
+              "http://10.69.4.20/network for the network settings.");
 }
 
 // ---- USB HID payloads. The portal can author, store, load and delete payloads,
@@ -1906,14 +1974,14 @@ void handleUsbControlRun() {
       action == UsbControlAction::NONE ||
       action == UsbControlAction::LED_CONTROLS) {
     server.send(400, "application/json",
-                usbControlsJson(false, "Acción USB no válida."));
+                usbControlsJson(false, "Invalid USB action."));
     return;
   }
   if (action == UsbControlAction::SYSTEM_POWER_OFF &&
       (!server.hasArg("confirm") || server.arg("confirm") != "power-off")) {
     server.send(400, "application/json",
                 usbControlsJson(false,
-                                "Confirma el apagado del equipo antes de enviarlo."));
+                                "Confirm powering off the computer before sending it."));
     return;
   }
 
@@ -1933,14 +2001,14 @@ void handleUsbButtonSet() {
       !usbControlActionFromKey(server.arg("short"), shortPress) ||
       !usbControlActionFromKey(server.arg("long"), longPress)) {
     server.send(400, "application/json",
-                usbControlsJson(false, "Acción de botón no válida."));
+                usbControlsJson(false, "Invalid button action."));
     return;
   }
   if (shortPress == UsbControlAction::SYSTEM_POWER_OFF ||
       longPress == UsbControlAction::SYSTEM_POWER_OFF) {
     server.send(400, "application/json",
                 usbControlsJson(false,
-                                "Apagar el equipo no se puede asignar al botón."));
+                                "Powering off the computer cannot be assigned to the button."));
     return;
   }
 
@@ -2125,6 +2193,7 @@ void setupWebServer() {
   server.on("/index.html", HTTP_GET, handleDashboardPage);
   server.on("/theme.css", HTTP_GET, handleThemeStylesheet);
   server.on("/locale.js", HTTP_GET, handleLocaleScript);
+  server.on("/tape.js", HTTP_GET, handleTapeScript);
   server.on("/assets/logo-candle.png", HTTP_GET, handleLogoAsset);
   server.on("/assets/badge-figure.png", HTTP_GET, handleBadgeFigureAsset);
   server.on("/led", HTTP_GET, handleLedPage);
@@ -2163,9 +2232,13 @@ void setupWebServer() {
   server.on("/api/board/state", HTTP_GET, handleBoardState);
   server.on("/api/board/posts", HTTP_GET, handleBoardPosts);
   server.on("/api/board/image", HTTP_GET, handleBoardImage);
-  server.on("/api/board/post", HTTP_POST, handleBoardCreate);
+  // The fourth argument is the body receiver. Registering one is what makes the
+  // server stream this route's body instead of parsing it into Strings.
+  server.on("/api/board/post", HTTP_POST, handleBoardCreate, handleBoardUpload);
+  server.on("/api/board/delete", HTTP_POST, handleBoardDelete);
   server.on("/api/board/clear", HTTP_POST, handleBoardClear);
   server.on("/api/nfc/board", HTTP_GET, handleNfcBoard);
+  server.on("/api/nfc/board/delete", HTTP_POST, handleNfcBoardDelete);
   server.on("/api/nfc/board/clear", HTTP_POST, handleNfcBoardClear);
 
   server.on("/usb", HTTP_GET, handlePayloadsPage);
@@ -2215,10 +2288,13 @@ void setupWebServer() {
 
   server.onNotFound(handleNotFound);
 
-  // WebServer discards every header it was not told to keep, and User-Agent is
-  // the only identity a browser offers for naming an offering.
-  static const char *collected[] = {"User-Agent"};
-  server.collectHeaders(collected, 1);
+  // WebServer discards every header it was not told to keep. User-Agent is the
+  // only identity a browser offers for naming a note; the X-Note-*
+  // ones carry the metadata that used to share the body with the drawing.
+  static const char *collected[] = {"User-Agent", "X-Note-Text",
+                                    "X-Note-Ts", "X-Note-Author",
+                                    "X-Note-Text-In-Image"};
+  server.collectHeaders(collected, sizeof(collected) / sizeof(collected[0]));
 
   server.begin();
   Serial.println("[WEB] HTTP server started");

@@ -50,17 +50,17 @@ constexpr size_t LEGACY_WIFI_PASSWORD_LENGTH = 12;
 constexpr char const *PASSPHRASE_WORDS[] = {
     "Alma",     "Altar",     "Amuleto",   "Angel",     "Ataud",
     "Bruja",    "Calaca",    "Calavera",  "Campana",   "Camposanto",
-    "Cempasuchil", "Ceniza", "Cirio",     "Copal",     "Corona",
+    "Cempasuchil", "Ceniza", "Cirio",     "Copal",     "Crown",
     "Cripta",   "Cruz",      "Culto",     "Devoto",    "Difunto",
     "Encanto",  "Espejo",    "Espiritu",  "Estrella",  "Fantasma",
     "Flor",     "Guadana",   "Hechizo",   "Hueso",     "Humo",
     "Incienso", "Lapida",    "Luna",      "Luto",      "Manto",
     "Milagro",  "Moneda",    "Muerte",    "Nicho",     "Noche",
-    "Novena",   "Nube",      "Ofrenda",   "Oracion",   "Osario",
+    "Novena",   "Nube",      "Offering",   "Oracion",   "Osario",
     "Pacto",    "Panteon",   "Peregrino", "Petalo",    "Plegaria",
-    "Promesa",  "Reliquia",  "Rezo",      "Rosario",   "Ruego",
+    "Promesa",  "Reliquia",  "Rezo",      "Rosary",   "Ruego",
     "Sagrada",  "Santa",     "Sombra",    "Sudario",   "Suerte",
-    "Tumba",    "Vela",      "Veladora",  "Velorio",   "Vigilia",
+    "Tumba",    "Candle",      "Veladora",  "Velorio",   "Vigil",
     "Voto"};
 constexpr size_t PASSPHRASE_WORD_COUNT =
     sizeof(PASSPHRASE_WORDS) / sizeof(PASSPHRASE_WORDS[0]);
@@ -125,7 +125,7 @@ struct __attribute__((packed)) StoredNfcRecord {
   uint32_t magic;
   uint8_t version;
   uint8_t mode;
-  uint8_t offeringEnabled;
+  uint8_t captureEnabled;
   char payload[221];
   uint32_t checksum;
 };
@@ -313,7 +313,7 @@ bool storeAndVerifyStationWifi(Preferences &preferences,
 
 String stationWifiValidationError(const String &ssid, const String &password) {
   if (!isValidStationSsid(ssid.c_str())) {
-    return F("El SSID guardado debe tener 1 a 32 bytes sin controles.");
+    return F("The saved Wi-Fi SSID must be 1 to 32 bytes with no control characters.");
   }
   // A remembered network may be open.  An empty password is therefore a
   // deliberate credential, not a missing one; non-empty passwords retain the
@@ -410,14 +410,13 @@ String wifiPasswordValidationError(const String &password,
   if (allowOpenAccessPoint && password.length() == 0) return String();
   if (password.length() < WIFI_PASSWORD_MIN_LENGTH ||
       password.length() > WIFI_PASSWORD_MAX_LENGTH) {
-    return F("La contraseña debe tener 8 a 63 caracteres.");
+    return F("The password must be 8 to 63 characters.");
   }
 
   for (size_t i = 0; i < password.length(); ++i) {
     if (!isPrintableAscii(password[i])) {
       return F(
-          "Usa ASCII visible. Letras con acento y emoji no caben en la "
-          "clave WPA2.");
+          "Use visible ASCII. Accents and emoji do not fit in a WPA2 password.");
     }
   }
 
@@ -622,11 +621,11 @@ const char *getPersistentAccessPointSsid() {
 bool setPersistentAccessPointSsid(const String &ssid, String &error) {
   error = String();
   if (!isValidStationSsid(ssid.c_str())) {
-    error = F("El SSID del badge debe tener 1 a 32 bytes sin controles.");
+    error = F("The badge network name must be 1 to 32 bytes with no control characters.");
     return false;
   }
   if (!settingsInitialized && !initializeBadgeSettings()) {
-    error = F("Los ajustes guardados no están disponibles.");
+    error = F("Saved settings are unavailable.");
     return false;
   }
 
@@ -638,14 +637,14 @@ bool setPersistentAccessPointSsid(const String &ssid, String &error) {
 
   Preferences preferences;
   if (!preferences.begin(SETTINGS_NAMESPACE, false)) {
-    error = F("No se pudo abrir NVS para guardar el SSID del badge.");
+    error = F("Could not open storage to save the badge network name.");
     return false;
   }
   const bool stored = preferences.putString(KEY_AP_SSID, ssid) > 0 &&
                       preferences.getString(KEY_AP_SSID, "") == ssid;
   preferences.end();
   if (!stored) {
-    error = F("No se pudo guardar el SSID del badge.");
+    error = F("Could not save the badge network name.");
     return false;
   }
 
@@ -662,21 +661,21 @@ bool getPersistentAccessPointEnabled() {
 bool setPersistentAccessPointEnabled(bool enabled, String &error) {
   error = String();
   if (!settingsInitialized && !initializeBadgeSettings()) {
-    error = F("Los ajustes guardados no están disponibles.");
+    error = F("Saved settings are unavailable.");
     return false;
   }
   if (enabled == cachedAccessPointEnabled) return true;
 
   Preferences preferences;
   if (!preferences.begin(SETTINGS_NAMESPACE, false)) {
-    error = F("No se pudo abrir NVS para guardar el ajuste del punto de acceso.");
+    error = F("Could not open NVS to save the access-point setting.");
     return false;
   }
   const bool stored = preferences.putBool(KEY_AP_ENABLED, enabled) != 0 &&
                       preferences.getBool(KEY_AP_ENABLED, !enabled) == enabled;
   preferences.end();
   if (!stored) {
-    error = F("No se pudo guardar el ajuste del punto de acceso.");
+    error = F("Could not save the access-point setting.");
     return false;
   }
   cachedAccessPointEnabled = enabled;
@@ -711,21 +710,21 @@ bool setPersistentBoardIdWatermark(uint32_t watermark) {
 bool setPersistentEnglishLanguage(bool english, String &error) {
   error = String();
   if (!settingsInitialized && !initializeBadgeSettings()) {
-    error = F("Los ajustes guardados no están disponibles.");
+    error = F("Saved settings are unavailable.");
     return false;
   }
   if (english == cachedEnglishLanguage) return true;
 
   Preferences preferences;
   if (!preferences.begin(SETTINGS_NAMESPACE, false)) {
-    error = F("No se pudo abrir NVS para guardar el idioma.");
+    error = F("Could not open NVS to save the language.");
     return false;
   }
   const bool stored = preferences.putBool(KEY_UI_LANGUAGE, english) != 0 &&
                       preferences.getBool(KEY_UI_LANGUAGE, !english) == english;
   preferences.end();
   if (!stored) {
-    error = F("No se pudo guardar el idioma.");
+    error = F("Could not save the language.");
     return false;
   }
   cachedEnglishLanguage = english;
@@ -738,7 +737,7 @@ bool setPersistentWifiSettings(const String &password,
                                String &error) {
   error = String();
   if (!settingsInitialized && !initializeBadgeSettings()) {
-    error = F("Los ajustes guardados no están disponibles.");
+    error = F("Saved settings are unavailable.");
     return false;
   }
 
@@ -757,7 +756,7 @@ bool setPersistentWifiSettings(const String &password,
 
   Preferences preferences;
   if (!preferences.begin(SETTINGS_NAMESPACE, false)) {
-    error = F("No se pudo abrir NVS para guardar el Wi-Fi.");
+    error = F("Could not open NVS to save the Wi-Fi.");
     return false;
   }
 
@@ -790,8 +789,8 @@ bool setPersistentWifiSettings(const String &password,
     preferences.end();
 
     error = !passwordStored
-                ? F("La contraseña nueva no se pudo guardar.")
-                : F("El ajuste de SSID oculto no se pudo guardar.");
+                ? F("The new password could not be saved.")
+                : F("The hidden-SSID setting could not be saved.");
     return false;
   }
 
@@ -844,7 +843,7 @@ bool setPersistentStationWifiSettings(const String &ssid,
   error = stationWifiValidationError(ssid, password);
   if (error.length() > 0) return false;
   if (!settingsInitialized && !initializeBadgeSettings()) {
-    error = F("Los ajustes guardados no están disponibles.");
+    error = F("Saved settings are unavailable.");
     return false;
   }
 
@@ -854,7 +853,7 @@ bool setPersistentStationWifiSettings(const String &ssid,
   copyPassword(requestedPassword, password.c_str());
   Preferences preferences;
   if (!preferences.begin(SETTINGS_NAMESPACE, false)) {
-    error = F("No se pudo abrir NVS para guardar el Wi-Fi guardado.");
+    error = F("Could not open NVS to save saved Wi-Fi.");
     return false;
   }
   uint8_t existing = cachedStationWifiCount;
@@ -876,7 +875,7 @@ bool setPersistentStationWifiSettings(const String &ssid,
   }
   preferences.end();
   if (!stored) {
-    error = F("El Wi-Fi guardado no se pudo guardar.");
+    error = F("Saved Wi-Fi could not be saved.");
     return false;
   }
 
@@ -985,7 +984,7 @@ bool loadNfcSettings(StoredNfcSettings &settings) {
   }
 
   settings.mode = record.mode;
-  settings.offeringEnabled = record.offeringEnabled != 0;
+  settings.captureEnabled = record.captureEnabled != 0;
   memcpy(settings.payload, record.payload, sizeof(settings.payload));
   return true;
 }
@@ -997,14 +996,14 @@ bool saveNfcSettings(const StoredNfcSettings &settings) {
   record.magic = NFC_SETTINGS_MAGIC;
   record.version = NFC_SETTINGS_VERSION;
   record.mode = settings.mode;
-  record.offeringEnabled = settings.offeringEnabled ? 1 : 0;
+  record.captureEnabled = settings.captureEnabled ? 1 : 0;
   strncpy(record.payload, settings.payload, sizeof(record.payload) - 1);
   record.checksum = nfcRecordChecksum(record);
 
   StoredNfcSettings existing = {};
   if (loadNfcSettings(existing) &&
       existing.mode == settings.mode &&
-      existing.offeringEnabled == settings.offeringEnabled &&
+      existing.captureEnabled == settings.captureEnabled &&
       strncmp(existing.payload, record.payload, sizeof(record.payload)) == 0) {
     return true;
   }
