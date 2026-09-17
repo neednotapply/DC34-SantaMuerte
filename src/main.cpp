@@ -16,6 +16,7 @@
 #include "usb_badusb.h"
 #include "usb_network.h"
 #include "usb_drive.h"
+#include "usb_dropbox.h"
 #include "usb_console.h"
 
 // -----------------------------------------------------------------------------
@@ -1439,7 +1440,7 @@ void updateLEDs() {
     return;
   }
 
-  if (usbDriveReadActive()) {
+  if (usbDriveReadActive() || usbDropboxActive()) {
     renderUsbDriveRead(now);
     showStrip();
     return;
@@ -1829,6 +1830,10 @@ void setup() {
   usbBadUSBConfigure(usbProfile == UsbDeviceProfile::DRIVE);
   usbNetworkConfigure(usbProfile == UsbDeviceProfile::NETWORK);
   usbDriveConfigure(usbProfile == UsbDeviceProfile::DRIVE);
+  // Claims a second MSC LUN (the writable DROP BOX) beside the Field Notes
+  // drive. Must precede USB.begin() so GET_MAX_LUN reports both; it only
+  // reserves the LUN here and touches flash later, in usbDropboxBegin().
+  usbDropboxConfigure(usbProfile == UsbDeviceProfile::DRIVE);
   usbHidBegin();
   usbBadUSBBegin();
   // Must precede begin(): the descriptor is built there, and the constructor
@@ -1853,12 +1858,22 @@ void setup() {
   } else {
     const UsbDriveState drive = getUsbDriveState();
     // Registered, not yet mountable: the medium goes in at usbDriveRefresh(),
-    // once there is a filesystem to take a snapshot of.
-    Serial.printf("[USB] Badge Drive interface %s // 2 MiB read-only MSC\r\n",
+    // once there is a filesystem to take a snapshot of. The writable DROP BOX
+    // is a second LUN on the same interface and comes up in usbDropboxBegin().
+    Serial.printf("[USB] Badge Drive interface %s // read-only MSC + DROP BOX\r\n",
                   drive.available ? "registered" : "unavailable");
   }
   delay(1500);
   Serial.println("===== START =====");
+
+  // Format-on-first-boot, seed DUCKY/ and BADUSB/, import anything already
+  // dropped, and present the writable DROP BOX volume. Deliberately BEFORE
+  // setupLEDs() starts the render task: the one-time first-boot FAT format
+  // erases the ffat partition with the flash cache off, which would otherwise
+  // stall the animation. The payload store it imports into is already up
+  // (usbHidBegin, before USB.begin). No-op outside the Drive profile.
+  usbDropboxBegin();
+
   usbTuiBegin();
 
   // Restore before the strip starts so the first frame is already the state
@@ -1931,6 +1946,9 @@ void loop() {
   usbTuiService();
   usbHidService();
   usbBadUSBService();
+  // A completed import brings new scripts into /payloads; re-snapshot the read-
+  // only drive so they show up there and in its file counts.
+  if (usbDropboxService()) usbDriveRefresh();
   usbNetworkService();
   serviceLedSettingsPersistence();
   delay(1);

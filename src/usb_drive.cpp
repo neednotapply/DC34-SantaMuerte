@@ -289,9 +289,9 @@ void renderBoot(uint8_t *sector) {
   write16(sector + 24, 1); write16(sector + 26, 1);
   sector[36] = 0x00; sector[38] = 0x29; write32(sector + 39, 0x534D3334);
   // Eleven bytes, and it has to be the same string the root directory's label
-  // entry carries -- "SANTA MUERTE" truncates to "SANTA MUERT" here and then
-  // disagrees with the root, which fsck.fat reports as a damaged label.
-  memcpy(sector + 43, "SANTAMUERTE", 11); memcpy(sector + 54, "FAT12   ", 8);
+  // entry carries (renderRoot) -- a mismatch is what fsck.fat reports as a
+  // damaged label. "FIELD NOTES" is exactly eleven, so it needs no padding.
+  memcpy(sector + 43, "FIELD NOTES", 11); memcpy(sector + 54, "FAT12   ", 8);
   sector[510] = 0x55; sector[511] = 0xAA;
 }
 void fatByte(uint8_t *sector, uint32_t base, uint32_t offset, uint8_t value, bool high = false) {
@@ -371,7 +371,7 @@ uint8_t entrySlots(const DriveFile &file) {
   return static_cast<uint8_t>(1 + longNameEntries(file));
 }
 void renderRoot(uint8_t *sector) {
-  memcpy(sector, "SANTAMUERTE", 11); sector[11] = 0x08; uint8_t out = 1;
+  memcpy(sector, "FIELD NOTES", 11); sector[11] = 0x08; uint8_t out = 1;
   for (uint16_t i = 0; i < fileCount; ++i) {
     const DriveFile &file = files[i];
     if (file.parent != Directory::ROOT) continue;
@@ -443,7 +443,7 @@ alignas(USBMSC) uint8_t mscStorage[sizeof(USBMSC)]; USBMSC *msc = nullptr; bool 
 
 void usbDriveConfigure(bool enabled) {
   if (!enabled || configured) return;
-  msc = new (mscStorage) USBMSC(); msc->vendorID("SANTAMRT"); msc->productID("Badge Drive"); msc->productRevision("1.1");
+  msc = new (mscStorage) USBMSC(); msc->vendorID("SANTAMRT"); msc->productID("Field Notes"); msc->productRevision("1.1");
   msc->onRead(readDrive); msc->onWrite(rejectWrite); msc->onStartStop(startStop); msc->isWritable(false);
   // Deliberately no mediaPresent(true) here. The snapshot cannot be built until
   // setup() has mounted LittleFS and walked the board and log rings, seconds

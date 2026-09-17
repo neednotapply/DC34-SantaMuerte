@@ -701,8 +701,12 @@
     body:form(o),cache:'no-store'}).then(r=>r.json().then(j=>({ok:r.ok,j})).catch(()=>({ok:r.ok,j:{}}))); }
   function setConn(s){ $('#hidStatus').className='status '+s; }
   function locks(n){ const p=[]; if(n&2)p.push('CAPS'); if(n&1)p.push('NUM'); if(n&4)p.push('SCROLL'); return p.length?p.join(' '):T('none'); }
+  let knownCount=-1;  // scripts currently rendered; refresh when a status poll disagrees
   function applyStatus(j){ setConn('connected'); $('#hidStatusText').textContent=(j.busy?'● ':'')+(j.status||'idle');
-    $('#lockLine').textContent=T('Keyboard lights')+': '+(j.seen?locks(j.locks):T('no computer')); }
+    $('#lockLine').textContent=T('Keyboard lights')+': '+(j.seen?locks(j.locks):T('no computer'));
+    // Auto-reflect a change this page did not make (a DROP BOX import, the TUI,
+    // another browser) within one poll, without refetching the list every time.
+    if(typeof j.hidCount==='number' && knownCount!==-1 && j.hidCount!==knownCount) refreshList(); }
   function pollStatus(){ fetch('/api/payloads/status',{cache:'no-store'}).then(r=>r.json()).then(applyStatus)
     .catch(()=>{ setConn('disconnected'); $('#hidStatusText').textContent=T('no connection'); }); }
 
@@ -962,8 +966,9 @@
   }
 
   function renderList(j){
+    const items=j.items||[]; knownCount=items.length;
     applyStatus(j);
-    const items=j.items||[]; const list=$('#payloadList'); list.innerHTML='';
+    const list=$('#payloadList'); list.innerHTML='';
     if(!items.length) return;
     items.forEach(it=>{
       const art=document.createElement('article'); art.className='payload-post'; payloadNoteStyle(art,it.name);

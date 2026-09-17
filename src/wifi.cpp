@@ -1694,6 +1694,13 @@ void appendPayloadStatus(String &json) {
   json += String(usbHidHostLeds());
   json += ",\"seen\":";
   json += usbHidHostSeen() ? "true" : "false";
+  // Payload counts ride along on every status poll so a page can notice a list
+  // change it did not make -- a DROP BOX import, the TUI, another browser -- and
+  // refresh itself within one poll, without refetching the whole list each time.
+  json += ",\"hidCount\":";
+  json += String(usbHidPayloadCount());
+  json += ",\"badusbCount\":";
+  json += String(usbBadUSBPayloadCount());
 }
 
 void appendUsbNetworkStatus(String &json) {

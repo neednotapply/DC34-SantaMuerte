@@ -1,0 +1,28 @@
+# Santa Muerte badge partition table (8 MB, no PSRAM).
+#
+# Stock `default_8MB` with the unused second OTA application slot (app1)
+# reclaimed IN FULL for a FAT data partition ("ffat") that backs the writable
+# USB "DROP BOX" volume. The firmware carries no OTA path, so app1 was dead
+# weight; app0 alone holds the ~1.4 MiB image with room to spare.
+#
+# ffat gets the whole old app1 slot (3264 KiB). The one-time first-boot FAT
+# format erases the whole partition with the flash cache off, which is what made
+# an early build freeze the LED animation. Two things make the full size safe
+# now: usbDropboxBegin() runs that format BEFORE the LED render task starts (so
+# nothing visible stalls), and CONFIG_SPI_FLASH_YIELD_DURING_ERASE lets the idle
+# task feed the watchdog through the erase (so it cannot panic). Changing ffat's
+# size reformats it, which clears any files sitting on the DROP BOX -- harmless,
+# since dropped scripts are imported into LittleFS (/payloads) and only the raw
+# drop copies live here.
+#
+# app0 and the LittleFS partition (subtype spiffs) keep their EXACT original
+# offsets and sizes, so adopting this table leaves the badge's stored notes,
+# scripts and NFC log in place; only the old app1 region is repurposed.
+#
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x5000,
+otadata,  data, ota,     0xe000,   0x2000,
+app0,     app,  ota_0,   0x10000,  0x330000,
+ffat,     data, fat,     0x340000, 0x330000,
+spiffs,   data, spiffs,  0x670000, 0x180000,
+coredump, data, coredump,0x7F0000, 0x10000,

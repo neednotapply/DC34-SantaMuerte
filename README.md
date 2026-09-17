@@ -199,13 +199,34 @@ builder, saved scripts, and script execution so host controls can stay compact.
 
 The USB device can use either a real **NCM network interface** or the
 **Field Notes Drive**. The WiFi Tethering profile presents serial + NCM; the Drive
-profile presents serial + HID + read-only Field Notes storage. The Drive
-exports a `NOTES` folder with one `.TXT` and (where present) matching `.JPG`
-artifact per note, plus a `SCRIPTS` folder with one file per saved script. The ESP32-S3
+profile presents serial + HID + storage. The Drive exposes **two** volumes: a
+read-only **Field Notes** disk that exports a `NOTES` folder with one `.TXT` and
+(where present) matching `.JPG` artifact per note, plus `SCRIPTS`/`BADUSB`/`NFC
+Log` folders; and a writable **DROP BOX** disk (see below). The ESP32-S3
 cannot expose both descriptor sets together. Select **WiFi Tethering** in
 USB Tools, then start the bridge after the badge has joined its saved Wi-Fi.
 The computer then receives its IP configuration from that upstream Wi-Fi
 network through the badge.
+
+#### DROP BOX (writable drive)
+
+Alongside the read-only Field Notes disk, the Drive profile presents a small
+read/write **DROP BOX** volume with `DUCKY/` and `BADUSB/` folders. Drag a
+DuckyScript into `DUCKY/` or a BadUSB script into `BADUSB/` and the badge saves
+it into the same `/payloads` store the web portal writes — no copy-pasting into
+`/scripting`. The file's name (minus a `.txt`/`.dd`/`.ducky`/`.badusb`
+extension) becomes the script's name; the portal's limits apply (max 2048 bytes,
+16 scripts per format). **Eject the drive — or just wait a couple of seconds
+after dropping files — and the badge imports them;** an imported script then
+appears on the read-only Field Notes disk and in the USB Tools menu. The host
+owns the FAT and the badge only reads what you drop, so there is no risk of the
+two corrupting each other.
+
+The volume is backed by an `ffat` flash partition (`partitions.csv`) that
+reclaims the firmware's unused second OTA app slot. Because `app0` and the
+LittleFS partition keep their original offsets, adopting the new partition table
+leaves the badge's stored notes, scripts, and NFC log in place — but back them
+up over HTTP before the first flash anyway (see below), as a net.
 
 **There is nothing to start.** Selecting the profile is the instruction to
 tether: the bridge attaches as soon as the badge is on saved Wi-Fi and detaches

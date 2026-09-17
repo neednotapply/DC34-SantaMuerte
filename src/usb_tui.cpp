@@ -16,6 +16,7 @@
 #include "usb_badusb.h"
 #include "usb_network.h"
 #include "usb_drive.h"
+#include "usb_dropbox.h"
 #include "usb_console.h"
 
 namespace {
@@ -972,11 +973,13 @@ void renderUsbTools() {
 void renderUsbProfile() {
   const UsbDeviceProfile profile = getPersistentUsbDeviceProfile();
   const UsbDriveState drive = getUsbDriveState();
+  const UsbDropboxState dropbox = getUsbDropboxState();
   tuiPrintf("%-9s %s\n\n", "ACTIVO",
             profile == UsbDeviceProfile::NETWORK ? tr("WiFi Tethering", "WiFi Tethering")
                                                  : tr("Unidad Notas de Campo", "Field Notes Drive"));
   tuiLine(tr("1 WiFi Tethering: Serial + NCM", "1 WiFi Tethering: Serial + NCM"));
-  tuiLine(tr("2 Unidad: Serial + HID + almacenamiento solo lectura", "2 Drive: Serial + HID + read-only storage"));
+  tuiLine(tr("2 Unidad: Serial + HID + Notas (solo lectura) + DROP BOX",
+             "2 Drive: Serial + HID + Field Notes (read-only) + DROP BOX"));
   if (profile == UsbDeviceProfile::DRIVE) {
     tuiPrintf("%-9s %u %s // %u ducky // %u badusb // %u tags\n", "UNIDAD", drive.noteCount,
               tr("notas", "notes"), drive.scriptCount, drive.badusbScriptCount,
@@ -986,6 +989,15 @@ void renderUsbProfile() {
     if (!drive.mediaPresent) {
       muted(tr("Sin medio todavía; el badge sigue armando la instantánea.",
                "No medium yet; the badge is still building the snapshot."));
+    }
+    // The writable volume: drag DuckyScript/BadUSB files onto it and the badge
+    // imports them into /payloads, where they join the read-only drive above.
+    if (dropbox.available) {
+      tuiPrintf("%-9s %u ducky // %u badusb %s\n", "DROPBOX", dropbox.importedDucky,
+                dropbox.importedBadUSB, tr("importados", "imported"));
+    } else {
+      muted(tr("DROP BOX no disponible (falta la particion ffat).",
+               "DROP BOX unavailable (no ffat partition)."));
     }
   }
   out.println();
