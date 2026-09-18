@@ -79,14 +79,15 @@
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'tape';
-    const label = (options && options.label) || 'Delete this note';
-    button.setAttribute('aria-label', label);
-    button.title = label;
+    const label = (options && options.label) || 'Remove note';
+    const localizedLabel = T(label);
+    button.setAttribute('aria-label', localizedLabel);
+    button.title = localizedLabel;
     button.addEventListener('click', async event => {
       event.preventDefault();
       event.stopPropagation();
       if (button.disabled) return;
-      const sure = await ask((options && options.question) || 'Are you sure?');
+      const sure = await ask((options && options.question) || `${label}?`);
       if (!sure) return;
       button.disabled = true;
       // The badge can take a second to answer, which left the note sitting

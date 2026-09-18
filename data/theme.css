@@ -305,12 +305,200 @@ body.board-page .post::after {
   cursor:pointer; -webkit-appearance:none; appearance:none;
   transition:background .12s ease, box-shadow .12s ease;
 }
-.tape:hover:not(:disabled) { background:rgba(164,123,54,.62) !important; }
+.tape:hover:not(:disabled) {
+  background:rgba(164,123,54,.62) !important;
+  /* The shared button hover reset sets transform:none !important. Reassert the
+     tape's centering transform here so hovering never shifts its hit target
+     half a strip to the right. */
+  transform:translateX(-50%) rotate(var(--tape-tilt, 0deg)) !important;
+}
 .tape:focus-visible {
   outline:none; box-shadow:0 0 0 2px var(--sm-brass, #a47b36);
   background:rgba(164,123,54,.62) !important;
 }
 .tape:disabled { cursor:progress; }
+
+/* Script builders borrow the Terminal's palette rather than its soft corners:
+   green-black panel, brass-framed black screen, and oxblood controls. Both
+   DuckyScript and BadUSB use this one component system. */
+.scripting-page .script-builder-card {
+  border: 1px solid var(--sm-line) !important;
+  border-radius: 2px !important;
+  background: var(--sm-panel) !important;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+.scripting-page .script-builder-card .card-head {
+  align-items: center;
+  margin-bottom: 18px;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.scripting-page .script-builder-card .eyebrow { color: var(--sm-muted) !important; }
+.scripting-page .script-builder-card .palette {
+  position: relative;
+  z-index: 3;
+  margin-left: auto;
+}
+.scripting-page .script-builder-card .builder { gap: 10px; }
+.scripting-page .script-builder-card .stack {
+  min-height: 164px;
+  border: 1px solid var(--sm-brass);
+  border-radius: 2px !important;
+  padding: 14px;
+  background: #0d0e0c;
+  box-shadow: none !important;
+  font-family: var(--sm-mono);
+}
+.scripting-page .script-builder-card .stack.drag {
+  border-color: var(--sm-brass);
+  background: rgba(164,123,54,.07);
+  box-shadow: none !important;
+}
+.scripting-page .script-builder-card .stack .empty {
+  color: var(--sm-paper) !important;
+  font: 600 .78rem/1.5 var(--sm-mono) !important;
+  letter-spacing: .015em;
+}
+.scripting-page .script-builder-card .add-menu > summary {
+  width: 36px;
+  min-height: 36px;
+  border: 1px solid var(--sm-line) !important;
+  border-radius: 2px !important;
+  background: var(--sm-maroon) !important;
+  color: var(--sm-paper-hi) !important;
+  font-size: 1.35rem;
+}
+.scripting-page .script-builder-card .add-menu > summary:hover,
+.scripting-page .script-builder-card .add-menu[open] > summary {
+  border-color: var(--sm-brass) !important;
+  background: var(--sm-panel) !important;
+  color: var(--sm-paper-hi) !important;
+}
+.scripting-page .script-builder-card .add-menu-panel {
+  border-color: var(--sm-brass) !important;
+  border-radius: 2px !important;
+  background: #0d0e0c !important;
+  box-shadow: none !important;
+}
+.scripting-page .script-builder-card .add-menu-title,
+.scripting-page .script-builder-card .pal-cat > b { color: var(--sm-muted) !important; }
+.scripting-page .script-builder-card .pal-block {
+  min-height: 30px;
+  border-color: var(--sm-line) !important;
+  border-radius: 2px !important;
+  background: var(--sm-maroon) !important;
+  color: var(--sm-paper-hi) !important;
+}
+.scripting-page .script-builder-card .pal-block:hover,
+.scripting-page .script-builder-card .pal-block:focus-visible {
+  border-color: var(--sm-brass) !important;
+  background: var(--sm-panel) !important;
+  color: var(--sm-paper-hi) !important;
+}
+.scripting-page .script-builder-card .block {
+  border-color: var(--sm-line) !important;
+  border-radius: 2px !important;
+  background: var(--sm-panel-hi) !important;
+  box-shadow: none !important;
+}
+.scripting-page .script-builder-card .block.dropbefore { box-shadow: 0 -2px 0 var(--sm-brass) !important; }
+.scripting-page .script-builder-card .block-head .title { color: var(--sm-paper-hi) !important; }
+.scripting-page .script-builder-card .block-head .num,
+.scripting-page .script-builder-card .block-head .grip,
+.scripting-page .script-builder-card .block .help,
+.scripting-page .script-builder-card .block-body label.f { color: var(--sm-muted) !important; }
+.scripting-page .script-builder-card .block-head .ctl button {
+  min-width: 27px;
+  border-color: var(--sm-line) !important;
+  border-radius: 2px !important;
+  background: var(--sm-panel) !important;
+  color: var(--sm-paper) !important;
+}
+.scripting-page .script-builder-card .block-head .ctl button:hover:not(:disabled),
+.scripting-page .script-builder-card .block-head .ctl button:focus-visible {
+  border-color: var(--sm-brass) !important;
+  background: var(--sm-panel-hi) !important;
+  color: var(--sm-paper-hi) !important;
+}
+.scripting-page .script-builder-card .block-body input[type=text],
+.scripting-page .script-builder-card .block-body input[type=number],
+.scripting-page .script-builder-card .block-body select,
+.scripting-page .script-builder-card #payloadName,
+.scripting-page .script-builder-card .rawwrap textarea {
+  border-color: var(--sm-line) !important;
+  border-radius: 2px !important;
+  background: var(--sm-panel-hi) !important;
+  color: var(--sm-paper-hi) !important;
+}
+.scripting-page .script-builder-card .rawwrap textarea {
+  border-radius: 2px !important;
+}
+.scripting-page .script-builder-card .lbl {
+  margin-top: 16px;
+  padding-top: 0;
+  border-top: 0;
+  color: var(--sm-muted) !important;
+}
+.scripting-page .script-builder-card .out {
+  border: 1px solid var(--sm-brass);
+  border-radius: 2px !important;
+  background: #0d0e0c;
+  color: #ece6d8;
+  box-shadow: none !important;
+  min-height: 0;
+  padding: 12px;
+  font-family: var(--sm-mono);
+}
+.scripting-page .script-builder-card .rawwrap summary {
+  border-left: 0;
+  padding-left: 0;
+  color: var(--sm-muted) !important;
+}
+.scripting-page .script-builder-card .row { gap: 7px; }
+.scripting-page .script-builder-card #sendButton,
+.scripting-page .script-builder-card #uploadButton,
+.scripting-page .script-builder-card #clearButton,
+.scripting-page .script-builder-card #applyRaw {
+  min-height: 40px;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+  font: 700 .67rem/1 var(--sm-mono) !important;
+  letter-spacing: .08em !important;
+}
+.scripting-page .script-builder-card #sendButton {
+  border-color: #9c3634 !important;
+  background: var(--sm-maroon) !important;
+  color: #fff5e5 !important;
+}
+.scripting-page .script-builder-card #sendButton:hover:not(:disabled),
+.scripting-page .script-builder-card #sendButton:focus-visible { background: var(--sm-maroon-dark) !important; border-color: #d05f53 !important; }
+.scripting-page .script-builder-card #uploadButton,
+.scripting-page .script-builder-card #applyRaw,
+.scripting-page .script-builder-card #clearButton {
+  border-color: var(--sm-line) !important;
+  background: var(--sm-maroon) !important;
+  color: var(--sm-paper-hi) !important;
+}
+.scripting-page .script-builder-card #uploadButton:hover:not(:disabled),
+.scripting-page .script-builder-card #uploadButton:focus-visible,
+.scripting-page .script-builder-card #applyRaw:hover:not(:disabled),
+.scripting-page .script-builder-card #applyRaw:focus-visible,
+.scripting-page .script-builder-card #clearButton:hover:not(:disabled),
+.scripting-page .script-builder-card #clearButton:focus-visible {
+  border-color: #d5a25e !important;
+  background: var(--sm-maroon-dark) !important;
+  color: #fff5e5 !important;
+}
+.scripting-page .script-builder-card .hidline { border-top: 0; padding-top: 0; }
+
+@media (max-width: 600px) {
+  .scripting-page .script-builder-card { padding: 16px !important; }
+  .scripting-page .script-builder-card #payloadName { flex-basis: 100%; }
+  .scripting-page .script-builder-card #sendButton,
+  .scripting-page .script-builder-card #uploadButton,
+  .scripting-page .script-builder-card #clearButton { flex: 1 1 0; min-width: 0; padding-inline: 8px; }
+}
 /* Held while the badge is still answering. */
 .note-pending { transition:opacity .12s ease; opacity:.45; pointer-events:none; }
 /* Lifting off the wall, rather than blinking out of the column. */
@@ -704,6 +892,11 @@ body.nfc-page .reader-pill.ready i, body.nfc-page .capture-card .reader-pill.rea
   display:block; padding:10px 11px; border:1px solid transparent; border-radius:2px;
   color:var(--sm-muted); text-decoration:none; font:700 .78rem/1.4 var(--sm-mono);
   letter-spacing:.05em; text-transform:uppercase;
+}
+.nav-menu-list .nav-menu-current {
+  display:block; padding:10px 11px; border:1px solid var(--sm-brass); border-radius:2px;
+  background:rgba(111,29,36,.28); color:var(--sm-paper-hi); font:700 .78rem/1.4 var(--sm-mono);
+  letter-spacing:.05em; text-transform:uppercase; cursor:default;
 }
 .nav-menu-list a:hover, .nav-menu-list a:focus-visible {
   color:var(--sm-paper-hi); border-color:var(--sm-brass); background:rgba(111,29,36,.28); outline:none;

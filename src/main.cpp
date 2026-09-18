@@ -1830,12 +1830,38 @@ void setup() {
   usbBadUSBConfigure(usbProfile == UsbDeviceProfile::DRIVE);
   usbNetworkConfigure(usbProfile == UsbDeviceProfile::NETWORK);
   usbDriveConfigure(usbProfile == UsbDeviceProfile::DRIVE);
-  // Claims a second MSC LUN (the writable DROP BOX) beside the Field Notes
+  // Claims a second MSC LUN (the writable Ofrenda) beside Santa Muerte
   // drive. Must precede USB.begin() so GET_MAX_LUN reports both; it only
   // reserves the LUN here and touches flash later, in usbDropboxBegin().
   usbDropboxConfigure(usbProfile == UsbDeviceProfile::DRIVE);
+
+  // Mount and snapshot storage before USB enumerates. A few hosts do not
+  // revisit an MSC LUN that answered "no medium" during their first probe;
+  // starting both LUNs ready is what makes Santa Muerte appear beside Ofrenda
+  // reliably on those hosts.
+  setupWiFiAccessPoint();
+  Serial.println("[MAIN] Wi-Fi controller initialized");
+  if (setupBoard()) {
+    Serial.printf("[MAIN] Message board ready: %u posts stored\r\n",
+                  boardStoredCount());
+    Serial.printf("[MAIN] LittleFS: %u of %u bytes used, %u free\r\n",
+                  static_cast<unsigned>(LittleFS.usedBytes()),
+                  static_cast<unsigned>(LittleFS.totalBytes()),
+                  static_cast<unsigned>(LittleFS.totalBytes() -
+                                        LittleFS.usedBytes()));
+  } else {
+    Serial.println("[MAIN] WARNING: Message board storage is unavailable; posting is disabled");
+  }
+  if (setupNfcLog()) {
+    Serial.printf("[MAIN] NFC log ready: %u tags stored\r\n",
+                  nfcLogStoredCount());
+  } else {
+    Serial.println("[MAIN] WARNING: NFC log storage is unavailable");
+  }
   usbHidBegin();
   usbBadUSBBegin();
+  usbDropboxBegin();
+  usbDriveRefresh();
   // Must precede begin(): the descriptor is built there, and the constructor
   // has already taken the variant's default. A saved identity replaces the
   // badge's own VID/PID/manufacturer/product/serial outright; the per-profile
@@ -1857,22 +1883,10 @@ void setup() {
     usbNetworkBegin();
   } else {
     const UsbDriveState drive = getUsbDriveState();
-    // Registered, not yet mountable: the medium goes in at usbDriveRefresh(),
-    // once there is a filesystem to take a snapshot of. The writable DROP BOX
-    // is a second LUN on the same interface and comes up in usbDropboxBegin().
-    Serial.printf("[USB] Badge Drive interface %s // read-only MSC + DROP BOX\r\n",
+    Serial.printf("[USB] Badge Drive interface %s // Santa Muerte + Ofrenda\r\n",
                   drive.available ? "registered" : "unavailable");
   }
-  delay(1500);
   Serial.println("===== START =====");
-
-  // Format-on-first-boot, seed DUCKY/ and BADUSB/, import anything already
-  // dropped, and present the writable DROP BOX volume. Deliberately BEFORE
-  // setupLEDs() starts the render task: the one-time first-boot FAT format
-  // erases the ffat partition with the flash cache off, which would otherwise
-  // stall the animation. The payload store it imports into is already up
-  // (usbHidBegin, before USB.begin). No-op outside the Drive profile.
-  usbDropboxBegin();
 
   usbTuiBegin();
 
@@ -1883,36 +1897,6 @@ void setup() {
   setupLEDs();
   Serial.println("[MAIN] LEDs initialized");
   setupBootButton();
-
-  // Start Wi-Fi before NFC so the controller remains available even if the
-  // PN532 is missing or fails its startup check.
-  setupWiFiAccessPoint();
-  Serial.println("[MAIN] Wi-Fi controller initialized");
-
-  // After LittleFS is mounted by the Wi-Fi setup above. The board's two rings
-  // claim most of the filesystem, so the space left over is only meaningful
-  // once they have been allocated.
-  if (setupBoard()) {
-    Serial.printf("[MAIN] Message board ready: %u of %u posts stored\r\n",
-                  boardStoredCount(), boardCapacity());
-    Serial.printf("[MAIN] LittleFS: %u of %u bytes used, %u free\r\n",
-                  static_cast<unsigned>(LittleFS.usedBytes()),
-                  static_cast<unsigned>(LittleFS.totalBytes()),
-                  static_cast<unsigned>(LittleFS.totalBytes() -
-                                        LittleFS.usedBytes()));
-  } else {
-    Serial.println(
-        "[MAIN] WARNING: Message board storage is unavailable; posting is "
-        "disabled");
-  }
-
-  if (setupNfcLog()) {
-    Serial.printf("[MAIN] NFC log ready: %u of %u tags stored\r\n",
-                  nfcLogStoredCount(), nfcLogCapacity());
-  } else {
-    Serial.println("[MAIN] WARNING: NFC log storage is unavailable");
-  }
-  usbDriveRefresh();
 
   setupNFC();
   Serial.println("[MAIN] NFC initialized");

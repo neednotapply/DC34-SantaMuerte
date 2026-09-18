@@ -75,24 +75,23 @@ constexpr uint8_t USB_HID_LED_CAPSLOCK = 0x02;
 constexpr uint8_t USB_HID_LED_SCROLLLOCK = 0x04;
 
 // ---- Payload storage on LittleFS (/payloads), shared by TUI and portal ----
-constexpr size_t USB_HID_MAX_PAYLOADS = 16;
-constexpr size_t USB_HID_MAX_PAYLOAD_BYTES = 2048;
+constexpr size_t USB_HID_MAX_PAYLOAD_BYTES = 8192;
 constexpr size_t USB_HID_MAX_NAME_LENGTH = 32;
 
 // Opens /payloads and writes the built-in seed payloads on first boot. Safe to
 // call when LittleFS is unavailable (it then reports zero payloads).
 void usbHidBeginStorage();
 
-uint8_t usbHidPayloadCount();
+uint16_t usbHidPayloadCount();
 
 // Name of the nth stored payload, sorted case-insensitively. Empty past the end.
-String usbHidPayloadNameAt(uint8_t index);
+String usbHidPayloadNameAt(uint16_t index);
 
 bool usbHidPayloadExists(const String &name);
 bool usbHidReadPayload(const String &name, String &outScript);
 
-// Creates or overwrites a payload. Rejects an invalid name, an over-long body,
-// or a new name once USB_HID_MAX_PAYLOADS is reached; error carries the reason.
+// Creates or overwrites a payload. Rejects only an invalid name, an over-long
+// body, or unavailable storage; saved-script count has no fixed cap.
 bool usbHidSavePayload(const String &name, const String &script, String &error);
 bool usbHidDeletePayload(const String &name, String &error);
 

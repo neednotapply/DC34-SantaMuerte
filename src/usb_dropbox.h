@@ -2,11 +2,11 @@
 
 #include <Arduino.h>
 
-// A second USB mass-storage LUN, presented beside the read-only Field Notes
+// A second USB mass-storage LUN, presented beside the read-only Santa Muerte
 // drive (which stays LUN 0, unchanged): a real, host-writable FAT volume named
-// DROP BOX whose only job is to let a computer drag DuckyScript and BadUSB
+// Ofrenda whose only job is to let a computer drag DuckyScript and BadUSB
 // files onto the badge instead of pasting them into the web portal. Files
-// dropped into its DUCKY/ and BADUSB/ folders are imported into the same
+// dropped into its matching DuckyScript/ and BadUSB/ folders are moved into the same
 // LittleFS /payloads store the portal writes (usbHidSavePayload /
 // usbBadUSBSavePayload), so an imported script then appears -- rendered -- on
 // the read-only drive and in the TUI, exactly as a portal-saved one does.
@@ -31,21 +31,27 @@ struct UsbDropboxState {
 // touch flash or present a medium yet -- only reserves the LUN.
 void usbDropboxConfigure(bool enabled);
 
-// Format-on-first-boot, seed the folders, import anything already present, then
-// present the medium to the host. Call once during setup(), after the USB
-// controller has begun (mirrors the Field Notes drive, which also comes up with
-// no medium and gains one later).
+// Format-on-first-boot, seed the claimed folders, move anything dropped into
+// them, then
+// present the medium to the host. Call once during setup(), before USB.begin(),
+// so both LUNs are ready on the host's first probe.
 void usbDropboxBegin();
 
-// Poll from loop(). Runs a pending import -- triggered by the host ejecting the
-// volume or by it going idle a couple of seconds after the last host write --
-// on the Arduino task, never inside the USB callback. Returns true when it
-// imported at least one new script this call, so the caller can refresh the
+// Poll from loop(). Runs a pending move after the host ejects/releases the
+// volume, on the Arduino task and never inside the USB callback. Returns true when it
+// moved at least one new script this call, so the caller can refresh the
 // read-only drive's snapshot.
 bool usbDropboxService();
 
-// True for a short window after the host reads or writes the volume, for the
-// same storage-activity indication the Field Notes drive drives.
+// Cleans up a legacy or failed Ofrenda source whose derived payload name is
+// `name` before the portal deletes that payload. A normal move has already
+// removed the source. Cleanup is skipped while the host owns the medium so the
+// badge never mutates FAT behind a live host cache.
+bool usbDropboxDeletePayloadSource(bool badusb, const String &name, String &error);
+
+// True during a host read/write, its short afterglow, or a local import/delete
+// handoff while the LUN is temporarily unavailable. main.cpp routes all of
+// these through the existing Field Notes busy-drive animation.
 bool usbDropboxActive();
 
 UsbDropboxState getUsbDropboxState();

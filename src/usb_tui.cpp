@@ -604,11 +604,10 @@ void renderDashboard() {
             led.brightness, led.speed);
   tuiPrintf("%-9s %s%s\n", "NFC", nfc.readerReady ? tr("listo", "ready") : tr("PN532 fuera", "PN532 offline"), nfc.emulating ? tr(" / emulando", " / emulating") : nfc.captureEnabled ? tr(" / escaneando", " / capturing") : "");
   muted(clipped(localized(nfc.message), 64));
-  tuiPrintf("%-9s %u / %u %s // %u %s\n", "NOTES", boardStoredCount(),
-            boardCapacity(), tr("textos", "texts"), boardImageCapacity(),
-            tr("dibujos", "drawings"));
-  tuiPrintf("%-9s %u / %u %s\n", "NFC LOG", nfcLogStoredCount(),
-            nfcLogCapacity(), tr("tags vistos", "tags seen"));
+  tuiPrintf("%-9s %u %s\n", "NOTES", boardStoredCount(),
+            tr("guardadas", "saved"));
+  tuiPrintf("%-9s %u %s\n", "NFC LOG", nfcLogStoredCount(),
+            tr("tags vistos", "tags seen"));
   tuiPrintf("%-9s %u KB %s // %u KB // %lus\n", tr("MEMORIA", "MEMORY"), ESP.getFreeHeap() / 1024, tr("libres", "free"), ESP.getMaxAllocHeap() / 1024, millis() / 1000);
   tuiPrintf("%-9s %s\n", "HID", usbHidStatusLine().c_str());
   out.println();
@@ -761,8 +760,8 @@ void renderNfc() {
   tuiLine(tr("2 Leer tag", "2 Read Tag"));
   tuiLine(tr("3 Escribir tag", "3 Write Tag"));
   tuiLine(tr("4 Emular tag", "4 Emulate Tag"));
-  tuiPrintf("%s  //  %u / %u\n", tr("5 Registro NFC", "5 NFC Log"),
-            nfcLogStoredCount(), nfcLogCapacity());
+  tuiPrintf("%s  //  %u %s\n", tr("5 Registro NFC", "5 NFC Log"),
+            nfcLogStoredCount(), tr("guardados", "stored"));
 }
 
 void renderNfcMode() {
@@ -791,7 +790,7 @@ void renderNfcMode() {
 // leave room for the content on a single 80-column row, and the content is the
 // half worth reading.
 void renderNfcLog() {
-  tuiPrintf("%u / %u %s\n\n", nfcLogStoredCount(), nfcLogCapacity(),
+  tuiPrintf("%u %s\n\n", nfcLogStoredCount(),
             tr("tags guardados", "stored tags"));
   uint32_t cursor = 0;
   NfcLogEntry entry;
@@ -840,10 +839,8 @@ void renderNfcEmulate() {
 }
 
 void renderFieldNotes() {
-  tuiPrintf("%u / %u %s // %s %u %s\n\n", boardStoredCount(),
-            boardCapacity(), tr("notas guardadas", "stored notes"),
-            tr("ring", "ring"), boardImageCapacity(),
-            tr("dibujos", "drawings"));
+  tuiPrintf("%u %s\n\n", boardStoredCount(),
+            tr("notas guardadas", "stored notes"));
   uint32_t cursor = 0;
   BoardPost post;
   uint8_t shown = 0;
@@ -978,8 +975,8 @@ void renderUsbProfile() {
             profile == UsbDeviceProfile::NETWORK ? tr("WiFi Tethering", "WiFi Tethering")
                                                  : tr("Unidad Notas de Campo", "Field Notes Drive"));
   tuiLine(tr("1 WiFi Tethering: Serial + NCM", "1 WiFi Tethering: Serial + NCM"));
-  tuiLine(tr("2 Unidad: Serial + HID + Notas (solo lectura) + DROP BOX",
-             "2 Drive: Serial + HID + Field Notes (read-only) + DROP BOX"));
+  tuiLine(tr("2 Unidad: Serial + HID + Santa Muerte (solo lectura) + Ofrenda (lectura/escritura)",
+             "2 Drive: Serial + HID + Santa Muerte (read-only) + Ofrenda (read/write)"));
   if (profile == UsbDeviceProfile::DRIVE) {
     tuiPrintf("%-9s %u %s // %u ducky // %u badusb // %u tags\n", "UNIDAD", drive.noteCount,
               tr("notas", "notes"), drive.scriptCount, drive.badusbScriptCount,
@@ -990,14 +987,14 @@ void renderUsbProfile() {
       muted(tr("Sin medio todavía; el badge sigue armando la instantánea.",
                "No medium yet; the badge is still building the snapshot."));
     }
-    // The writable volume: drag DuckyScript/BadUSB files onto it and the badge
-    // imports them into /payloads, where they join the read-only drive above.
+    // The writable volume: files dropped into its two matching script folders
+    // move into /payloads, where they join the read-only drive above.
     if (dropbox.available) {
-      tuiPrintf("%-9s %u ducky // %u badusb %s\n", "DROPBOX", dropbox.importedDucky,
+      tuiPrintf("%-9s %u ducky // %u badusb %s\n", "OFRENDA", dropbox.importedDucky,
                 dropbox.importedBadUSB, tr("importados", "imported"));
     } else {
-      muted(tr("DROP BOX no disponible (falta la particion ffat).",
-               "DROP BOX unavailable (no ffat partition)."));
+      muted(tr("Ofrenda no disponible (falta la particion ffat).",
+               "Ofrenda unavailable (ffat partition missing)."));
     }
   }
   out.println();
@@ -1073,17 +1070,17 @@ void renderPayloads() {
   if (locks.isEmpty()) locks = tr("ninguno", "none");
   tuiPrintf("%-9s %s\n\n", tr("CANDADOS", "LOCKS"), locks.c_str());
 
-  const uint8_t count = usbHidPayloadCount();
+  const uint16_t count = usbHidPayloadCount();
   if (count == 0) {
     muted(tr("Sin scripts. Créales en el portal: http://10.69.4.20/ducky",
              "No scripts. Author them in the portal: http://10.69.4.20/ducky"));
   } else {
-    for (uint8_t i = 0; i < count && i < 16; ++i) {
+    for (uint16_t i = 0; i < count && i < 16; ++i) {
       tuiPrintf("%u %s\n", i + 1, usbHidPayloadNameAt(i).c_str());
     }
   }
   out.println();
-  muted(tr("17 detiene una carga en curso.", "17 stops a running payload."));
+  muted(tr("-1 detiene una carga en curso.", "-1 stops a running payload."));
   danger(tr("TECLEA en la computadora conectada. Úsalo solo en la tuya.",
             "This TYPES into the attached computer. Use it only on your own."));
 }
@@ -1099,17 +1096,17 @@ void renderBadUsb() {
   if (locks.isEmpty()) locks = tr("ninguno", "none");
   tuiPrintf("%-9s %s\n\n", tr("CANDADOS", "LOCKS"), locks.c_str());
 
-  const uint8_t count = usbBadUSBPayloadCount();
+  const uint16_t count = usbBadUSBPayloadCount();
   if (count == 0) {
     muted(tr("Sin scripts. Créales en el portal: http://10.69.4.20/badusb",
              "No scripts. Author them in the portal: http://10.69.4.20/badusb"));
   } else {
-    for (uint8_t i = 0; i < count && i < 16; ++i) {
+    for (uint16_t i = 0; i < count && i < 16; ++i) {
       tuiPrintf("%u %s\n", i + 1, usbBadUSBPayloadNameAt(i).c_str());
     }
   }
   out.println();
-  muted(tr("17 detiene una carga en curso.", "17 stops a running payload."));
+  muted(tr("-1 detiene una carga en curso.", "-1 stops a running payload."));
   danger(tr("TECLEA en la computadora conectada. Úsalo solo en la tuya.",
             "This TYPES into the attached computer. Use it only on your own."));
 }
@@ -1367,7 +1364,7 @@ void handleScreenKey(char key) {
       if (key >= '1' && key <= '9') index = key - '1';
       else if (key >= 'a' && key <= 'g') index = 9 + (key - 'a');
       if (index >= 0 && index < static_cast<int>(usbHidPayloadCount())) {
-        stagedA = usbHidPayloadNameAt(static_cast<uint8_t>(index));
+        stagedA = usbHidPayloadNameAt(static_cast<uint16_t>(index));
         performAction(Action::RUN_PAYLOAD);
       }
     }
@@ -1378,7 +1375,7 @@ void handleScreenKey(char key) {
       if (key >= '1' && key <= '9') index = key - '1';
       else if (key >= 'a' && key <= 'g') index = 9 + (key - 'a');
       if (index >= 0 && index < static_cast<int>(usbBadUSBPayloadCount())) {
-        stagedA = usbBadUSBPayloadNameAt(static_cast<uint8_t>(index));
+        stagedA = usbBadUSBPayloadNameAt(static_cast<uint16_t>(index));
         performAction(Action::RUN_BADUSB_PAYLOAD);
       }
     }
@@ -1689,12 +1686,12 @@ void handleScreenSelection(int selection) {
   }
 
   if (screen == Screen::PAYLOADS) {
-    if (selection == 17) {
+    if (selection == -1) {
       usbHidStop();
       setNotice(tr("Detenido.", "Stopped."));
     } else if (selection >= 1 &&
                selection <= static_cast<int>(usbHidPayloadCount())) {
-      stagedA = usbHidPayloadNameAt(static_cast<uint8_t>(selection - 1));
+      stagedA = usbHidPayloadNameAt(static_cast<uint16_t>(selection - 1));
       performAction(Action::RUN_PAYLOAD);
     } else {
       setNotice(tr("Selección inválida.", "Invalid selection."), true);
@@ -1704,12 +1701,12 @@ void handleScreenSelection(int selection) {
   }
 
   if (screen == Screen::BADUSB) {
-    if (selection == 17) {
+    if (selection == -1) {
       usbBadUSBStop();
       setNotice(tr("Detenido.", "Stopped."));
     } else if (selection >= 1 &&
                selection <= static_cast<int>(usbBadUSBPayloadCount())) {
-      stagedA = usbBadUSBPayloadNameAt(static_cast<uint8_t>(selection - 1));
+      stagedA = usbBadUSBPayloadNameAt(static_cast<uint16_t>(selection - 1));
       performAction(Action::RUN_BADUSB_PAYLOAD);
     } else {
       setNotice(tr("Selección inválida.", "Invalid selection."), true);

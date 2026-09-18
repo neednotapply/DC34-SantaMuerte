@@ -10,7 +10,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#151615">
   <title>Santa Muerte // NFC Log</title>
-  <link rel="stylesheet" href="theme.css?v=46">
+  <link rel="stylesheet" href="theme.css?v=48">
   <link rel="icon" type="image/png" href="assets/logo-candle.png">
   <script src="locale.js?v=35"></script>
   <script src="tape.js?v=3"></script>
@@ -94,7 +94,7 @@
           <a href="/notes">Field Notes</a>
           <a href="/led">LED Tools</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/nfc-log">NFC Log</a>
+          <span class="nav-menu-current" aria-current="page">NFC Log</span>
           <a href="/usb">USB Tools</a>
           <a href="/ducky">DuckyScript</a>
           <a href="/badusb">BadUSB</a>
@@ -109,7 +109,7 @@
           <a href="/notes">Field Notes</a>
           <a href="/led">LED Tools</a>
           <a href="/nfc">NFC Tools</a>
-          <a href="/nfc-log">NFC Log</a>
+          <span class="nav-menu-current" aria-current="page">NFC Log</span>
           <a href="/usb">USB Tools</a>
           <a href="/ducky">DuckyScript</a>
           <a href="/badusb">BadUSB</a>
@@ -215,7 +215,7 @@
     article.className = 'tag-note';
     pinNote(article, tag.uid);
     PortalTape.tape(article, {
-      label: 'Take this tag down',
+      label: 'Remove note',
       onDelete: function(){ return deleteTag(tag.id); }
     });
 
@@ -251,7 +251,7 @@
     }).catch(function(){ return false; });
   }
 
-  function render(tags, stored, capacity){
+  function render(tags, stored){
     if (!tags.length) { listEl.replaceChildren(); emptyEl.hidden = false; return; }
     emptyEl.hidden = true;
     var wall = document.createDocumentFragment();
@@ -266,7 +266,7 @@
         var signature = JSON.stringify(d);
         if (signature === lastSignature) return;
         lastSignature = signature;
-        render(d.tags || [], d.stored || 0, d.capacity || 0);
+        render(d.tags || [], d.stored || 0);
       })
       .catch(function(){ lastSignature = null; });
   }

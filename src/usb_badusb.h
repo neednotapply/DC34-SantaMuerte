@@ -39,12 +39,11 @@ bool usbBadUSBHostSeen();
 String usbBadUSBStatusLine();
 
 // ---- BadUSB Payload storage (LittleFS) ----
-constexpr size_t USB_BADUSB_MAX_PAYLOADS = 16;
-constexpr size_t USB_BADUSB_MAX_PAYLOAD_BYTES = 2048;
+constexpr size_t USB_BADUSB_MAX_PAYLOAD_BYTES = 8192;
 constexpr size_t USB_BADUSB_MAX_NAME_LENGTH = 32;
 
-uint8_t usbBadUSBPayloadCount();
-String usbBadUSBPayloadNameAt(uint8_t index);
+uint16_t usbBadUSBPayloadCount();
+String usbBadUSBPayloadNameAt(uint16_t index);
 bool usbBadUSBPayloadExists(const String &name);
 bool usbBadUSBReadPayload(const String &name, String &outScript);
 bool usbBadUSBSavePayload(const String &name, const String &script, String &error);

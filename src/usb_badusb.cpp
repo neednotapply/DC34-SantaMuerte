@@ -1,15 +1,21 @@
 #include "usb_badusb.h"
 
 #include <LittleFS.h>
+#include <algorithm>
+#include <vector>
 
 #include "usb_tui.h"
+#include "board.h"
 #include "usb_hid.h"
+#include "nfc_log.h"
 #include "ducky_map.h"
 #include "usb_console.h"
 
 namespace {
 
 constexpr char PAYLOAD_DIR[] = "/payloads";
+std::vector<String> payloadNameCache;
+bool payloadNameCacheValid = false;
 
 String payloadPath(const String &name) {
   String path = PAYLOAD_DIR;
@@ -26,27 +32,24 @@ String stemFromEntry(const String &raw) {
   return stem;
 }
 
-uint8_t collectPayloadNames(String *names, uint8_t cap) {
-  uint8_t count = 0;
+void refreshPayloadNameCache() {
+  if (payloadNameCacheValid) return;
+  payloadNameCache.clear();
   File dir = LittleFS.open(PAYLOAD_DIR);
-  if (!dir || !dir.isDirectory()) return 0;
-  for (File entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
-    if (entry.isDirectory()) continue;
-    const String raw = String(entry.name());
-    if (!raw.endsWith(".badusb")) continue;
-    const String stem = stemFromEntry(raw);
-    if (stem.isEmpty()) continue;
-    if (count < cap) {
-      uint8_t i = count;
-      while (i > 0 && strcasecmp(names[i - 1].c_str(), stem.c_str()) > 0) {
-        names[i] = names[i - 1];
-        --i;
-      }
-      names[i] = stem;
+  if (dir && dir.isDirectory()) {
+    for (File entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+      if (entry.isDirectory()) continue;
+      const String raw = String(entry.name());
+      if (raw.endsWith(".badusb")) payloadNameCache.push_back(stemFromEntry(raw));
     }
-    ++count;
+    dir.close();
   }
-  return count < cap ? count : cap;
+  std::sort(payloadNameCache.begin(), payloadNameCache.end(),
+            [](const String &left, const String &right) {
+              const int folded = strcasecmp(left.c_str(), right.c_str());
+              return folded ? folded < 0 : strcmp(left.c_str(), right.c_str()) < 0;
+            });
+  payloadNameCacheValid = true;
 }
 
 }  // namespace
@@ -65,23 +68,14 @@ bool usbBadUSBValidPayloadName(const String &name) {
   return sawReal;
 }
 
-uint8_t usbBadUSBPayloadCount() {
-  uint8_t count = 0;
-  File dir = LittleFS.open(PAYLOAD_DIR);
-  if (!dir || !dir.isDirectory()) return 0;
-  for (File entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
-    if (!entry.isDirectory()) {
-      const String raw = String(entry.name());
-      if (raw.endsWith(".badusb")) ++count;
-    }
-  }
-  return count;
+uint16_t usbBadUSBPayloadCount() {
+  refreshPayloadNameCache();
+  return static_cast<uint16_t>(payloadNameCache.size());
 }
 
-String usbBadUSBPayloadNameAt(uint8_t index) {
-  String names[16];
-  const uint8_t count = collectPayloadNames(names, 16);
-  return index < count ? names[index] : String();
+String usbBadUSBPayloadNameAt(uint16_t index) {
+  refreshPayloadNameCache();
+  return index < payloadNameCache.size() ? payloadNameCache[index] : String();
 }
 
 bool usbBadUSBPayloadExists(const String &name) {
@@ -94,7 +88,7 @@ bool usbBadUSBReadPayload(const String &name, String &outScript) {
   File file = LittleFS.open(payloadPath(name), "r");
   if (!file) return false;
   outScript.reserve(file.size() + 1);
-  while (file.available() && outScript.length() < 2048) {
+  while (file.available() && outScript.length() < USB_BADUSB_MAX_PAYLOAD_BYTES) {
     outScript += static_cast<char>(file.read());
   }
   file.close();
@@ -106,12 +100,17 @@ bool usbBadUSBSavePayload(const String &name, const String &script, String &erro
     error = "Bad name. Use letters, digits, spaces, - _ . only.";
     return false;
   }
-  if (script.length() > 2048) {
-    error = "Payload too large (max 2048 bytes).";
+  if (script.length() > USB_BADUSB_MAX_PAYLOAD_BYTES) {
+    error = "Payload too large (max " + String(USB_BADUSB_MAX_PAYLOAD_BYTES) + " bytes).";
     return false;
   }
-  if (!LittleFS.exists(payloadPath(name)) && usbBadUSBPayloadCount() >= 16) {
-    error = "Too many payloads (max 16). Delete one first.";
+  const size_t required = script.length() + 512;
+  reclaimBoardStorage(required);
+  reclaimNfcLogStorage(required);
+  const size_t totalBytes = LittleFS.totalBytes();
+  const size_t usedBytes = LittleFS.usedBytes();
+  if (totalBytes < usedBytes || totalBytes - usedBytes < required) {
+    error = "Not enough storage after retiring old Field Notes and NFC log entries.";
     return false;
   }
   if (!LittleFS.exists(PAYLOAD_DIR)) LittleFS.mkdir(PAYLOAD_DIR);
@@ -122,6 +121,7 @@ bool usbBadUSBSavePayload(const String &name, const String &script, String &erro
   }
   const size_t written = file.print(script);
   file.close();
+  payloadNameCacheValid = false;
   if (written != script.length()) {
     error = "Short write; the filesystem may be full.";
     return false;
@@ -138,6 +138,7 @@ bool usbBadUSBDeletePayload(const String &name, String &error) {
     error = "Could not delete the payload.";
     return false;
   }
+  payloadNameCacheValid = false;
   return true;
 }
 

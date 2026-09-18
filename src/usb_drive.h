@@ -10,8 +10,8 @@ struct UsbDriveState {
   // the rings are walked.
   bool mediaPresent;
   uint16_t noteCount;
-  uint8_t scriptCount;
-  uint8_t badusbScriptCount;
+  uint16_t scriptCount;
+  uint16_t badusbScriptCount;
   uint16_t tagCount;
 };
 

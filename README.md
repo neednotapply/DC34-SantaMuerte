@@ -200,27 +200,32 @@ builder, saved scripts, and script execution so host controls can stay compact.
 The USB device can use either a real **NCM network interface** or the
 **Field Notes Drive**. The WiFi Tethering profile presents serial + NCM; the Drive
 profile presents serial + HID + storage. The Drive exposes **two** volumes: a
-read-only **Field Notes** disk that exports a `NOTES` folder with one `.TXT` and
-(where present) matching `.JPG` artifact per note, plus `SCRIPTS`/`BADUSB`/`NFC
-Log` folders; and a writable **DROP BOX** disk (see below). The ESP32-S3
+read-only **Santa Muerte** disk that exports a `NOTES` folder with one `.TXT` and
+(where present) matching `.JPG` artifact per note, plus `DuckyScript`/`BadUSB`/
+`NFC Log` folders; and a writable **Ofrenda** disk (see below). The ESP32-S3
 cannot expose both descriptor sets together. Select **WiFi Tethering** in
 USB Tools, then start the bridge after the badge has joined its saved Wi-Fi.
 The computer then receives its IP configuration from that upstream Wi-Fi
 network through the badge.
 
-#### DROP BOX (writable drive)
+#### Ofrenda (writable drive)
 
-Alongside the read-only Field Notes disk, the Drive profile presents a small
-read/write **DROP BOX** volume with `DUCKY/` and `BADUSB/` folders. Drag a
-DuckyScript into `DUCKY/` or a BadUSB script into `BADUSB/` and the badge saves
-it into the same `/payloads` store the web portal writes — no copy-pasting into
+Alongside the read-only Santa Muerte disk, the Drive profile presents a small
+read/write **Ofrenda** volume with the matching `DuckyScript/` and `BadUSB/`
+folders. Drag a DuckyScript into `DuckyScript/` or a BadUSB script into
+`BadUSB/` and the badge moves it into the same `/payloads` store the web portal
+writes — no copy-pasting into
 `/scripting`. The file's name (minus a `.txt`/`.dd`/`.ducky`/`.badusb`
-extension) becomes the script's name; the portal's limits apply (max 2048 bytes,
-16 scripts per format). **Eject the drive — or just wait a couple of seconds
-after dropping files — and the badge imports them;** an imported script then
-appears on the read-only Field Notes disk and in the USB Tools menu. The host
-owns the FAT and the badge only reads what you drop, so there is no risk of the
-two corrupting each other.
+extension) becomes the script's name; scripts are limited by available storage
+(with an 8192-byte limit per script), not a fixed count. **Eject Ofrenda after
+dropping files and the badge moves them;** an imported script then
+appears on the read-only Santa Muerte disk and in the USB Tools menu. Files in
+Ofrenda's root or any folder other than the two matching script folders are
+unclaimed and remain there. The host
+owns the FAT while the volume is present. After a clean eject the badge briefly
+withdraws Ofrenda, mounts it locally, moves the scripts, and presents it again,
+so it never writes the FAT while the host does. A normal move removes the
+Ofrenda source before the script can later be deleted through the portal.
 
 The volume is backed by an `ffat` flash partition (`partitions.csv`) that
 reclaims the firmware's unused second OTA app slot. Because `app0` and the
@@ -290,15 +295,11 @@ back roughly 360 KB of its picture ring.
 
 ## The board
 
-Posts live in a ring of 512 fixed-size slots in one preallocated file, and
-pictures in a second ring of 64. The oldest entry is simply the slot the next
-write lands on, so the board prunes itself, never fragments, and cannot run the
-filesystem out of space mid-post.
-
-A drawing costs roughly two hundred times what a line of text costs, which is
-why the two rings are different lengths: the board keeps a deep history of
-words and a shallow one of drawings. An old post keeps its text long after its
-drawing has been overwritten, and says so rather than serving somebody else's.
+Field Notes and their drawings are stored as individual files, with no fixed
+post or image count. Scripts take precedence over both Field Notes and the NFC
+log: when a script needs room, the badge retires the oldest notes and NFC
+encounters until enough storage is available. Notes also preserve a small
+script-sized reserve, so a busy wall cannot consume the last usable space.
 
 Anything joined to the badge is on an access point with no uplink. The badge
 has no image codec and no memory to run one: the posting browser turns a
@@ -313,6 +314,10 @@ Run the host-side tests on any machine with a C++ compiler:
 
 ```
 g++ -std=gnu++17 -I tests/shim -I src tests/board_test.cpp src/board.cpp -o /tmp/board_test && /tmp/board_test
+```
+
+```
+g++ -std=gnu++17 -I tests/shim -I src tests/nfc_log_test.cpp src/nfc_log.cpp src/board.cpp -o /tmp/nfc_log_test && /tmp/nfc_log_test
 ```
 
 ```

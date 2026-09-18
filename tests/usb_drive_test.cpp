@@ -56,6 +56,7 @@ struct StubPost {
 };
 std::vector<StubPost> posts;
 std::vector<std::pair<std::string, std::string>> payloads;  // name, script
+std::vector<std::pair<std::string, std::string>> badusbPayloads;  // name, script
 std::vector<NfcLogEntry> tags;
 
 // --- the image ---------------------------------------------------------------
@@ -198,32 +199,38 @@ void checkBootSector() {
   check(bootLabel == rootLabel,
         "boot sector and root agree on the volume label, got '" + bootLabel +
             "' and '" + rootLabel + "'");
+  check(bootLabel == "SANTAMUERTE",
+        "read-only drive uses the Santa Muerte volume label");
 }
 
 void checkFoldersAreNamedForPages() {
   const std::vector<Entry> root = rootEntries();
-  check(root.size() == 4, "root holds the readme and three folders, got " +
+  check(root.size() == 5, "root holds the readme and four folders, got " +
                               std::to_string(root.size()));
 
   const Entry *notes = findByLongName(root, "Field Notes");
-  const Entry *scripting = findByLongName(root, "Scripting");
+  const Entry *scripting = findByLongName(root, "DuckyScript");
+  const Entry *badusb = findByLongName(root, "BadUSB");
   const Entry *log = findByLongName(root, "NFC Log");
   check(notes != nullptr, "root has a folder named Field Notes");
-  check(scripting != nullptr, "root has a folder named Scripting");
+  check(scripting != nullptr, "root has a folder named DuckyScript");
+  check(badusb != nullptr, "root has a folder named BadUSB");
   check(log != nullptr, "root has a folder named NFC Log");
-  if (!notes || !scripting || !log) return;
+  if (!notes || !scripting || !badusb || !log) return;
 
   check((notes->attributes & 0x10) != 0, "Field Notes is a directory");
-  check((scripting->attributes & 0x10) != 0, "Scripting is a directory");
+  check((scripting->attributes & 0x10) != 0, "DuckyScript is a directory");
+  check((badusb->attributes & 0x10) != 0, "BadUSB is a directory");
   check((log->attributes & 0x10) != 0, "NFC Log is a directory");
   // A directory's size field reads zero; its length is the cluster chain.
-  check(notes->size == 0 && scripting->size == 0 && log->size == 0,
+  check(notes->size == 0 && scripting->size == 0 && badusb->size == 0 && log->size == 0,
         "the folders report no size of their own");
 
   // A reader without long-name support falls back to these, so they have to say
   // what the folder is on their own.
   check(notes->shortName == "FIELDNTS", "Field Notes aliases to FIELDNTS, got " + notes->shortName);
-  check(scripting->shortName == "SCRIPTNG", "Scripting aliases to SCRIPTNG, got " + scripting->shortName);
+  check(scripting->shortName == "SCRIPTNG", "DuckyScript aliases to SCRIPTNG, got " + scripting->shortName);
+  check(badusb->shortName == "BADUSB", "BadUSB aliases to BADUSB, got " + badusb->shortName);
   check(log->shortName == "NFCLOG", "NFC Log aliases to NFCLOG, got " + log->shortName);
 
   for (const Entry &entry : root) {
@@ -255,19 +262,42 @@ void checkNotesFolder() {
   }
 }
 
-void checkScriptingFolder() {
+void checkDuckyScriptFolder() {
   const std::vector<Entry> root = rootEntries();
-  const Entry *scripting = findByLongName(root, "Scripting");
+  const Entry *scripting = findByLongName(root, "DuckyScript");
   if (!scripting) return;
   const std::vector<Entry> entries = folderEntries(*scripting);
-  check(entries.size() == 2, "Scripting holds one file per saved script, got " +
+  check(entries.size() == 2, "DuckyScript holds one file per saved script, got " +
                                  std::to_string(entries.size()));
   if (entries.empty()) return;
   const std::string content = fileBytes(entries[0]);
-  check(content.find("SANTA MUERTE // USB SCRIPT // hola") == 0,
+  check(entries[0].longName == "hola.txt",
+        "a DuckyScript file uses its saved script name");
+  check(entries[0].shortName == "D0000001.TXT",
+        "a DuckyScript file retains a safe 8.3 alias");
+  check(content.find("SANTA MUERTE // DUCKYSCRIPT // hola") == 0,
         "a script file names the script");
   check(content.find("STRING hola mundo") != std::string::npos,
         "a script file carries the script");
+}
+
+void checkBadUsbFolder() {
+  const std::vector<Entry> root = rootEntries();
+  const Entry *badusb = findByLongName(root, "BadUSB");
+  if (!badusb) return;
+  const std::vector<Entry> entries = folderEntries(*badusb);
+  check(entries.size() == badusbPayloads.size(),
+        "BadUSB holds one file per saved script, got " + std::to_string(entries.size()));
+  if (entries.empty()) return;
+  const std::string content = fileBytes(entries[0]);
+  check(entries[0].longName == "demo.txt",
+        "a BadUSB file uses its saved script name");
+  check(entries[0].shortName == "B0000001.TXT",
+        "a BadUSB file retains a safe 8.3 alias");
+  check(content.find("SANTA MUERTE // BADUSB SCRIPT // demo") == 0,
+        "a BadUSB file names the script");
+  check(content.find("STRINGLN hello") != std::string::npos,
+        "a BadUSB file carries the script");
 }
 
 void checkNfcLogFolder() {
@@ -360,13 +390,24 @@ size_t readBoardImage(uint32_t postId, uint8_t *buffer, size_t capacity) {
 }
 uint16_t boardStoredCount() { return static_cast<uint16_t>(posts.size()); }
 
-uint8_t usbHidPayloadCount() { return static_cast<uint8_t>(payloads.size()); }
-String usbHidPayloadNameAt(uint8_t index) {
+uint16_t usbHidPayloadCount() { return static_cast<uint16_t>(payloads.size()); }
+String usbHidPayloadNameAt(uint16_t index) {
   if (index >= payloads.size()) return String();
   return String(payloads[index].first);
 }
 bool usbHidReadPayload(const String &name, String &outScript) {
   for (const auto &payload : payloads) {
+    if (String(payload.first) == name) { outScript = String(payload.second); return true; }
+  }
+  return false;
+}
+uint16_t usbBadUSBPayloadCount() { return static_cast<uint16_t>(badusbPayloads.size()); }
+String usbBadUSBPayloadNameAt(uint16_t index) {
+  if (index >= badusbPayloads.size()) return String();
+  return String(badusbPayloads[index].first);
+}
+bool usbBadUSBReadPayload(const String &name, String &outScript) {
+  for (const auto &payload : badusbPayloads) {
     if (String(payload.first) == name) { outScript = String(payload.second); return true; }
   }
   return false;
@@ -386,6 +427,7 @@ bool nfcLogReadNext(uint32_t &beforeId, NfcLogEntry &entry) {
 int main() {
   posts = {{1, "primera nota", false}, {2, "segunda nota", true}};
   payloads = {{"hola", "STRING hola mundo\nENTER\n"}, {"lock", "GUI l\n"}};
+  badusbPayloads = {{"demo", "STRINGLN hello\n"}};
 
   NfcLogEntry newest;
   newest.uid = "04:69:CA:1A:2B:5C:80";
@@ -427,7 +469,8 @@ int main() {
   checkBootSector();
   checkFoldersAreNamedForPages();
   checkNotesFolder();
-  checkScriptingFolder();
+  checkDuckyScriptFolder();
+  checkBadUsbFolder();
   checkNfcLogFolder();
   checkClustersDoNotOverlap();
   writeImage();

@@ -7,16 +7,10 @@
 // A post is a drawing, a line of text, or both. Nothing else: no names, no
 // links, no tags.
 //
-// Posts live in a fixed-size ring of slots inside one preallocated file. That
-// choice does the pruning for us: the oldest post is simply the slot the next
-// write lands on, so the board never grows, never fragments, and can never run
-// the filesystem out of space mid-post. It also spreads erase wear evenly
-// instead of hammering one region.
-//
-// Pictures live in a second, shorter ring. A picture costs two hundred times
-// what a line of text costs, so the board keeps a deep history of words and a
-// shallow one of images: an old post keeps its text long after its picture has
-// been overwritten by a newer one.
+// Posts and pictures have their own small files. This deliberately gives
+// scripts priority over the wall: the wall grows only while space is available
+// and its oldest entries can be reclaimed when a script needs room. There is
+// no count-based post limit.
 
 constexpr size_t BOARD_MAX_TEXT_LENGTH = 280;
 
@@ -65,12 +59,13 @@ struct BoardPost {
 bool setupBoard();
 bool isBoardReady();
 
-// Number of slots currently holding a valid post, and the total each ring
-// holds before its oldest entry is overwritten.
+// Number of posts currently stored. There is no fixed board capacity.
 uint16_t boardStoredCount();
-uint16_t boardCapacity();
-uint16_t boardImageCapacity();
 uint32_t boardNewestId();
+
+// Releases oldest Field Notes until at least bytesNeeded bytes are free. This
+// is used before saving scripts so scripts always take precedence over notes.
+bool reclaimBoardStorage(size_t bytesNeeded);
 
 // Validates and appends a post. Pass a null image to post text alone, or empty
 // text to post a picture alone. The image must already be a JPEG within

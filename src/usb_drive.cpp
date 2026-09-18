@@ -19,11 +19,14 @@ constexpr uint16_t FAT_SECTORS = 12;
 constexpr uint16_t ROOT_ENTRIES = 16;
 constexpr uint16_t ROOT_LBA = 1 + FAT_SECTORS;
 constexpr uint16_t DATA_LBA = ROOT_LBA + 1;
+// FAT12 volume labels are limited to 11 bytes, so the on-disk label omits the
+// space. The USB product name below retains the requested display name.
+constexpr char VOLUME_LABEL[] = "SANTAMUERTE";
 constexpr uint16_t END_OF_CHAIN = 0x0FFF;
 // One entry per Field Note, per retained drawing, per saved DuckyScript, per
 // saved BadUSB script and per logged tag, plus the readme and the four
-// folders. The board rings are 512 notes and 76 drawings, the log ring is
-// 128 tags, and each script format caps at 16.
+// folders. This is a read-only USB snapshot bound, not a storage limit: the
+// portal continues to retain scripts beyond what one FAT12 image can export.
 constexpr uint16_t MAX_FILES = 768;
 constexpr uint32_t READ_ACTIVITY_MS = 280;
 
@@ -56,6 +59,13 @@ struct DriveFile {
 
 DriveFile files[MAX_FILES] = {};
 uint16_t fileCount = 0;
+// Script names are user-provided, whereas the virtual FAT snapshot stores
+// pointers for VFAT long names. Keep a snapshot-local pool for every file the
+// finite FAT12 image can export; it does not cap script storage itself.
+constexpr uint16_t MAX_SCRIPT_FILE_NAMES = MAX_FILES;
+constexpr size_t SCRIPT_FILE_NAME_CAPACITY = USB_HID_MAX_NAME_LENGTH + sizeof(".txt");
+char scriptFileNames[MAX_SCRIPT_FILE_NAMES][SCRIPT_FILE_NAME_CAPACITY] = {};
+uint16_t scriptFileNameCount = 0;
 // Read from the TinyUSB task, written by the Arduino task that builds the
 // snapshot.
 volatile bool snapshotReady = false;
@@ -121,6 +131,28 @@ DriveFile *appendNote(FileKind kind, uint32_t id) {
   return &file;
 }
 
+const char *rememberScriptFileName(const String &scriptName) {
+  if (scriptFileNameCount == MAX_SCRIPT_FILE_NAMES) return nullptr;
+  char *filename = scriptFileNames[scriptFileNameCount++];
+  const size_t length = min(scriptName.length(), SCRIPT_FILE_NAME_CAPACITY - sizeof(".txt"));
+  memcpy(filename, scriptName.c_str(), length);
+  memcpy(filename + length, ".txt", sizeof(".txt"));
+  return filename;
+}
+
+DriveFile *appendScript(Directory directory, uint16_t index, const char stem[8],
+                        const String &scriptName) {
+  DriveFile *file = append(FileKind::SCRIPT, directory, index, stem, "TXT");
+  if (!file) return nullptr;
+  const char *filename = rememberScriptFileName(scriptName);
+  if (!filename) {
+    --fileCount;
+    return nullptr;
+  }
+  file->longName = filename;
+  return file;
+}
+
 bool findPost(uint32_t id, BoardPost &found) {
   uint32_t cursor = 0; BoardPost post;
   while (readNextBoardPost(cursor, post)) {
@@ -156,8 +188,8 @@ bool loadImage(uint32_t postId) {
 }
 void renderScript(DriveFile &file, Slice &slice) {
   const bool isBadUsb = file.parent == Directory::BADUSB;
-  const String name = isBadUsb ? usbBadUSBPayloadNameAt(static_cast<uint8_t>(file.sourceId))
-                                : usbHidPayloadNameAt(static_cast<uint8_t>(file.sourceId));
+  const String name = isBadUsb ? usbBadUSBPayloadNameAt(static_cast<uint16_t>(file.sourceId))
+                                : usbHidPayloadNameAt(static_cast<uint16_t>(file.sourceId));
   String script;
   const bool found = !name.isEmpty() &&
                       (isBadUsb ? usbBadUSBReadPayload(name, script) : usbHidReadPayload(name, script));
@@ -204,10 +236,12 @@ uint32_t renderedSize(DriveFile &file) {
   else if (file.kind == FileKind::TAG) renderTag(file, slice);
   return slice.position;
 }
+uint8_t entrySlots(const DriveFile &file);
 uint16_t directoryEntries(Directory directory) {
   uint16_t entries = 2;  // . and ..
   for (uint16_t i = 0; i < fileCount; ++i) {
-    if (files[i].parent == directory && files[i].kind != FileKind::DIRECTORY) ++entries;
+    if (files[i].parent == directory && files[i].kind != FileKind::DIRECTORY)
+      entries += entrySlots(files[i]);
   }
   return entries;
 }
@@ -234,7 +268,7 @@ DriveFile *appendFolder(Directory directory, const char stem[8], const char *pag
   return folder;
 }
 void refreshFiles() {
-  fileCount = 0; snapshotReady = false; cachedImageId = cachedImageLength = 0;
+  fileCount = scriptFileNameCount = 0; snapshotReady = false; cachedImageId = cachedImageLength = 0;
   DriveFile *readme = append(FileKind::README, Directory::ROOT, 0, "README  ", "TXT");
   DriveFile *notes = appendFolder(Directory::NOTES, "FIELDNTS", "Field Notes");
   DriveFile *scripts = appendFolder(Directory::SCRIPTS, "SCRIPTNG", "DuckyScript");
@@ -250,15 +284,17 @@ void refreshFiles() {
       image->size = post.imageLength;
     }
   }
-  for (uint8_t i = 0; i < usbHidPayloadCount(); ++i) {
+  for (uint16_t i = 0; i < usbHidPayloadCount(); ++i) {
     char stem[9] = {};
-    snprintf(stem, sizeof(stem), "SCRIPT%02u", static_cast<unsigned>(i + 1));
-    if (!append(FileKind::SCRIPT, Directory::SCRIPTS, i, stem, "TXT")) break;
+    snprintf(stem, sizeof(stem), "D%07u", static_cast<unsigned>(i + 1));
+    const String name = usbHidPayloadNameAt(i);
+    if (!appendScript(Directory::SCRIPTS, i, stem, name)) break;
   }
-  for (uint8_t i = 0; i < usbBadUSBPayloadCount(); ++i) {
+  for (uint16_t i = 0; i < usbBadUSBPayloadCount(); ++i) {
     char stem[9] = {};
-    snprintf(stem, sizeof(stem), "BADUSB%02u", static_cast<unsigned>(i + 1));
-    if (!append(FileKind::SCRIPT, Directory::BADUSB, i, stem, "TXT")) break;
+    snprintf(stem, sizeof(stem), "B%07u", static_cast<unsigned>(i + 1));
+    const String name = usbBadUSBPayloadNameAt(i);
+    if (!appendScript(Directory::BADUSB, i, stem, name)) break;
   }
   uint32_t tagCursor = 0, tagIndex = 0; NfcLogEntry entry;
   while (nfcLogReadNext(tagCursor, entry)) {
@@ -290,8 +326,9 @@ void renderBoot(uint8_t *sector) {
   sector[36] = 0x00; sector[38] = 0x29; write32(sector + 39, 0x534D3334);
   // Eleven bytes, and it has to be the same string the root directory's label
   // entry carries (renderRoot) -- a mismatch is what fsck.fat reports as a
-  // damaged label. "FIELD NOTES" is exactly eleven, so it needs no padding.
-  memcpy(sector + 43, "FIELD NOTES", 11); memcpy(sector + 54, "FAT12   ", 8);
+  // damaged label.
+  memcpy(sector + 43, VOLUME_LABEL, sizeof(VOLUME_LABEL) - 1);
+  memcpy(sector + 54, "FAT12   ", 8);
   sector[510] = 0x55; sector[511] = 0xAA;
 }
 void fatByte(uint8_t *sector, uint32_t base, uint32_t offset, uint8_t value, bool high = false) {
@@ -371,7 +408,7 @@ uint8_t entrySlots(const DriveFile &file) {
   return static_cast<uint8_t>(1 + longNameEntries(file));
 }
 void renderRoot(uint8_t *sector) {
-  memcpy(sector, "FIELD NOTES", 11); sector[11] = 0x08; uint8_t out = 1;
+  memcpy(sector, VOLUME_LABEL, sizeof(VOLUME_LABEL) - 1); sector[11] = 0x08; uint8_t out = 1;
   for (uint16_t i = 0; i < fileCount; ++i) {
     const DriveFile &file = files[i];
     if (file.parent != Directory::ROOT) continue;
@@ -395,7 +432,15 @@ void renderDirectory(const DriveFile &directory, uint32_t offset, uint8_t *secto
       const DriveFile &file = files[i];
       if (file.parent != static_cast<Directory>(directory.sourceId) ||
           file.kind == FileKind::DIRECTORY) continue;
-      if (wanted-- == 0) { renderEntry(entry, file); break; }
+      const uint8_t longEntries = longNameEntries(file);
+      if (wanted < longEntries) {
+        // Long-name entries are written last chunk first, then the 8.3 alias.
+        renderLongNameEntry(entry, file, longEntries - wanted);
+        break;
+      }
+      wanted -= longEntries;
+      if (wanted == 0) { renderEntry(entry, file); break; }
+      --wanted;
     }
   }
 }
@@ -443,7 +488,7 @@ alignas(USBMSC) uint8_t mscStorage[sizeof(USBMSC)]; USBMSC *msc = nullptr; bool 
 
 void usbDriveConfigure(bool enabled) {
   if (!enabled || configured) return;
-  msc = new (mscStorage) USBMSC(); msc->vendorID("SANTAMRT"); msc->productID("Field Notes"); msc->productRevision("1.1");
+  msc = new (mscStorage) USBMSC(); msc->vendorID("SANTAMRT"); msc->productID("Santa Muerte"); msc->productRevision("1.2");
   msc->onRead(readDrive); msc->onWrite(rejectWrite); msc->onStartStop(startStop); msc->isWritable(false);
   // Deliberately no mediaPresent(true) here. The snapshot cannot be built until
   // setup() has mounted LittleFS and walked the board and log rings, seconds

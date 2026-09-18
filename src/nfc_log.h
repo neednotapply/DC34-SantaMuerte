@@ -9,10 +9,9 @@
 // it bumps that tag's hit count and freshens what was read, so the log reads
 // as an encounter journal rather than a scroll of duplicates.
 //
-// Storage mirrors board.cpp: a fixed, preallocated LittleFS ring so it never
-// grows the filesystem and the oldest tag is simply the slot the next new one
-// overwrites. Only the Arduino loop task writes it; the reader task stages
-// sightings through a queue, exactly as capture already does.
+// Entries have their own small files. The log has no count cap; its oldest
+// encounters are reclaimable when scripts need storage. Only the Arduino loop
+// task writes it; the reader task stages sightings through a queue.
 
 constexpr size_t NFC_LOG_CONTENT_MAX = 208;
 constexpr size_t NFC_LOG_TYPE_MAX = 40;
@@ -30,15 +29,16 @@ struct NfcLogEntry {
 bool setupNfcLog();
 bool isNfcLogReady();
 
-// How many tags are stored, and the total the ring holds before its oldest
-// entry is overwritten.
+// How many tags are stored. There is no fixed log capacity.
 uint16_t nfcLogStoredCount();
-uint16_t nfcLogCapacity();
 uint32_t nfcLogNewestId();
 
+// Releases oldest NFC encounters until at least bytesNeeded bytes are free.
+bool reclaimNfcLogStorage(size_t bytesNeeded);
+
 // Records one sighting. De-dups by UID: a UID already present has its hit count
-// raised and its content/type refreshed and is moved to newest; a new UID
-// takes the next ring slot. Returns false only on a storage error.
+// raised and its content/type refreshed and is moved to newest. Returns false
+// only on a storage error.
 bool nfcLogRecord(const uint8_t *uid, uint8_t uidLength, const String &tagType,
                   const String &content);
 

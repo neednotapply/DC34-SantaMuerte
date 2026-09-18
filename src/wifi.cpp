@@ -25,6 +25,7 @@
 #include "usb_badusb.h"
 #include "usb_network.h"
 #include "usb_drive.h"
+#include "usb_dropbox.h"
 #include "usb_console.h"
 #include "usb_tui.h"
 #include "nfc_log.h"
@@ -1138,10 +1139,6 @@ String boardStateJson(bool ok, const String &message) {
   json += isBoardReady() ? F("true") : F("false");
   json += F(",\"stored\":");
   json += boardStoredCount();
-  json += F(",\"capacity\":");
-  json += boardCapacity();
-  json += F(",\"imageCapacity\":");
-  json += boardImageCapacity();
   json += F(",\"newestId\":");
   json += boardNewestId();
   json += F(",\"message\":\"");
@@ -1465,10 +1462,6 @@ void handleBoardPosts() {
   tail += more ? F("true") : F("false");
   tail += F(",\"stored\":");
   tail += boardStoredCount();
-  tail += F(",\"capacity\":");
-  tail += boardCapacity();
-  tail += F(",\"imageCapacity\":");
-  tail += boardImageCapacity();
   tail += '}';
   server.sendContent(tail);
   server.sendContent(F(""));
@@ -1600,8 +1593,6 @@ void handleNfcBoard() {
 
   String tail = F("],\"stored\":");
   tail += nfcLogStoredCount();
-  tail += F(",\"capacity\":");
-  tail += nfcLogCapacity();
   tail += '}';
   server.sendContent(tail);
   server.sendContent(F(""));
@@ -1784,15 +1775,13 @@ String payloadsListJson(bool ok, const String &error) {
   json.reserve(512);
   json += "{\"ok\":";
   json += ok ? "true" : "false";
-  json += ",\"max\":";
-  json += String(USB_HID_MAX_PAYLOADS);
   json += ",\"error\":\"";
   json += jsonEscape(error);
   json += "\",";
   appendPayloadStatus(json);
   json += ",\"items\":[";
-  const uint8_t count = usbHidPayloadCount();
-  for (uint8_t i = 0; i < count; ++i) {
+  const uint16_t count = usbHidPayloadCount();
+  for (uint16_t i = 0; i < count; ++i) {
     if (i) json += ',';
     const String name = usbHidPayloadNameAt(i);
     String script;
@@ -1864,6 +1853,12 @@ void handlePayloadDelete() {
   addNoCacheHeaders();
   const String name = server.hasArg("name") ? server.arg("name") : String();
   String error;
+  // A normal Ofrenda move already removed its source. Clean up any legacy or
+  // failed source copy when the volume is not owned by the host.
+  if (!usbDropboxDeletePayloadSource(false, name, error)) {
+    server.send(409, "application/json", payloadsListJson(false, error));
+    return;
+  }
   if (!usbHidDeletePayload(name, error)) {
     server.send(400, "application/json", payloadsListJson(false, error));
     return;
@@ -1892,11 +1887,11 @@ String badUSBListJson(bool ok, const String &error) {
   json.reserve(512);
   json += "{\"ok\":";
   json += ok ? "true" : "false";
-  json += ",\"max\":16,\"error\":\"";
+  json += ",\"error\":\"";
   json += jsonEscape(error);
   json += "\",\"items\":[";
-  const uint8_t count = usbBadUSBPayloadCount();
-  for (uint8_t i = 0; i < count; ++i) {
+  const uint16_t count = usbBadUSBPayloadCount();
+  for (uint16_t i = 0; i < count; ++i) {
     if (i) json += ',';
     const String name = usbBadUSBPayloadNameAt(i);
     String script;
@@ -1950,6 +1945,10 @@ void handleBadUSBDelete() {
   addNoCacheHeaders();
   const String name = server.hasArg("name") ? server.arg("name") : String();
   String error;
+  if (!usbDropboxDeletePayloadSource(true, name, error)) {
+    server.send(409, "application/json", badUSBListJson(false, error));
+    return;
+  }
   if (!usbBadUSBDeletePayload(name, error)) {
     server.send(400, "application/json", badUSBListJson(false, error));
     return;
