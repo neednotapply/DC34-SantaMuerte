@@ -1,2 +1,3 @@
 .pio/
 board-backup.json
+data/**/*.gz

@@ -193,11 +193,15 @@ int32_t dropboxWrite(uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t si
   unlockStorage();
   return static_cast<int32_t>(size);
 }
-bool dropboxStartStop(uint8_t, bool start, bool) {
-  // The host ejecting -- or spinning the medium down -- is the clean cue that it
-  // has flushed its FAT and released the volume: a safe moment to import.
-  // LOEJ describes both load and eject. `start=true, load_eject=true` means
-  // load, and must not make us withdraw the volume just as the host mounts it.
+bool dropboxStartStop(uint8_t, bool start, bool loadEject) {
+  // A START STOP UNIT command is also used for ordinary power management.
+  // In particular, Windows can send START=0 with LOEJ clear while it probes or
+  // suspends a removable volume. That is *not* an eject: withdrawing the LUN
+  // there leaves Explorer holding a drive letter whose medium just vanished.
+  // Only the explicit unload form is a handoff from the host to the badge.
+  // Conversely, START=1/LOEJ=1 is a host loading the medium and must not race
+  // an import or mark its FAT as locally owned.
+  if (!loadEject) return true;
   if (start) {
     hostOwnsMedium = true;
   } else {

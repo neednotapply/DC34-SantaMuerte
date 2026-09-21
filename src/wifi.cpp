@@ -15,7 +15,18 @@
 #define SM_HAS_NETIF_STA_LIST 0
 #endif
 #include <lwip/etharp.h>
+#include <errno.h>
+#include <sys/socket.h>
 #include <cstring>
+// Defined at file scope after the anonymous namespace (it needs no internal
+// linkage) but spawned from inside it in setupWebServer, so it is declared here.
+void networkWatchdogTask(void *parameter);
+// The write path stamps these so the watchdog, in its own task, can tell a
+// wedged Wi-Fi stack (sends stall, nothing goes out) from an idle or healthy
+// one. Global so both the anonymous-namespace server and the watchdog see them.
+volatile uint32_t g_lastServeOkMs = 0;      // a response chunk last went out
+volatile uint32_t g_lastServeStallMs = 0;   // a response send last stalled out
+volatile uint32_t g_consecutiveStalls = 0;  // sends stalled in a row, no success between
 #include "badge_wifi.h"
 #include "badge_button.h"
 #include "badge_settings.h"
@@ -68,8 +79,112 @@ constexpr uint32_t STATION_FALLBACK_MS = 30000;
 // in -- and the credentials are either remembered or discarded -- before the
 // badge gives up and restores its own access point.
 constexpr uint32_t STATION_TRIAL_MS = 20000;
+constexpr size_t STATIC_FILE_CHUNK_BYTES = 1360;
+// A dead browser connection must not monopolize loop(). The framework's
+// NetworkClient::write retries a full second ten times for every file chunk;
+// a cancelled page can therefore freeze Wi-Fi, mDNS, USB TUI input and AP
+// fallback for minutes. Raw non-blocking writes let us abandon that client
+// after a short period with no forward progress.
+constexpr uint32_t STATIC_FILE_STALL_MS = 2500;
+// A browser keeps speculative "preconnect" sockets open without ever sending a
+// request. The framework's handleClient() parks on such a silent client for
+// HTTP_MAX_DATA_WAIT (5s), and because this server serves exactly one client at
+// a time, that idle socket blocks every other page for those five seconds --
+// the precise "connected, but the next page will not load" freeze. Give a
+// wordless client far less grace so the single slot frees up quickly.
+constexpr uint32_t IDLE_REQUEST_WAIT_MS = 750;
 
-WebServer server(HTTP_PORT);
+class BadgeWebServer : public WebServer {
+ public:
+  explicit BadgeWebServer(uint16_t port) : WebServer(port) {
+    // The listen backlog caps how many client connections exist at once, and on
+    // this board that is a memory limit, not a queue-length nicety. Each live
+    // TCP connection holds several KB of lwip buffers; a browser's six parallel
+    // first-load requests (HTML + stylesheet + scripts + images) drove free
+    // heap from ~46 KB to ~2 KB, at which point lwip could not allocate a send
+    // buffer and every transfer stalled and truncated. A backlog of 1 lets one
+    // connection be served while just one more waits, so the browser's requests
+    // serialise (it retries the refused ones) and heap stays healthy. Caching
+    // makes this matter only for the very first, cold visit; every navigation
+    // after it reuses the cached assets and needs one connection at a time.
+    _server = NetworkServer(port, 1);
+  }
+
+  // Pre-empt the framework's five-second wait on a client that has connected
+  // but sent no request bytes yet (a browser's preconnect/speculative socket).
+  // Left alone it owns this single-client server and freezes navigation; closed
+  // promptly, the slot is free for the page actually being requested. This only
+  // ever drops a connection that has delivered nothing, so no real request is
+  // lost -- the browser silently reopens one when it has something to send.
+  void handleClient() override {
+    if (_currentStatus == HC_WAIT_READ && !_currentClient.available() &&
+        millis() - _statusChange >= IDLE_REQUEST_WAIT_MS) {
+      _currentClient.stop();
+      _currentClient = NetworkClient();
+      _currentStatus = HC_NONE;
+    }
+    WebServer::handleClient();
+  }
+
+  size_t writeResponseBytes(const uint8_t *bytes, size_t length) {
+    const int socketFd = _currentClient.fd();
+    if (socketFd < 0) return 0;
+
+    size_t written = 0;
+    uint32_t lastProgressAt = millis();
+    while (written < length) {
+      const ssize_t justWritten =
+          ::send(socketFd, bytes + written, length - written, MSG_DONTWAIT);
+      if (justWritten > 0) {
+        written += static_cast<size_t>(justWritten);
+        lastProgressAt = millis();
+      } else if (justWritten < 0 && errno != EAGAIN && errno != EWOULDBLOCK &&
+                 errno != ENOMEM) {
+        // A genuine connection fault (reset, broken pipe): abandon it. ENOMEM
+        // is NOT that -- on this ~46 KB-heap board lwip routinely fails to
+        // allocate a send pbuf mid-transfer, which is transient. Treating that
+        // as fatal is exactly what truncated pages into "Failed to fetch";
+        // wait it out with the EAGAIN path instead.
+        Serial.printf("[WIFI] send fault fd=%d errno=%d at %u/%u bytes\r\n",
+                      socketFd, errno, (unsigned)written, (unsigned)length);
+        break;
+      }
+
+      if (millis() - lastProgressAt >= STATIC_FILE_STALL_MS) {
+        // Bailing here is the last resort for a client that has genuinely
+        // stopped reading. Log the heap so a stall caused by memory pressure
+        // (rather than a dead client) is visible instead of guessed at.
+        Serial.printf("[WIFI] send stalled %ums at %u/%u bytes heap=%u largest=%u\r\n",
+                      (unsigned)STATIC_FILE_STALL_MS, (unsigned)written,
+                      (unsigned)length, (unsigned)ESP.getFreeHeap(),
+                      (unsigned)ESP.getMaxAllocHeap());
+        break;
+      }
+      delay(1);
+    }
+
+    if (written != length) {
+      _currentClient.stop();
+      g_lastServeStallMs = millis();  // a send that could not complete
+      g_consecutiveStalls++;
+    } else {
+      g_lastServeOkMs = millis();  // bytes actually left the badge
+      g_consecutiveStalls = 0;     // the send path is clearly working
+    }
+    return written;
+  }
+
+ protected:
+  size_t _currentClientWrite(const char *bytes, size_t length) override {
+    return writeResponseBytes(reinterpret_cast<const uint8_t *>(bytes), length);
+  }
+
+  size_t _currentClientWrite_P(PGM_P bytes, size_t length) override {
+    return writeResponseBytes(reinterpret_cast<const uint8_t *>(bytes), length);
+  }
+};
+
+BadgeWebServer server(HTTP_PORT);
 DNSServer dnsServer;
 bool dnsServerRunning = false;
 bool fileSystemReady = false;
@@ -230,8 +345,7 @@ bool configureVerifiedAccessPoint() {
   delay(75);
 
   for (uint8_t attempt = 1; attempt <= 2; ++attempt) {
-    // AP+STA keeps the badge's walk-up network alive while it joins the
-    // owner's LAN in the background.
+    // AP+STA is used only while the badge's own network is active.
     WiFi.mode(WIFI_AP_STA);
     delay(50);
 
@@ -341,26 +455,102 @@ int boundedRequestArg(const String &name, int low, int high) {
   return constrain(server.arg(name).toInt(), low, high);
 }
 
-void serveLittleFsFile(const char *path, const char *contentType) {
-  addNoCacheHeaders();
+// How the browser may cache a served file. NoStore: never (dynamic/API-ish).
+// Revalidate: keep a copy but check every visit via ETag -- an unchanged file
+// comes back as a bodyless 304, so a 60-72 KB page shell costs almost nothing
+// on revisit yet can never go stale. LongLived: cache outright for a few
+// minutes (the truly static, ?v=-versioned stylesheet, scripts and images).
+enum class CachePolicy { NoStore, Revalidate, LongLived };
 
+void serveLittleFsFile(const char *path, const char *contentType,
+                       CachePolicy policy = CachePolicy::NoStore) {
   if (!fileSystemReady || !LittleFS.exists(path)) {
+    addNoCacheHeaders();
     String error = path;
-    error += "is missing. Upload the LittleFS image and try again.";
+    error += " is missing. Upload the LittleFS image and try again.";
     server.send(500, "text/plain; charset=utf-8", error);
     return;
   }
 
-  File page = LittleFS.open(path, "r");
+  // Prefer the pre-compressed twin (foo.css.gz) when the client accepts gzip --
+  // every browser does. It cuts these text assets ~4x (theme.css 42->11 KB,
+  // locale.js 68->22 KB, a page shell 72->19 KB), which is what keeps a cold
+  // first load's parallel transfers from exhausting the heap and wedging Wi-Fi.
+  // NoStore responses are dynamic and have no twin.
+  String servePath = path;
+  bool gzipped = false;
+  if (policy != CachePolicy::NoStore) {
+    const String gzPath = String(path) + ".gz";
+    if (LittleFS.exists(gzPath) &&
+        server.header("Accept-Encoding").indexOf("gzip") >= 0) {
+      servePath = gzPath;
+      gzipped = true;
+    }
+  }
+
+  File page = LittleFS.open(servePath, "r");
   if (!page) {
-    String error = "Could not open";
-    error += path;
+    addNoCacheHeaders();
+    String error = "Could not open ";
+    error += servePath;
     server.send(500, "text/plain; charset=utf-8", error);
     return;
   }
 
-  server.streamFile(page, contentType);
+  // Every navigation used to re-send each file in full -- the 110 KB of
+  // theme.css + locale.js on top of a 60-72 KB page shell, over fresh sockets,
+  // on a board with ~46 KB free heap and only sixteen sockets. That volume is
+  // what pushes lwip into the out-of-memory stalls that truncate pages. Caching
+  // collapses a revisit to a bodyless 304 (or, for the static assets, to
+  // nothing at all inside the max-age window). The validator is the file's
+  // length and last-write time, so re-uploading the filesystem retires the old
+  // copy at once -- no stale asset, and page shells (Revalidate) are rechecked
+  // every visit regardless, since only their /api data is live, not the shell.
+  if (policy == CachePolicy::NoStore) {
+    addNoCacheHeaders();
+  } else {
+    String etag = "\"";
+    etag += String(static_cast<uint32_t>(page.size()));
+    etag += '-';
+    etag += String(static_cast<uint32_t>(page.getLastWrite()), 16);
+    if (gzipped) etag += "-gz";  // a gzip and a plain copy must not share a tag
+    etag += '"';
+    server.sendHeader("ETag", etag);
+    server.sendHeader("Cache-Control", policy == CachePolicy::LongLived
+                                           ? "public, max-age=300"
+                                           : "no-cache");
+    // A shared cache must not hand a gzip body to a client that did not ask for
+    // one, or the reverse; key the stored entry on the request encoding.
+    server.sendHeader("Vary", "Accept-Encoding");
+    if (server.header("If-None-Match") == etag) {
+      page.close();
+      server.send(304, contentType, "");
+      return;
+    }
+    if (gzipped) server.sendHeader("Content-Encoding", "gzip");
+  }
+
+  server.setContentLength(page.size());
+  server.send(200, contentType, "");
+
+  uint8_t buffer[STATIC_FILE_CHUNK_BYTES];
+  bool sent = true;
+  while (page.available()) {
+    const size_t available = static_cast<size_t>(page.available());
+    const size_t wanted = available < sizeof(buffer) ? available : sizeof(buffer);
+    const size_t received = page.read(buffer, wanted);
+    if (received == 0 ||
+        server.writeResponseBytes(buffer, received) != received) {
+      sent = false;
+      break;
+    }
+  }
   page.close();
+
+  if (!sent) {
+    Serial.printf("[WIFI] Static client stalled; closing response for %s\r\n", path);
+    server.client().stop();
+  }
 }
 
 String jsonEscape(const String &value) {
@@ -425,6 +615,9 @@ void startStationConnection(bool forceBootAttempt = false) {
     if (!getPersistentStationWifi(stationCandidates[stationCandidate], ssid, password)) return;
   }
   WiFi.mode(accessPointActive ? WIFI_AP_STA : WIFI_STA);
+  // The portal is interactive; keeping the station radio awake avoids delayed
+  // TCP acknowledgements that can stall a large page on some access points.
+  WiFi.setSleep(false);
   WiFi.disconnect(false, false);
   // A remembered network may be open, in which case the stored password is
   // empty. Passing no passphrase at all states that outright: the core only
@@ -1001,31 +1194,31 @@ void servicePendingAccessPointToggle() {
 // Dashboard, LED webpage, and LED API
 // -----------------------------------------------------------------------------
 void handleDashboardPage() {
-  serveLittleFsFile("/index.html", "text/html; charset=utf-8");
+  serveLittleFsFile("/index.html", "text/html; charset=utf-8", CachePolicy::Revalidate);
 }
 
 void handleThemeStylesheet() {
-  serveLittleFsFile("/theme.css", "text/css; charset=utf-8");
+  serveLittleFsFile("/theme.css", "text/css; charset=utf-8", CachePolicy::LongLived);
 }
 
 void handleLocaleScript() {
-  serveLittleFsFile("/locale.js", "text/javascript; charset=utf-8");
+  serveLittleFsFile("/locale.js", "text/javascript; charset=utf-8", CachePolicy::LongLived);
 }
 
 void handleTapeScript() {
-  serveLittleFsFile("/tape.js", "text/javascript; charset=utf-8");
+  serveLittleFsFile("/tape.js", "text/javascript; charset=utf-8", CachePolicy::LongLived);
 }
 
 void handleLogoAsset() {
-  serveLittleFsFile("/assets/logo-candle.png", "image/png");
+  serveLittleFsFile("/assets/logo-candle.png", "image/png", CachePolicy::LongLived);
 }
 
 void handleBadgeFigureAsset() {
-  serveLittleFsFile("/assets/badge-figure.png", "image/png");
+  serveLittleFsFile("/assets/badge-figure.png", "image/png", CachePolicy::LongLived);
 }
 
 void handleLedPage() {
-  serveLittleFsFile("/led.html", "text/html; charset=utf-8");
+  serveLittleFsFile("/led.html", "text/html; charset=utf-8", CachePolicy::Revalidate);
 }
 
 void handleLedState() {
@@ -1074,7 +1267,7 @@ void handleLedSet() {
 // NFC webpage and API
 // -----------------------------------------------------------------------------
 void handleNfcPage() {
-  serveLittleFsFile("/nfc.html", "text/html; charset=utf-8");
+  serveLittleFsFile("/nfc.html", "text/html; charset=utf-8", CachePolicy::Revalidate);
 }
 
 void handleNfcState() {
@@ -1127,7 +1320,7 @@ void handleNfcTagEmulationStop() {
 // Message board webpage and API
 // -----------------------------------------------------------------------------
 void handleBoardPage() {
-  serveLittleFsFile("/board.html", "text/html; charset=utf-8");
+  serveLittleFsFile("/board.html", "text/html; charset=utf-8", CachePolicy::Revalidate);
 }
 
 String boardStateJson(bool ok, const String &message) {
@@ -1551,7 +1744,7 @@ void handleBoardClear() {
 }
 
 void handleNfcLogPage() {
-  serveLittleFsFile("/nfclog.html", "text/html; charset=utf-8");
+  serveLittleFsFile("/nfclog.html", "text/html; charset=utf-8", CachePolicy::Revalidate);
 }
 
 // Streams the unified NFC log newest-first, the same chunked way the Field
@@ -1797,15 +1990,15 @@ String payloadsListJson(bool ok, const String &error) {
 }
 
 void handlePayloadsPage() {
-  serveLittleFsFile("/usb.html", "text/html; charset=utf-8");
+  serveLittleFsFile("/usb.html", "text/html; charset=utf-8", CachePolicy::Revalidate);
 }
 
 void handleDuckyscriptPage() {
-  serveLittleFsFile("/ducky.html", "text/html; charset=utf-8");
+  serveLittleFsFile("/ducky.html", "text/html; charset=utf-8", CachePolicy::Revalidate);
 }
 
 void handleBadUSBPage() {
-  serveLittleFsFile("/badusb.html", "text/html; charset=utf-8");
+  serveLittleFsFile("/badusb.html", "text/html; charset=utf-8", CachePolicy::Revalidate);
 }
 
 
@@ -2150,7 +2343,7 @@ String base64Encode(const String &value) {
 }
 
 void handleTerminalPage() {
-  serveLittleFsFile("/terminal.html", "text/html; charset=utf-8");
+  serveLittleFsFile("/terminal.html", "text/html; charset=utf-8", CachePolicy::Revalidate);
 }
 
 void handleTerminalStream() {
@@ -2297,13 +2490,23 @@ void setupWebServer() {
   // WebServer discards every header it was not told to keep. User-Agent is the
   // only identity a browser offers for naming a note; the X-Note-*
   // ones carry the metadata that used to share the body with the drawing.
+  // If-None-Match lets a cached asset revalidate into a bodyless 304;
+  // Accept-Encoding lets serveLittleFsFile pick the gzip twin. WebServer drops
+  // every header not named here, so both must be listed to be readable.
   static const char *collected[] = {"User-Agent", "X-Note-Text",
                                     "X-Note-Ts", "X-Note-Author",
-                                    "X-Note-Text-In-Image"};
+                                    "X-Note-Text-In-Image", "If-None-Match",
+                                    "Accept-Encoding"};
   server.collectHeaders(collected, sizeof(collected) / sizeof(collected[0]));
 
   server.begin();
   Serial.println("[WEB] HTTP server started");
+
+  // Self-healing: reboot if the Wi-Fi/lwip stack wedges under load (see
+  // networkWatchdogTask). Its own task so a loop stuck in a network call cannot
+  // silence it. Pinned to the app core to stay clear of the Wi-Fi driver.
+  xTaskCreatePinnedToCore(networkWatchdogTask, "net-wdog", 3072, nullptr, 1,
+                          nullptr, 1);
 }
 
 }  // namespace
@@ -2469,6 +2672,7 @@ void setupWiFiAccessPoint() {
       Serial.println("[WIFI] WARNING: Could not set DHCP hostname");
     }
     WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);
     refreshStationCandidates();
   } else {
     Serial.println("[WIFI] Boot: no saved Wi-Fi; starting access point");
@@ -2504,6 +2708,62 @@ void setupWiFiAccessPoint() {
   Serial.print("[WIFI] NFC tools: http://");
   Serial.print(WiFi.softAPIP());
   Serial.println("/nfc");
+}
+
+// The network watchdog. Under a burst of parallel connections lwip and the
+// Wi-Fi driver can run out of their OWN internal buffers and stop passing
+// traffic while Wi-Fi stays associated and the Arduino task keeps running --
+// the badge simply goes unreachable until it is reset. Two things make this
+// hard to detect from inside: a heap gauge cannot see it (the shortage is in
+// the Wi-Fi driver, not the general heap, which reads healthy again the instant
+// a stalled transfer is abandoned -- measured: the wedge held 60s with free
+// heap well above any floor), and probing outward is unreliable too (an ICMP
+// echo either still slips through or cannot even open a socket on the wedged
+// stack). What IS reliable is the server's own send path: at the onset of a
+// wedge it keeps accepting clients and trying to answer, and every send stalls
+// with nothing going out (confirmed in the logs). So the signal is exactly
+// that -- a send stalled recently, and NOTHING has successfully gone out since,
+// for long enough that this is a stuck stack and not one slow page. A clean
+// reboot is the only reliable way back; it rejoins Wi-Fi in ~20s and keeps the
+// board and settings, which live in flash, not RAM (only uploadfs clears them).
+// The check lives in its own task so a loop busy stalling cannot silence it.
+constexpr uint32_t WATCHDOG_CHECK_INTERVAL_MS = 5000;
+constexpr uint32_t WATCHDOG_NO_TX_MS = 25000;         // no send has succeeded this long...
+constexpr uint32_t WATCHDOG_STALL_RECENT_MS = 60000;  // ...since a failure this fresh
+constexpr uint32_t WATCHDOG_BOOT_GRACE_MS = 45000;    // let the first join settle
+
+void networkWatchdogTask(void *parameter) {
+  (void)parameter;
+  vTaskDelay(pdMS_TO_TICKS(WATCHDOG_BOOT_GRACE_MS));
+
+  for (;;) {
+    vTaskDelay(pdMS_TO_TICKS(WATCHDOG_CHECK_INTERVAL_MS));
+
+    // Only the station link wedges this way; a plain station drop is already
+    // handled by serviceStationConnection's reconnect / AP fallback.
+    if (WiFi.status() != WL_CONNECTED) continue;
+
+    const uint32_t now = millis();
+    // Two signals together, chosen so nothing benign trips it: a send has failed
+    // recently (an idle badge has no fresh failure) and nothing has gone out
+    // successfully SINCE, for long enough that this is a stuck stack, not a
+    // busy or briefly congested one (either keeps completing sends, which
+    // refreshes g_lastServeOkMs). A wedge, once it takes hold, stops the badge
+    // answering entirely -- so a fresh failure plus a long dry spell is it.
+    // (A single stall then a genuinely idle badge can also match; the cost is a
+    // spurious ~30s reboot while nobody is connected, which is harmless.)
+    if (g_lastServeStallMs != 0 &&
+        (now - g_lastServeStallMs) < WATCHDOG_STALL_RECENT_MS &&
+        (now - g_lastServeOkMs) >= WATCHDOG_NO_TX_MS) {
+      Serial.printf(
+          "[WIFI] Watchdog: send path stuck (%u stalls, no TX for %us) -- "
+          "rebooting\r\n",
+          (unsigned)g_consecutiveStalls, (unsigned)((now - g_lastServeOkMs) / 1000));
+      Serial.flush();
+      delay(50);
+      ESP.restart();
+    }
+  }
 }
 
 void updateWebServer() {
