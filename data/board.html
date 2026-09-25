@@ -1202,6 +1202,27 @@
       redrawPad();
     }
 
+    // The badge serves board drawings reliably one at a time, but chokes when a
+    // page asks for several at once: its lwip send buffers starve and the later
+    // images stall out and never arrive. Load every drawing through this
+    // single-slot queue so each one is fetched on its own and all of them show.
+    const drawingQueue = [];
+    let drawingActive = false;
+    function pumpDrawings() {
+      if (drawingActive || !drawingQueue.length) return;
+      drawingActive = true;
+      (drawingQueue.shift())();
+    }
+    function queueDrawing(image, url) {
+      const release = () => { drawingActive = false; pumpDrawings(); };
+      drawingQueue.push(() => {
+        image.addEventListener('load', release, {once:true});
+        image.addEventListener('error', release, {once:true});
+        image.src = url;
+      });
+      pumpDrawings();
+    }
+
     function buildPost(post) {
       const article = document.createElement('article');
       article.className = `post${post.hasImage ? ' note-photo' : ' note-plain'}`;
@@ -1248,16 +1269,19 @@
         const wrap = document.createElement('div');
         wrap.className = 'media';
         const image = document.createElement('img');
-        image.loading = 'lazy';
         image.alt = 'Drawing posted';
-        const revision = Array.from(crypto.getRandomValues(new Uint32Array(4)), n => n.toString(16)).join('-');
-        image.src = `/api/board/image?id=${encodeURIComponent(post.id)}&v=${revision}`;
         // The picture may have been pruned between the listing and this fetch.
         image.addEventListener('error', () => {
           wrap.remove();
           const fallback = article.querySelector('.post-text');
           if (fallback) fallback.hidden = false;
         }, {once:true});
+        // Key the URL on the note timestamp: stable across renders (so a loaded
+        // drawing is reused from cache, not re-fetched every visit) yet unique
+        // per note even after post ids restart on a filesystem reflash. The
+        // queue keeps the badge from being asked for more than one at a time.
+        const drawingUrl = `/api/board/image?id=${encodeURIComponent(post.id)}&v=${encodeURIComponent(post.createdAt || post.id || 0)}`;
+        queueDrawing(image, drawingUrl);
         wrap.appendChild(image);
         article.appendChild(wrap);
       }

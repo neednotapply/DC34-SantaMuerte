@@ -8,6 +8,10 @@
 #include "badge_settings.h"
 #include "nfc_log.h"
 
+// See board.h for why this one buffer is shared across the loop-task image
+// handlers instead of each keeping its own.
+uint8_t boardImageShared[BOARD_MAX_IMAGE_BYTES];
+
 namespace {
 constexpr char BOARD_DIR[] = "/field_notes";
 constexpr char LEGACY_BOARD_PATH[] = "/board.dat";

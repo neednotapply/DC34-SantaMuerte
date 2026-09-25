@@ -410,9 +410,18 @@
         scanNote.textContent = t('Buscando…', 'Scanning…');
         scanResults.hidden = true;
         try {
-          const res = await fetch('/api/wifi/scan', { cache: 'no-store' });
-          const data = await res.json();
-          const nets = (data.networks || []);
+          // The badge scans in the background so the portal stays responsive:
+          // it replies {"scanning":true} until the sweep finishes, so poll for
+          // the list rather than blocking on one long request.
+          let data = null;
+          const deadline = Date.now() + 15000;
+          while (Date.now() < deadline) {
+            const res = await fetch('/api/wifi/scan', { cache: 'no-store' });
+            data = await res.json();
+            if (!data || !data.scanning) break;
+            await new Promise(function (r) { setTimeout(r, 800); });
+          }
+          const nets = ((data && data.networks) || []);
           if (!nets.length) {
             scanNote.textContent = t('No networks found.', 'No networks found.');
             return;

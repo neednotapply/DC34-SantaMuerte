@@ -19,6 +19,16 @@ constexpr size_t BOARD_MAX_TEXT_LENGTH = 280;
 // first, and this is the ceiling it has to come in under.
 constexpr size_t BOARD_MAX_IMAGE_BYTES = 12288;
 
+// One 12 KB scratch shared by every loop-task subsystem that handles a single
+// board image: the web server (serving or receiving a drawing) and the USB
+// console preview. Each consumes an image synchronously within one loop() pass
+// and none can run while another is mid-image, so they share this instead of
+// each reserving its own 12 KB -- three separate copies together starved the
+// heap the Wi-Fi portal needs to accept a connection. The read-only USB drive
+// keeps a SEPARATE cache: it is served from the USB task and can overlap a
+// loop-task image op, so it must not share this buffer.
+extern uint8_t boardImageShared[BOARD_MAX_IMAGE_BYTES];
+
 constexpr uint16_t BOARD_NO_IMAGE = 0xFFFF;
 
 // Posts the badge made on its own, rather than a browser. Deliberately below

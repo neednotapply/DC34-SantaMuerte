@@ -100,13 +100,22 @@ class BadgeWebServer : public WebServer {
     // The listen backlog caps how many client connections exist at once, and on
     // this board that is a memory limit, not a queue-length nicety. Each live
     // TCP connection holds several KB of lwip buffers; a browser's six parallel
-    // first-load requests (HTML + stylesheet + scripts + images) drove free
-    // heap from ~46 KB to ~2 KB, at which point lwip could not allocate a send
-    // buffer and every transfer stalled and truncated. A backlog of 1 lets one
-    // connection be served while just one more waits, so the browser's requests
-    // serialise (it retries the refused ones) and heap stays healthy. Caching
-    // makes this matter only for the very first, cold visit; every navigation
-    // after it reuses the cached assets and needs one connection at a time.
+    // first-load requests once drove free heap from ~46 KB to ~2 KB -- but that
+    // was when each image was sent in a single 12 KB block that needed a big
+    // contiguous allocation. Every response now streams in ~1.4 KB chunks (see
+    // writeResponseBytes and handleBoardImage), so a queued connection is cheap.
+    // A backlog of 1 then made a board's parallel image loads (one request per
+    // note) refuse all but one; the refused ones retried with backoff and the
+    // later images timed out and never appeared. A backlog of 4 lets those
+    // requests wait their turn instead. Measured on hardware, though, the
+    // opposite is what matters here: accepting many connections at once
+    // starves lwip of send buffers, so the largest assets (locale.js, a board
+    // JSON page) stall mid-stream for STATIC_FILE_STALL_MS and get abandoned --
+    // the browser then reports ERR_CONTENT_LENGTH_MISMATCH and the page breaks.
+    // Keeping the backlog at 1 serves one response at a time with the whole
+    // buffer pool behind it, so each completes; the browser transparently
+    // retries the refused ones. Chunked sends (see writeResponseBytes /
+    // handleBoardImage) are what make that one-at-a-time serve cheap now.
     _server = NetworkServer(port, 1);
   }
 
@@ -1027,16 +1036,52 @@ void handleStationWifiGet() {
   server.send(200, "application/json", stationWifiJson(true, String()));
 }
 
-// On-demand scan for the "pick a network" helper on the settings page. The
-// scan is synchronous, so this request takes a second or two and, because the
-// single radio hops channels to sweep, a browser on the badge's own AP sees a
-// brief stall while it runs -- which is why the page only scans on a tap and
-// never on a timer. Results are de-duplicated by SSID (keeping the strongest
-// sighting), hidden/blank SSIDs dropped, sorted strongest first.
+// On-demand scan for the "pick a network" helper on the settings page. A
+// synchronous scan blocks for a few seconds while the one radio hops channels,
+// and since the web server shares the loop task that stall froze the whole
+// portal -- every client, not just one on the badge's own AP -- until the
+// sweep finished. So the scan runs asynchronously now: the first tap starts it
+// and returns {"scanning":true} at once, the page polls back, and loop() keeps
+// serving the whole time. Results are de-duplicated by SSID (keeping the
+// strongest sighting), hidden/blank SSIDs dropped, sorted strongest first.
 void handleWifiScan() {
   addNoCacheHeaders();
 
-  const int found = WiFi.scanNetworks(false, false);
+  // Tracks a sweep we started and have not yet returned. While set, a request
+  // reports progress or hands back the finished list; while clear, a request
+  // starts a fresh sweep rather than serving stale results a client abandoned.
+  static bool scanArmed = false;
+
+  const int status = WiFi.scanComplete();
+  if (status == WIFI_SCAN_RUNNING) {
+    // A sweep is in flight (ours, or one another client kicked off). Adopt it
+    // and let the page poll; loop() stays free to serve every other request.
+    scanArmed = true;
+    server.send(202, "application/json", F("{\"scanning\":true}"));
+    return;
+  }
+  if (!scanArmed || status == WIFI_SCAN_FAILED) {
+    // First tap, a failed attempt, or a stale completion left by a client that
+    // stopped polling: discard any leftover and start a fresh async sweep. The
+    // sweep still takes ~3 s: while connected as a station the one radio keeps
+    // ducking back to the home channel to hold the link, and that, not the
+    // per-channel dwell, sets the pace (dropping dwell from 300 to 120 ms
+    // measured no faster). What the async form buys is that loop() keeps serving
+    // the portal throughout -- only a request whose packets land during the
+    // sweep waits for it, instead of the whole server freezing as it did when
+    // the scan was synchronous. 120 ms active still collects every probe reply,
+    // so the list stays complete.
+    WiFi.scanDelete();
+    WiFi.scanNetworks(true, false, false, 120);
+    scanArmed = true;
+    server.send(202, "application/json", F("{\"scanning\":true}"));
+    return;
+  }
+
+  // Our sweep has finished: build the results below, then disarm so the next
+  // tap starts fresh.
+  scanArmed = false;
+  const int found = status;
   if (found <= 0) {
     WiFi.scanDelete();
     server.send(200, "application/json", F("{\"networks\":[]}"));
@@ -1340,10 +1385,10 @@ String boardStateJson(bool ok, const String &message) {
   return json;
 }
 
-// One buffer serves both directions. The web server runs entirely from
-// loop(), so an upload being decoded and an image being served can never
-// overlap.
-uint8_t boardImageBuffer[BOARD_MAX_IMAGE_BYTES];
+// The single board-image scratch now lives in board.cpp as boardImageShared
+// and is shared with the USB console preview (see board.h). The invariant that
+// made one buffer safe still holds: the web server runs entirely from loop(),
+// so decoding an upload and serving an image can never overlap.
 
 // A drawing arrives as the raw POST body and is streamed straight into the
 // buffer above, 1436 bytes at a time, without a single allocation.
@@ -1373,12 +1418,12 @@ void handleBoardUpload() {
     // socket either way, and leaving part of it unread would desynchronise
     // the connection.
     if (boardUploadTooBig ||
-        upload.currentSize > sizeof(boardImageBuffer) - boardUploadLength) {
+        upload.currentSize > sizeof(boardImageShared) - boardUploadLength) {
       boardUploadTooBig = true;
       return;
     }
 
-    memcpy(boardImageBuffer + boardUploadLength, upload.buf, upload.currentSize);
+    memcpy(boardImageShared + boardUploadLength, upload.buf, upload.currentSize);
     boardUploadLength += upload.currentSize;
     return;
   }
@@ -1425,18 +1470,37 @@ void handleBoardImage() {
       server.hasArg("id") ? strtoul(server.arg("id").c_str(), nullptr, 10) : 0;
 
   const size_t length =
-      readBoardImage(postId, boardImageBuffer, sizeof(boardImageBuffer));
+      readBoardImage(postId, boardImageShared, sizeof(boardImageShared));
   if (length == 0) {
     server.send(404, "text/plain; charset=utf-8", "That note has no drawing.");
     return;
   }
 
-  // The client adds a random v token for each rendered image. Post numbers
-  // can restart after a filesystem flash, so the numeric id alone is not a
-  // permanent cache identity.
+  // The client keys the v token on the note's timestamp, not the id: ids can
+  // restart after a filesystem flash, so id alone is not a permanent cache
+  // identity, while a note and its drawing never change once posted -- so this
+  // is safe to cache immutably and the browser reuses it instead of refetching.
   server.sendHeader("Cache-Control", "public, max-age=31536000, immutable");
-  server.send_P(200, "image/jpeg",
-                reinterpret_cast<const char *>(boardImageBuffer), length);
+  server.setContentLength(length);
+  server.send(200, "image/jpeg", "");
+  // Stream the drawing in small chunks instead of one 12 KB send_P. A single
+  // large send needs one big contiguous lwip buffer; when a board full of
+  // drawings loads at once (the page fetches an image per note, in parallel)
+  // those 12 KB allocations fragment the ~40 KB heap until the later images
+  // cannot allocate and time out. Chunking to the static-file size keeps each
+  // allocation small -- and reuses writeResponseBytes, so an abandoned client
+  // is dropped instead of freezing loop() -- so every image completes.
+  size_t offset = 0;
+  while (offset < length) {
+    const size_t remaining = length - offset;
+    const size_t chunk =
+        remaining < STATIC_FILE_CHUNK_BYTES ? remaining : STATIC_FILE_CHUNK_BYTES;
+    if (server.writeResponseBytes(boardImageShared + offset, chunk) != chunk) {
+      server.client().stop();
+      return;
+    }
+    offset += chunk;
+  }
 }
 
 void handleBoardState() {
@@ -1689,7 +1753,7 @@ void handleBoardCreate() {
   rememberAuthorName(authorId, deviceLabelFromUserAgent(server.header("User-Agent")),
                      clientMacSuffix(server.client().remoteIP()));
   if (!addBoardPost(text, createdAt,
-                    imageLength > 0 ? boardImageBuffer : nullptr, imageLength,
+                    imageLength > 0 ? boardImageShared : nullptr, imageLength,
                     error, authorId,
                     server.header("X-Note-Text-In-Image") == "1")) {
     server.send(400, "application/json", boardStateJson(false, error));
@@ -2731,28 +2795,90 @@ constexpr uint32_t WATCHDOG_CHECK_INTERVAL_MS = 5000;
 constexpr uint32_t WATCHDOG_NO_TX_MS = 25000;         // no send has succeeded this long...
 constexpr uint32_t WATCHDOG_STALL_RECENT_MS = 60000;  // ...since a failure this fresh
 constexpr uint32_t WATCHDOG_BOOT_GRACE_MS = 45000;    // let the first join settle
+constexpr uint32_t WATCHDOG_MIN_STALLS = 4;           // consecutive; one slow page is not a wedge
+constexpr uint32_t WATCHDOG_HEAP_FREE_FLOOR = 8192;   // free bytes below which the stack cannot serve
+constexpr uint32_t WATCHDOG_HEAP_BLOCK_FLOOR = 4096;  // largest contiguous block lwip needs for a buffer
+constexpr uint8_t  WATCHDOG_HEAP_STRIKES = 3;         // sustained low-heap ticks (x5s) before a reboot
+constexpr uint32_t WATCHDOG_HEAP_LOG_MS = 30000;      // cadence of the heap-trend log
 
 void networkWatchdogTask(void *parameter) {
   (void)parameter;
   vTaskDelay(pdMS_TO_TICKS(WATCHDOG_BOOT_GRACE_MS));
 
+  // Start the no-TX clock from a known-good point. Left at its initial 0 it
+  // reads as "forever since a send," so a freshly booted (or just reconnected)
+  // badge would sit one stall away from a reboot before it had any chance to
+  // serve -- which is exactly how one probe rebooted an idle badge in testing.
+  // Re-seeded below whenever the link is down so a reconnect also starts clean.
+  g_lastServeOkMs = millis();
+
+  // Newest tick at which a USB drive was touching flash; 0 until the first.
+  // While this is within the no-TX window below, a stalled send is explained by
+  // storage locking the one flash chip, not a wedged Wi-Fi stack, so no reboot
+  // is due. Self-clearing: once the drive idles, real sends resume and refresh
+  // g_lastServeOkMs; a genuine wedge overlapping a drop is only deferred until
+  // the window lapses, never cancelled.
+  uint32_t lastStorageBusyMs = 0;
+  uint8_t heapStrikes = 0;
+  uint32_t lastHeapLogMs = 0;
+
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(WATCHDOG_CHECK_INTERVAL_MS));
 
+    // Heap trend + floor, checked regardless of link state. Heap starvation is
+    // what silently kills the whole stack: with no contiguous buffer to receive
+    // into, lwip stops answering even ICMP while the loop task stays alive, so
+    // the send-stall test below can never see it (a stack that cannot accept a
+    // connection never reaches the send path). This is that gap's safety net --
+    // a brief reboot beats a permanent wedge -- and the [HEAP] line is how we
+    // watch the slow bleed that makes it necessary.
+    const uint32_t freeHeap = ESP.getFreeHeap();
+    const uint32_t largestBlock = ESP.getMaxAllocHeap();
+    const uint32_t heapNow = millis();
+    if (heapNow - lastHeapLogMs >= WATCHDOG_HEAP_LOG_MS) {
+      lastHeapLogMs = heapNow;
+      Serial.printf("[HEAP] free=%u largest=%u uptime=%lus\r\n",
+                    (unsigned)freeHeap, (unsigned)largestBlock, millis() / 1000);
+    }
+    if (freeHeap < WATCHDOG_HEAP_FREE_FLOOR || largestBlock < WATCHDOG_HEAP_BLOCK_FLOOR) {
+      if (++heapStrikes >= WATCHDOG_HEAP_STRIKES) {
+        Serial.printf("[WIFI] Watchdog: heap floor (free=%u largest=%u) -- rebooting\r\n",
+                      (unsigned)freeHeap, (unsigned)largestBlock);
+        Serial.flush();
+        delay(50);
+        ESP.restart();
+      }
+    } else {
+      heapStrikes = 0;
+    }
+
     // Only the station link wedges this way; a plain station drop is already
-    // handled by serviceStationConnection's reconnect / AP fallback.
-    if (WiFi.status() != WL_CONNECTED) continue;
+    // handled by serviceStationConnection's reconnect / AP fallback. While the
+    // link is down there is no TX to measure, so keep the clock fresh -- else
+    // the outage itself would read as a wedge the moment the link returns.
+    if (WiFi.status() != WL_CONNECTED) {
+      g_lastServeOkMs = millis();
+      continue;
+    }
 
     const uint32_t now = millis();
-    // Two signals together, chosen so nothing benign trips it: a send has failed
-    // recently (an idle badge has no fresh failure) and nothing has gone out
-    // successfully SINCE, for long enough that this is a stuck stack, not a
-    // busy or briefly congested one (either keeps completing sends, which
-    // refreshes g_lastServeOkMs). A wedge, once it takes hold, stops the badge
-    // answering entirely -- so a fresh failure plus a long dry spell is it.
-    // (A single stall then a genuinely idle badge can also match; the cost is a
-    // spurious ~30s reboot while nobody is connected, which is harmless.)
-    if (g_lastServeStallMs != 0 &&
+    // A host writing to Ofrenda (or a bulk read off Santa Muerte) locks the one
+    // SPI flash chip through each erase/write, stalling the portal's own
+    // flash-resident send path the same way a wedged stack would. Track when
+    // storage was last busy so that dry spell can be told from a real wedge.
+    if (usbDropboxActive() || usbDriveReadActive()) lastStorageBusyMs = now;
+    const bool storageRecentlyBusy =
+        lastStorageBusyMs != 0 && (now - lastStorageBusyMs) < WATCHDOG_NO_TX_MS;
+    // Three signals together, chosen so nothing benign trips it: the send path
+    // has failed several times in a row with no success between (one slow page
+    // under low heap stalls once, then the next send succeeds and clears the
+    // run -- only a real wedge keeps failing), a failure is recent, and nothing
+    // has gone out successfully for long enough that this is a stuck stack and
+    // not a busy or briefly congested one. Requiring the run of stalls is what
+    // stops a single stalled request plus a quiet spell from rebooting a badge
+    // that is actually fine.
+    if (!storageRecentlyBusy && g_consecutiveStalls >= WATCHDOG_MIN_STALLS &&
+        g_lastServeStallMs != 0 &&
         (now - g_lastServeStallMs) < WATCHDOG_STALL_RECENT_MS &&
         (now - g_lastServeOkMs) >= WATCHDOG_NO_TX_MS) {
       Serial.printf(

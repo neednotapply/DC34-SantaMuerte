@@ -281,7 +281,9 @@ bool parseBoardPostId(const String &value, uint32_t &id) {
 // rendered with upper-half blocks.  It keeps a photo legible while avoiding a
 // multi-second wall of ANSI escape codes at 115200 baud.
 constexpr int TERMINAL_IMAGE_EDGE = 48;
-static uint8_t boardImageScratch[BOARD_MAX_IMAGE_BYTES] = {};
+// The 12 KB image scratch is shared with the web server; it lives in board.cpp
+// as boardImageShared (see board.h). Both run on the loop task and consume an
+// image synchronously, so they never collide.
 static uint16_t terminalImagePixels[TERMINAL_IMAGE_EDGE * TERMINAL_IMAGE_EDGE] = {};
 static int terminalImageWidth = 0;
 static int terminalImageHeight = 0;
@@ -321,9 +323,9 @@ uint8_t rgb565ToXterm256(uint16_t pixel) {
 }
 
 void renderBoardImagePreview(uint32_t postId) {
-  const size_t length = readBoardImage(postId, boardImageScratch,
-                                       sizeof(boardImageScratch));
-  if (!length || !terminalImageDecoder.openRAM(boardImageScratch, length,
+  const size_t length = readBoardImage(postId, boardImageShared,
+                                       sizeof(boardImageShared));
+  if (!length || !terminalImageDecoder.openRAM(boardImageShared, length,
                                                drawTerminalImageBlock)) {
     muted(tr("No se pudo abrir la imagen de esta nota.",
              "Could not open this note's image."));

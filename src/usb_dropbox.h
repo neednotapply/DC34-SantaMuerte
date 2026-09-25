@@ -12,11 +12,13 @@
 // the read-only drive and in the TUI, exactly as a portal-saved one does.
 //
 // The volume is backed by the `ffat` flash partition, served to the host as raw
-// 512-byte blocks. The host owns all FAT bookkeeping; the badge only READS the
-// files back (never writes that FAT beyond a one-time seed), so there is no
-// dual-writer hazard. A second USBMSC instance adds a LUN, not a USB interface,
-// so the CDC+HID+MSC composite descriptor -- and the S3's endpoint budget -- is
-// unchanged.
+// blocks the size of one wear-levelling sector -- the size FATFS formatted the
+// volume with. A host told a block size that disagrees with the BPB on the
+// volume refuses to mount it. The host owns all FAT bookkeeping; the badge
+// only READS the files back (never writes that FAT beyond a one-time seed), so
+// there is no dual-writer hazard. A second USBMSC instance adds a LUN, not a
+// USB interface, so the CDC+HID+MSC composite descriptor -- and the S3's
+// endpoint budget -- is unchanged.
 
 struct UsbDropboxState {
   bool available;       // the writable LUN is registered and enumerating

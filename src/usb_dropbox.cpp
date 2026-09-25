@@ -33,7 +33,6 @@ constexpr char MOUNT_POINT[] = "/dropbox";
 constexpr char DUCKY_DIR[] = "/dropbox/DuckyScript";
 constexpr char BADUSB_DIR[] = "/dropbox/BadUSB";
 constexpr char README_PATH[] = "/dropbox/README.txt";
-constexpr uint16_t MSC_BLOCK = 512;
 constexpr uint32_t READ_ACTIVITY_MS = 280;
 // Read one byte past the larger payload cap so the save path can distinguish a
 // full-size script from an over-long one without importing truncation.
@@ -42,12 +41,21 @@ constexpr size_t MAX_IMPORT_BYTES =
          ? USB_HID_MAX_PAYLOAD_BYTES
          : USB_BADUSB_MAX_PAYLOAD_BYTES) +
     1;
-// Wear-levelling sector ceiling; the read-modify-write scratch is sized to it.
+// Wear-levelling sector ceiling; the read-modify-write scratch is sized to it,
+// and it bounds the block size we may advertise (SCSI block length is 16-bit).
 constexpr uint16_t MAX_SECTOR = 4096;
 constexpr uint8_t MAX_REMEMBERED = 40;
 
 const esp_partition_t *partition = nullptr;
 wl_handle_t servingHandle = WL_INVALID_HANDLE;
+// The volume's sector size AND the block size advertised to the host: these
+// MUST agree. esp_vfs_fat builds FATFS over wear levelling with
+// CONFIG_WL_SECTOR_SIZE sectors (4096 on this build), so f_mkfs writes a BPB
+// declaring 4096 B/sector. Serving that volume as 512-byte blocks made a host
+// read a 4096 B/sector BPB off a device claiming 512 B blocks and reject the
+// whole volume -- Windows offers to format it instead of mounting. Derive both
+// numbers from the mounted volume rather than hardcoding 512, so a
+// CONFIG_WL_SECTOR_SIZE_512 build stays correct without another edit here.
 size_t sectorSize = MAX_SECTOR;
 uint32_t blockCount = 0;
 
@@ -116,8 +124,8 @@ int32_t dropboxRead(uint32_t lba, uint32_t offset, void *buffer, uint32_t size) 
     unlockStorage();
     return -1;
   }
-  const uint64_t addr = static_cast<uint64_t>(lba) * MSC_BLOCK + offset;
-  if (addr + size > static_cast<uint64_t>(blockCount) * MSC_BLOCK) {
+  const uint64_t addr = static_cast<uint64_t>(lba) * sectorSize + offset;
+  if (addr + size > static_cast<uint64_t>(blockCount) * sectorSize) {
     unlockStorage();
     return -1;
   }
@@ -130,19 +138,20 @@ int32_t dropboxRead(uint32_t lba, uint32_t offset, void *buffer, uint32_t size) 
   if (result != ESP_OK) return -1;
   return static_cast<int32_t>(size);
 }
-// The host writes in 512-byte blocks; wear levelling erases and writes a whole
-// sector (4096 B on this build) at a time. Each host write is therefore read-
-// modify-written into its containing sector(s): read the sector, overlay the
-// incoming bytes, erase it, write it back. A write that covers a full sector
-// skips the read.
+// A host block and a wear-levelling sector are now the same size, and TinyUSB's
+// MSC endpoint buffer (CONFIG_TINYUSB_MSC_BUFSIZE=4096) can hand us a whole
+// block per call, so an ordinary host write takes the full-sector fast path:
+// one erase, one write, no read. The read-modify-write branch remains for the
+// partial transfers TinyUSB may still split a block into: read the sector,
+// overlay the incoming bytes, erase it, write it back.
 int32_t dropboxWrite(uint32_t lba, uint32_t offset, uint8_t *buffer, uint32_t size) {
   if (busy || !buffer || !lockStorage()) return -1;
   if (busy || servingHandle == WL_INVALID_HANDLE) {
     unlockStorage();
     return -1;
   }
-  const uint64_t addr = static_cast<uint64_t>(lba) * MSC_BLOCK + offset;
-  if (addr + size > static_cast<uint64_t>(blockCount) * MSC_BLOCK) {
+  const uint64_t addr = static_cast<uint64_t>(lba) * sectorSize + offset;
+  if (addr + size > static_cast<uint64_t>(blockCount) * sectorSize) {
     unlockStorage();
     return -1;
   }
@@ -449,8 +458,10 @@ void usbDropboxBegin() {
   }
   sectorSize = wl_sector_size(servingHandle);
   if (sectorSize == 0 || sectorSize > MAX_SECTOR) sectorSize = MAX_SECTOR;
-  blockCount = static_cast<uint32_t>(wl_size(servingHandle) / MSC_BLOCK);
-  if (!msc->begin(blockCount, MSC_BLOCK)) {
+  // Advertise the volume's own sector size as the block size; anything else
+  // leaves the BPB the host reads disagreeing with the geometry it was told.
+  blockCount = static_cast<uint32_t>(wl_size(servingHandle) / sectorSize);
+  if (!msc->begin(blockCount, static_cast<uint16_t>(sectorSize))) {
     Serial.println("[DROPBOX] WARNING: MSC begin failed");
     wl_unmount(servingHandle);
     servingHandle = WL_INVALID_HANDLE;
@@ -458,8 +469,8 @@ void usbDropboxBegin() {
   }
   msc->mediaPresent(true);
   mediumPresent = true;
-  Serial.printf("[OFRENDA] Writable volume ready: %u blocks x %u B (sector %u B)\r\n",
-                blockCount, MSC_BLOCK, static_cast<unsigned>(sectorSize));
+  Serial.printf("[OFRENDA] Writable volume ready: %u blocks x %u B\r\n",
+                blockCount, static_cast<unsigned>(sectorSize));
 }
 
 bool usbDropboxService() {
@@ -516,7 +527,8 @@ bool usbDropboxActive() {
 }
 
 UsbDropboxState getUsbDropboxState() {
-  return {configured, mediumPresent, static_cast<uint32_t>(blockCount) * MSC_BLOCK,
+  return {configured, mediumPresent,
+          static_cast<uint32_t>(blockCount) * static_cast<uint32_t>(sectorSize),
           importedDucky, importedBadUSB};
 }
 

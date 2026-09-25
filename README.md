@@ -279,8 +279,12 @@ keeps those rules where they belong.
 - `/nfc` — read and write tags, emulate one, or turn on **auto-scan**:
   while it is on the reader polls by itself and every tag it reads lands in
   the NFC log.
-- `/network` — the badge's Wi-Fi credentials and hidden-SSID switch. The
-  former `/settings` address remains as a compatibility alias.
+- `/network` — the badge's Wi-Fi credentials and hidden-SSID switch, plus a
+  **Scan networks** picker for choosing a nearby SSID instead of typing it. The
+  scan runs asynchronously — the page kicks it off and polls for the result — so
+  the channel sweep never freezes the portal for other visitors the way a
+  blocking scan once did. The former `/settings` address remains as a
+  compatibility alias.
 
 `/` is the board: joining the badge and following the sign-in notification
 lands on the field notes, not on a setup form.
